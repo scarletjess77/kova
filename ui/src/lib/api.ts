@@ -56,6 +56,7 @@ export interface Settings {
   selections: Record<string, string>;
   check_sites: string[];
   check_updates: boolean;
+  beta_updates: boolean;
 }
 
 export interface Status {
@@ -71,6 +72,9 @@ export interface Status {
   tun_active: boolean;
   warning: string | null;
 }
+
+/** A newer Kova release. */
+export interface UpdateInfo { version: string; date: string | null; body: string | null }
 
 export interface UserInfo { upload: number; download: number; total: number; expire: number | null }
 
@@ -158,6 +162,8 @@ export const api = {
   updateGeodata: () => invoke<GeoMarker>('update_geodata'),
   windowAction: (action: 'minimize' | 'maximize' | 'hide') => invoke<void>('window_action', { action }),
   quit: () => invoke<void>('quit'),
+  checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
+  installUpdate: () => invoke<void>('install_update'),
   systemLanguage: () => invoke<string>('system_language'),
 };
 

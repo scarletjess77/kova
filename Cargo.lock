@@ -2415,12 +2415,13 @@ dependencies = [
 
 [[package]]
 name = "kova"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kova-core",
  "kova-engine",
  "kova-service",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sys-locale",
@@ -2440,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "kova-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.23.1",
  "indexmap 2.14.2",
@@ -2454,7 +2455,7 @@ dependencies = [
 
 [[package]]
 name = "kova-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "flate2",
  "futures-util",
@@ -2476,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "kova-service"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "kova-core",
  "kova-engine",

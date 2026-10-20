@@ -459,6 +459,9 @@ export const ru: Dict = {
   'Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.':
     'Сначала Kova отключится. Windows попросит разрешение администратора, потому что Kova установлена для всех пользователей.',
   'Check for updates on launch': 'Проверять обновления при запуске',
+  'Get beta versions': 'Получать бета-версии',
+  'New features earlier, before they are fully tested. Kova updates to whichever is newer, beta or stable.':
+    'Новые функции раньше, до полной проверки. Kova обновляется до самой новой версии — бета или стабильной.',
   'Releases are signed; Kova only installs updates signed with its key': 'Релизы подписаны: Kova устанавливает только обновления, подписанные её ключом',
   'Check now': 'Проверить сейчас',
   'by {author}': 'автор: {author}',
