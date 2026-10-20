@@ -64,6 +64,15 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
         close(app, engine).await;
         return Err(e);
     }
+    // Mihomo takes up the interface a moment after it starts. Should that fail, the
+    // VPN would hold all traffic with nothing behind it: disconnect and say why.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let st = engine.status();
+    if st.running && !st.tun_active {
+        let why = st.warning.unwrap_or_else(|| "the VPN interface could not be used".into());
+        let _ = disconnect(app, engine).await;
+        return Err(Error::Core(why));
+    }
     watch(app.clone(), engine.clone());
     Ok(())
 }

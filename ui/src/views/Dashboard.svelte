@@ -21,7 +21,8 @@
   );
   // Running is not the same as protected: without the system proxy or a working TUN,
   // only apps pointed at the port by hand go through Kova.
-  let capturing = $derived(!!settings && (settings.system_proxy || s.tun_active));
+  // On a phone only the VPN captures traffic; there is no system proxy.
+  let capturing = $derived(!!settings && (s.tun_active || (!app.mobile && settings.system_proxy)));
   let chain = $derived.by(() => {
     const out: string[] = [];
     let name = mainGroup?.name;
@@ -233,6 +234,19 @@
   .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 18px; border-top: 1px solid var(--line); }
   @container (max-width: 560px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
   .togs { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* Phone: the connection is the page. Big centred button, status beneath it. */
+  :global(.app.mobile) .hero { padding: 28px 18px 20px; }
+  :global(.app.mobile) .hero-top { flex-direction: column; align-items: center; text-align: center; gap: 18px; }
+  :global(.app.mobile) .hero-text { align-items: center; width: 100%; }
+  :global(.app.mobile) .power { width: 148px; height: 148px; }
+  :global(.app.mobile) .power :global(.i) { width: 52px; height: 52px; }
+  :global(.app.mobile) .state { font-size: 30px; }
+  :global(.app.mobile) .route, :global(.app.mobile) .hero-meta { justify-content: center; }
+  :global(.app.mobile) .hero-meta .chip { text-align: left; }
+  :global(.app.mobile) .hero-controls { grid-template-columns: minmax(0, 1fr); }
+  :global(.app.mobile) .hero-controls .seg { display: flex; }
+  :global(.app.mobile) .hero-controls .seg button { flex: 1; }
   .tog { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); }
   .tog :global(.i) { color: var(--muted); }
   .tog span { font-size: 13px; font-weight: 500; }

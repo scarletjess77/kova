@@ -5,6 +5,7 @@
     profiles: 'M12 3l9 5-9 5-9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5',
     connections: 'M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4',
     rules: 'M4 6h16M7 12h10M10 18h4',
+    menu: 'M4 7h16M4 12h16M4 17h16',
     logs: 'M4 5h16v14H4zM8 10l3 2-3 2M13 15h4',
     settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
     power: 'M12 3v8M6.3 7.3a8 8 0 1 0 11.4 0',

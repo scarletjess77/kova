@@ -50,6 +50,8 @@ class AppState {
   coresVersion = $state(0);
   /** Running on a phone (Android): no window, tray, system proxy or in-app updates. */
   mobile = $state(false);
+  /** Phone: the page list, opened from the title bar, is showing. */
+  navOpen = $state(false);
   /** Bumped whenever smart routing learns a site, so lists can reload. */
   learnedVersion = $state(0);
   /** The system's display language, used when the language setting is "system". */

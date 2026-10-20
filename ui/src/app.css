@@ -44,9 +44,17 @@ input, textarea, .selectable { user-select: text; }
 /* ---------- shell ---------- */
 .app { height: 100%; display: grid; grid-template-columns: 224px minmax(0, 1fr); grid-template-rows: 40px minmax(0, 1fr) 28px; background: var(--win); }
 .main { min-width: 0; min-height: 0; overflow: auto; padding: 22px 24px 28px; container-type: inline-size; }
-/* Phone: title on top, the page, navigation at the bottom; no status bar. */
-.app.mobile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 44px minmax(0, 1fr) auto; }
-.app.mobile .main { grid-row: 2; grid-column: 1; padding: 16px 14px 20px; }
+/* Phone: the title bar (with the page list behind its menu button) and the page; no
+   status bar. Nothing scrolls sideways: long texts wrap, inputs take the full width,
+   and controls are a finger's size. */
+.app.mobile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52px minmax(0, 1fr); }
+.app.mobile .main { grid-row: 2; grid-column: 1; padding: 16px 14px 28px; overflow-x: hidden; }
+.app.mobile .page-head h1 { font-size: 22px; }
+.app.mobile .page-head .tools { margin-left: 0; width: 100%; }
+.app.mobile .search { flex: 1 1 100%; }
+.app.mobile .search .input { width: 100%; }
+.app.mobile .btn, .app.mobile .input { height: 40px; }
+.app.mobile .chip { white-space: normal; height: auto; min-height: 22px; padding-block: 3px; }
 .page-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 .page-head h1 { font: 600 20px/1.2 var(--f-ui); margin: 0; letter-spacing: -.01em; }
 .page-head .sub { color: var(--muted); font-size: 13px; }

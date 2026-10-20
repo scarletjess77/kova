@@ -52,6 +52,7 @@ export const ru: Dict = {
   'Minimize': 'Свернуть',
   'Maximize': 'Развернуть',
   'Close to tray': 'Свернуть в трей',
+  'Menu': 'Меню',
 
   // Sidebar
   'Dashboard': 'Главная',
