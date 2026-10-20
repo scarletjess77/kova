@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
+  import { t } from '../lib/i18n.svelte';
   import Icon from './Icon.svelte';
 
   let { title, wide = false, onclose, children, footer, badge }: {
@@ -15,7 +16,7 @@
     <header>
       <h3>{title}</h3>
       {@render badge?.()}
-      <button class="x" onclick={onclose} aria-label="Close"><Icon name="x" /></button>
+      <button class="x" onclick={onclose} aria-label={t('Close')}><Icon name="x" /></button>
     </header>
     <div class="body">{@render children()}</div>
     {#if footer}<footer>{@render footer()}</footer>{/if}

@@ -2,6 +2,7 @@
   import { openUrl } from '@tauri-apps/plugin-opener';
   import qrcode from 'qrcode-generator';
   import { TON_ADDRESS, TON_URI, TONKEEPER_URL } from '../lib/donate';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
 
@@ -17,23 +18,23 @@
       copied = true;
       setTimeout(() => (copied = false), 2000);
     } catch {
-      app.notify('Could not copy; select the address and copy it by hand');
+      app.notify(t('Could not copy; select the address and copy it by hand'));
     }
   }
 </script>
 
 <div class="donate">
   <!-- The QR code needs dark-on-light contrast in either theme. -->
-  <div class="qr" aria-label="QR code with the TON address">{@html svg}</div>
+  <div class="qr" aria-label={t('QR code with the TON address')}>{@html svg}</div>
   <div class="text">
-    <p>Kova is free and has no ads or tracking. If it helps you, you can support its development with a donation in TON.</p>
-    <div class="eyebrow">TON wallet</div>
+    <p>{t('Kova is free and has no ads or tracking. If it helps you, you can support its development with a donation in TON.')}</p>
+    <div class="eyebrow">{t('TON wallet')}</div>
     <div class="addr mono selectable">{TON_ADDRESS}</div>
     <div class="actions">
-      <button class="btn primary" onclick={copy}><Icon name={copied ? 'check' : 'copy'} />{copied ? 'Copied' : 'Copy address'}</button>
-      <button class="btn" onclick={() => app.run(() => openUrl(TONKEEPER_URL))}><Icon name="external" />Open in Tonkeeper</button>
+      <button class="btn primary" onclick={copy}><Icon name={copied ? 'check' : 'copy'} />{copied ? t('Copied') : t('Copy address')}</button>
+      <button class="btn" onclick={() => app.run(() => openUrl(TONKEEPER_URL))}><Icon name="external" />{t('Open in Tonkeeper')}</button>
     </div>
-    <p class="hint">Or scan the code with any TON wallet. Thank you!</p>
+    <p class="hint">{t('Or scan the code with any TON wallet. Thank you!')}</p>
   </div>
 </div>
 

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, type Profile } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -22,7 +23,7 @@
     error = null;
     try {
       await api.saveProfileContent(profile.id, text);
-      app.notify(profile.source.kind === 'remote' ? 'Saved. The next subscription update will replace your edits.' : 'Config is valid and saved');
+      app.notify(profile.source.kind === 'remote' ? t('Saved. The next subscription update will replace your edits.') : t('Config is valid and saved'));
       onclose();
     } catch (e) {
       error = String(e);
@@ -33,15 +34,15 @@
 
 <Modal title={profile.name} wide {onclose}>
   {#snippet badge()}<span class="chip mono">{file}</span>{/snippet}
-  <textarea class="code" spellcheck="false" bind:value={text} aria-label="Profile configuration"></textarea>
+  <textarea class="code" spellcheck="false" bind:value={text} aria-label={t('Profile configuration')}></textarea>
   {#if error}
     <div class="err"><Icon name="alert" /><span class="selectable">{error}</span></div>
   {:else}
-    <p class="hint">Kova checks the config with Mihomo before saving. Ports, controller and TUN are managed by Kova and override these values.</p>
+    <p class="hint">{t('Kova checks the config with Mihomo before saving. Ports, controller and TUN are managed by Kova and override these values.')}</p>
   {/if}
   {#snippet footer()}
-    <button class="btn ghost" onclick={onclose}>Cancel</button>
-    <button class="btn primary" class:busy onclick={save} disabled={busy || text === original}>{#if busy}<Icon name="refresh" />Checking…{:else}Check and save{/if}</button>
+    <button class="btn ghost" onclick={onclose}>{t('Cancel')}</button>
+    <button class="btn primary" class:busy onclick={save} disabled={busy || text === original}>{#if busy}<Icon name="refresh" />{t('Checking…')}{:else}{t('Check and save')}{/if}</button>
   {/snippet}
 </Modal>
 

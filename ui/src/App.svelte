@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { t } from './lib/i18n.svelte';
   import { app } from './lib/state.svelte';
   import ImportModal from './components/ImportModal.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -33,7 +34,7 @@
   <Sidebar />
   <main class="main">
     {#if failed}
-      <div class="empty"><b>Kova could not start</b><span class="selectable">{failed}</span></div>
+      <div class="empty"><b>{t('Kova could not start')}</b><span class="selectable">{failed}</span></div>
     {:else if app.ready}
       {#if app.view === 'dashboard'}<Dashboard />
       {:else if app.view === 'proxies'}<Proxies />

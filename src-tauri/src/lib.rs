@@ -1,6 +1,8 @@
 //! Desktop shell: exposes the engine to the UI as commands and events, and owns the
 //! tray icon and window lifecycle.
 
+mod i18n;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
@@ -16,6 +18,8 @@ use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent, Wry};
+
+use crate::i18n::tr;
 
 type Eng<'a> = State<'a, Arc<Engine>>;
 type R<T> = Result<T, Error>;
@@ -33,6 +37,12 @@ struct Snapshot {
 #[tauri::command]
 fn get_state(engine: Eng) -> Snapshot {
     Snapshot { status: engine.status(), settings: engine.settings(), profiles: engine.profiles(), data_dir: engine.paths.root.display().to_string() }
+}
+
+/// The system's display language, for the "Match system" language setting.
+#[tauri::command]
+fn system_language() -> String {
+    i18n::system_language()
 }
 
 #[tauri::command]
@@ -324,16 +334,18 @@ async fn quit(app: AppHandle, engine: Eng<'_>) -> R<()> {
 // ---------------------------------------------------------------------------- tray
 
 fn tray_menu(app: &AppHandle, st: &Status, s: &Settings) -> tauri::Result<Menu<Wry>> {
-    let toggle = MenuItem::with_id(app, "toggle", if st.running { "Disconnect" } else { "Connect" }, !st.busy, None::<&str>)?;
+    let l = i18n::lang(s);
+    let t = |en| tr(l, en, &[]);
+    let toggle = MenuItem::with_id(app, "toggle", t(if st.running { "Disconnect" } else { "Connect" }), !st.busy, None::<&str>)?;
     let m = s.core.mode;
-    let rule = CheckMenuItem::with_id(app, "mode-rule", "Rule", true, m == Mode::Rule, None::<&str>)?;
-    let global = CheckMenuItem::with_id(app, "mode-global", "Global", true, m == Mode::Global, None::<&str>)?;
-    let direct = CheckMenuItem::with_id(app, "mode-direct", "Direct", true, m == Mode::Direct, None::<&str>)?;
-    let mode = Submenu::with_items(app, "Routing mode", true, &[&rule, &global, &direct])?;
-    let sys = CheckMenuItem::with_id(app, "sysproxy", "System proxy", true, s.system_proxy, None::<&str>)?;
-    let tun = CheckMenuItem::with_id(app, "tun", "TUN mode", true, s.core.tun.enabled, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", "Open Kova", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Kova", true, None::<&str>)?;
+    let rule = CheckMenuItem::with_id(app, "mode-rule", t("Rule"), true, m == Mode::Rule, None::<&str>)?;
+    let global = CheckMenuItem::with_id(app, "mode-global", t("Global"), true, m == Mode::Global, None::<&str>)?;
+    let direct = CheckMenuItem::with_id(app, "mode-direct", t("Direct"), true, m == Mode::Direct, None::<&str>)?;
+    let mode = Submenu::with_items(app, t("Routing mode"), true, &[&rule, &global, &direct])?;
+    let sys = CheckMenuItem::with_id(app, "sysproxy", t("System proxy"), true, s.system_proxy, None::<&str>)?;
+    let tun = CheckMenuItem::with_id(app, "tun", t("TUN mode"), true, s.core.tun.enabled, None::<&str>)?;
+    let show = MenuItem::with_id(app, "show", t("Open Kova"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", t("Quit Kova"), true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     Menu::with_items(app, &[&toggle, &sep1, &mode, &sys, &tun, &sep2, &show, &quit])
@@ -346,7 +358,8 @@ fn refresh_tray(app: &AppHandle) {
         if let Ok(menu) = tray_menu(app, &st, &s) {
             let _ = tray.set_menu(Some(menu));
         }
-        let tip = if st.running { format!("Kova: connected ({})", st.core.map(|c| c.label()).unwrap_or("")) } else { "Kova: disconnected".into() };
+        let l = i18n::lang(&s);
+        let tip = if st.running { tr(l, "Kova: connected ({})", &[st.core.map(|c| c.label()).unwrap_or("")]) } else { tr(l, "Kova: disconnected", &[]) };
         let _ = tray.set_tooltip(Some(tip));
     }
 }
@@ -408,15 +421,17 @@ fn on_menu(app: &AppHandle, id: &str) {
 
 async fn background(app: AppHandle, engine: Arc<Engine>) {
     // Cores are required to do anything; fetch any that are missing.
+    let l = i18n::lang(&engine.settings());
     for st in engine.core_status(false).await {
         if st.installed.is_none() {
-            let _ = app.emit("toast", format!("Downloading {}…", st.core.label()));
+            let name = st.core.label();
+            let _ = app.emit("toast", tr(l, "Downloading {}…", &[name]));
             match engine.install_core(st.core).await {
                 Ok(tag) => {
-                    let _ = app.emit("toast", format!("{} {tag} installed", st.core.label()));
+                    let _ = app.emit("toast", tr(l, "{} {} installed", &[name, &tag]));
                 }
                 Err(e) => {
-                    let _ = app.emit("toast", format!("Could not install {}: {e}", st.core.label()));
+                    let _ = app.emit("toast", tr(l, "Could not install {}: {}", &[name, &e.to_string()]));
                 }
             }
             let _ = app.emit("cores-changed", ());
@@ -425,7 +440,7 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
     let s = engine.settings();
     if s.connect_on_launch && s.active_profile.is_some() {
         if let Err(e) = engine.start().await {
-            let _ = app.emit("toast", format!("Could not connect: {e}"));
+            let _ = app.emit("toast", tr(l, "Could not connect: {}", &[&e.to_string()]));
         }
     }
     // Subscription and routing-data auto-update.
@@ -514,6 +529,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            system_language,
             connect,
             disconnect,
             save_settings,

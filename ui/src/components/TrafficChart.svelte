@@ -1,5 +1,6 @@
 <script lang="ts">
   import { fmtSpeed } from '../lib/format';
+  import { i18n, t } from '../lib/i18n.svelte';
 
   let { down, up }: { down: number[]; up: number[] } = $props();
   let canvas: HTMLCanvasElement;
@@ -8,7 +9,7 @@
   const STEPS = [64, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536, 131072].map((k) => k * 1024);
 
   $effect(() => {
-    void down; void up; void width;
+    void down; void up; void width; void i18n.lang;
     draw();
   });
 
@@ -34,8 +35,8 @@
       ctx.fillStyle = col('--faint'); ctx.textAlign = 'right';
       ctx.fillText(i ? fmtSpeed((max * i) / 4).replace('.00', '') : '0', L - 8, y);
     }
-    ctx.textAlign = 'left'; ctx.fillText(`${n} s ago`, L, h - 6);
-    ctx.textAlign = 'right'; ctx.fillText('now', w - R, h - 6);
+    ctx.textAlign = 'left'; ctx.fillText(t('{n} s ago', { n }), L, h - 6);
+    ctx.textAlign = 'right'; ctx.fillText(t('now'), w - R, h - 6);
     const X = (i: number) => L + (pw * i) / (n - 1);
     const Y = (v: number) => T + ph - (ph * v) / max;
     const series = (arr: number[], color: string) => {
@@ -51,7 +52,7 @@
   }
 </script>
 
-<div bind:clientWidth={width} role="img" aria-label="Download and upload speed over the last minute">
+<div bind:clientWidth={width} role="img" aria-label={t('Download and upload speed over the last minute')}>
   <canvas bind:this={canvas}></canvas>
 </div>
 

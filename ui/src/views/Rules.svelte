@@ -1,26 +1,27 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import type { Preset, Rule, RuleKind } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
 
-  const PRESETS: { id: Preset; title: string; desc: string; needs?: 'runetfreedom' }[] = [
-    { id: 'proxy-blocked-ru', title: 'Only blocked sites through the proxy', desc: 'Sites blocked in Russia use the proxy; everything else goes direct. Uses the Russia routing data.', needs: 'runetfreedom' },
-    { id: 'direct-ru', title: 'Direct for Russian sites', desc: '.ru, .рф, .su, Russian services and IP ranges skip the proxy.' },
-    { id: 'block-ads', title: 'Block ads and trackers', desc: 'Rejects the category-ads-all list.' },
-    { id: 'direct-cn', title: 'Direct for Chinese sites', desc: 'geosite:cn and Chinese IP ranges go direct.' },
-    { id: 'direct-ir', title: 'Direct for Iranian sites', desc: '.ir domains and Iranian IP ranges go direct.' },
-  ];
-  const KINDS: [RuleKind, string, string][] = [
-    ['domain-suffix', 'Domain and subdomains', 'example.org'],
-    ['domain', 'Exact domain', 'api.github.com'],
-    ['domain-keyword', 'Domain contains', 'google'],
-    ['geosite', 'Geosite list', 'youtube'],
-    ['geoip', 'Country (GeoIP)', 'DE'],
-    ['ip-cidr', 'IP range', '203.0.113.0/24'],
-    ['process-name', 'App (process name)', 'steam.exe'],
-  ];
-  const KIND_LABEL = Object.fromEntries(KINDS.map(([k, l]) => [k, l]));
+  let PRESETS = $derived<{ id: Preset; title: string; desc: string; needs?: 'runetfreedom' }[]>([
+    { id: 'proxy-blocked-ru', title: t('Only blocked sites through the proxy'), desc: t('Sites blocked in Russia use the proxy; everything else goes direct. Uses the Russia routing data.'), needs: 'runetfreedom' },
+    { id: 'direct-ru', title: t('Direct for Russian sites'), desc: t('.ru, .рф, .su, Russian services and IP ranges skip the proxy.') },
+    { id: 'block-ads', title: t('Block ads and trackers'), desc: t('Rejects the category-ads-all list.') },
+    { id: 'direct-cn', title: t('Direct for Chinese sites'), desc: t('geosite:cn and Chinese IP ranges go direct.') },
+    { id: 'direct-ir', title: t('Direct for Iranian sites'), desc: t('.ir domains and Iranian IP ranges go direct.') },
+  ]);
+  let KINDS = $derived<[RuleKind, string, string][]>([
+    ['domain-suffix', t('Domain and subdomains'), 'example.org'],
+    ['domain', t('Exact domain'), 'api.github.com'],
+    ['domain-keyword', t('Domain contains'), 'google'],
+    ['geosite', t('Geosite list'), 'youtube'],
+    ['geoip', t('Country (GeoIP)'), 'DE'],
+    ['ip-cidr', t('IP range'), '203.0.113.0/24'],
+    ['process-name', t('App (process name)'), 'steam.exe'],
+  ]);
+  let KIND_LABEL = $derived(Object.fromEntries(KINDS.map(([k, l]) => [k, l])));
 
   let kind = $state<RuleKind>('domain-suffix');
   let value = $state('');
@@ -41,7 +42,7 @@
     const v = value.trim();
     if (!v) return;
     const rule: Rule = { kind, value: v, target };
-    void app.saveSettings((x) => (x.core.custom_rules = [...x.core.custom_rules, rule]), 'Rule added');
+    void app.saveSettings((x) => (x.core.custom_rules = [...x.core.custom_rules, rule]), t('Rule added'));
     value = '';
   }
 
@@ -112,7 +113,7 @@
       const next = [...rules];
       const [moved] = next.splice(d.from, 1);
       next.splice(d.to, 0, moved);
-      void app.saveSettings((x) => (x.core.custom_rules = next), 'Rule order saved');
+      void app.saveSettings((x) => (x.core.custom_rules = next), t('Rule order saved'));
     }
   }
 
@@ -159,67 +160,67 @@
 </script>
 
 <div class="page-head">
-  <h1>Rules</h1><span class="sub">The first matching rule decides where traffic goes</span>
+  <h1>{t('Rules')}</h1><span class="sub">{t('The first matching rule decides where traffic goes')}</span>
 </div>
 
 {#if s}
-  <div class="eyebrow">Routing presets</div>
+  <div class="eyebrow">{t('Routing presets')}</div>
   <div class="presets">
     {#each PRESETS as p (p.id)}
       {@const unavailable = p.needs === 'runetfreedom' && s.core.geodata.kind === 'default' && !s.core.presets.includes(p.id)}
       <div class="card preset">
         <div><div class="t">{p.title}</div><div class="d">{p.desc}</div>
-          {#if unavailable}<button class="link" onclick={() => (app.view = 'settings')}>Switch routing data to Russia in Settings</button>{/if}</div>
+          {#if unavailable}<button class="link" onclick={() => (app.view = 'settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
         <button class="switch" role="switch" aria-label={p.title} aria-checked={s.core.presets.includes(p.id)} disabled={unavailable} onclick={() => togglePreset(p.id)}></button>
       </div>
     {/each}
   </div>
 
   <section class="card">
-    <div class="card-h"><h2>Your rules</h2><span class="aside">checked before presets</span></div>
+    <div class="card-h"><h2>{t('Your rules')}</h2><span class="aside">{t('checked before presets')}</span></div>
     <form class="add" onsubmit={(e) => { e.preventDefault(); add(); }}>
-      <select class="input" bind:value={kind} aria-label="Match type">
+      <select class="input" bind:value={kind} aria-label={t('Match type')}>
         {#each KINDS as [k, l] (k)}<option value={k}>{l}</option>{/each}
       </select>
-      <input class="input mono" bind:value={value} placeholder={KINDS.find((k) => k[0] === kind)?.[2]} aria-label="Value" />
-      <select class="input" bind:value={target} aria-label="Send to">
-        {#each targets as t (t)}<option value={t}>{t === 'Proxy' ? 'Proxy (main group)' : t}</option>{/each}
+      <input class="input mono" bind:value={value} placeholder={KINDS.find((k) => k[0] === kind)?.[2]} aria-label={t('Value')} />
+      <select class="input" bind:value={target} aria-label={t('Send to')}>
+        {#each targets as x (x)}<option value={x}>{x === 'Proxy' ? t('Proxy (main group)') : x}</option>{/each}
       </select>
-      <button class="btn primary" type="submit" disabled={!value.trim()}><Icon name="plus" />Add rule</button>
+      <button class="btn primary" type="submit" disabled={!value.trim()}><Icon name="plus" />{t('Add rule')}</button>
     </form>
     {#if rules.length}
       <div class="twrap list">
         <table>
-          <thead><tr><th></th><th>#</th><th>Match</th><th>Value</th><th>Send to</th><th></th></tr></thead>
+          <thead><tr><th></th><th>#</th><th>{t('Match')}</th><th>{t('Value')}</th><th>{t('Send to')}</th><th></th></tr></thead>
           <tbody bind:this={tbody}>
             {#each rules as r, i (i)}
               <tr class:dragging={drag?.from === i} class:moving={drag !== null && drag.from !== i} style:transform={drag ? `translateY(${shift(i)}px)` : null}>
                 <td class="grip-cell">
-                  <button class="grip" aria-label="Move rule {i + 1}: drag, or use the arrow keys"
+                  <button class="grip" aria-label={t('Move rule {n}: drag, or use the arrow keys', { n: i + 1 })}
                     onpointerdown={(e) => grab(e, i)} onkeydown={(e) => gripKey(e, i)}><Icon name="grip" /></button>
                 </td>
                 <td class="num muted">{i + 1}</td>
                 <td><span class="rt">{KIND_LABEL[r.kind] ?? r.kind}</span></td>
                 <td class="mono small selectable">{r.value}</td>
                 <td><span class="pol {polClass(r.target)}">{r.target}</span></td>
-                <td class="r"><button class="x" onclick={() => remove(i)} aria-label="Delete rule {i + 1}"><Icon name="x" /></button></td>
+                <td class="r"><button class="x" onclick={() => remove(i)} aria-label={t('Delete rule {n}', { n: i + 1 })}><Icon name="x" /></button></td>
               </tr>
             {/each}
           </tbody>
         </table>
       </div>
-      {#if rules.length > 1}<p class="hint">Drag <Icon name="grip" class="inline-grip" /> to change the order, or focus it and press ↑ or ↓. Rules higher up win.</p>{/if}
+      {#if rules.length > 1}<p class="hint">{t('Drag')} <Icon name="grip" class="inline-grip" /> {t('to change the order, or focus it and press ↑ or ↓. Rules higher up win.')}</p>{/if}
     {:else}
-      <p class="hint">No rules of your own yet. Add one to send a site or app through the proxy, direct, or block it.</p>
+      <p class="hint">{t('No rules of your own yet. Add one to send a site or app through the proxy, direct, or block it.')}</p>
     {/if}
     <div class="row-sw apply">
-      <div><div class="t">Apply to imported Clash profiles</div><div class="d">Put your rules and presets in front of a Clash profile’s own rules{isClash ? ' (the active profile is one)' : ''}.</div></div>
-      <button class="switch" role="switch" aria-label="Apply to imported Clash profiles" aria-checked={s.core.apply_rules_to_clash_profiles}
+      <div><div class="t">{t('Apply to imported Clash profiles')}</div><div class="d">{isClash ? t('Put your rules and presets in front of a Clash profile’s own rules (the active profile is one).') : t('Put your rules and presets in front of a Clash profile’s own rules.')}</div></div>
+      <button class="switch" role="switch" aria-label={t('Apply to imported Clash profiles')} aria-checked={s.core.apply_rules_to_clash_profiles}
         onclick={() => app.saveSettings((x) => (x.core.apply_rules_to_clash_profiles = !x.core.apply_rules_to_clash_profiles))}></button>
     </div>
   </section>
 
-  <p class="hint order">Order: your rules → presets → local network goes direct → everything else uses <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. Global and Direct modes skip rules entirely.</p>
+  <p class="hint order">{t('Order: your rules → presets → local network goes direct → everything else uses')} <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. {t('Global and Direct modes skip rules entirely.')}</p>
 {/if}
 
 <style>

@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { api, type ExitInfo, type Mode } from '../lib/api';
   import { countryCode, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
+  import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
   import Latency from '../components/Latency.svelte';
@@ -77,21 +78,21 @@
 </script>
 
 <div class="page-head">
-  <h1>Dashboard</h1>
-  {#if profile}<span class="sub">{profile.name} · {profile.node_count} nodes</span>{/if}
+  <h1>{t('Dashboard')}</h1>
+  {#if profile}<span class="sub">{profile.name} · {tn(profile.node_count, '{n} node', '{n} nodes')}</span>{/if}
 </div>
 
 <div class="dash">
   <section class="card hero">
     <div class="hero-top">
       <button class="power" class:on={s.running} class:busy={s.busy} onclick={() => app.toggleConnection()} disabled={!profile || s.busy}
-        aria-pressed={s.running} aria-label={s.running ? 'Disconnect' : 'Connect'}><Icon name="power" /></button>
+        aria-pressed={s.running} aria-label={s.running ? t('Disconnect') : t('Connect')}><Icon name="power" /></button>
       <div class="hero-text">
-        <div class="eyebrow">Status</div>
-        <div class="state" class:off={!s.running && !s.busy}>{s.busy ? (s.running ? 'Switching…' : 'Connecting…') : s.running ? (capturing ? 'Protected' : 'Proxy only') : 'Disconnected'}</div>
+        <div class="eyebrow">{t('Status')}</div>
+        <div class="state" class:off={!s.running && !s.busy}>{s.busy ? (s.running ? t('Switching…') : t('Connecting…')) : s.running ? (capturing ? t('Protected') : t('Proxy only')) : t('Disconnected')}</div>
         {#if !profile}
-          <p class="muted">Add a subscription or share links to start.</p>
-          <div><button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />Add profile</button></div>
+          <p class="muted">{t('Add a subscription or share links to start.')}</p>
+          <div><button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button></div>
         {:else if chain.length}
           <div class="route">
             {#each chain.slice(0, -1) as c (c)}<span>{c}</span><span class="sep">›</span>{/each}
@@ -104,42 +105,42 @@
         {#if profile}
           <div class="hero-meta">
             {#if s.running && s.core}
-              <span class="chip acc"><Icon name="bolt" />{s.core === 'xray' ? 'Xray' : 'Mihomo'}{s.sidecar ? ' + Xray bridge' : ''}</span>
-              <span>Connected for <span class="num">{fmtDur(now - (s.since ?? 0) * 1000)}</span></span>
+              <span class="chip acc"><Icon name="bolt" />{s.core === 'xray' ? 'Xray' : s.sidecar ? t('Mihomo + Xray bridge') : 'Mihomo'}</span>
+              <span>{t('Connected for')} <span class="num">{fmtDur(now - (s.since ?? 0) * 1000)}</span></span>
             {:else if s.error}
               <span class="chip bad"><Icon name="alert" />{s.error}</span>
             {:else}
-              <span>Your traffic goes out directly</span>
+              <span>{t('Your traffic goes out directly')}</span>
             {/if}
           </div>
           {#if s.running && s.warning}
             <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{s.warning}</span></div>
           {/if}
           {#if s.running && !capturing && settings}
-            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />Apps aren’t routed yet. Turn on System proxy or TUN, or point an app at port {settings.core.mixed_port}.</span></div>
+            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{t('Apps aren’t routed yet. Turn on System proxy or TUN, or point an app at port {port}.', { port: settings.core.mixed_port })}</span></div>
           {/if}
           {#if s.running && s.dropped.length}
-            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{s.dropped.length} node{s.dropped.length > 1 ? 's' : ''} skipped: {s.dropped[0][1]}</span></div>
+            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{tn(s.dropped.length, '{n} node skipped: {reason}', '{n} nodes skipped: {reason}', { reason: s.dropped[0][1] })}</span></div>
           {/if}
         {/if}
       </div>
     </div>
     {#if settings}
       <div class="hero-controls">
-        <div class="fld"><span class="lbl">Routing mode</span>
-          <div class="seg" role="group" aria-label="Routing mode">
-            {#each [['rule', 'Rule'], ['global', 'Global'], ['direct', 'Direct']] as [m, l] (m)}
+        <div class="fld"><span class="lbl">{t('Routing mode')}</span>
+          <div class="seg" role="group" aria-label={t('Routing mode')}>
+            {#each [['rule', tx('mode', 'Rule')], ['global', tx('mode', 'Global')], ['direct', tx('mode', 'Direct')]] as [m, l] (m)}
               <button aria-pressed={settings.core.mode === m} onclick={() => setMode(m as Mode)}>{l}</button>
             {/each}
           </div>
         </div>
-        <div class="fld"><span class="lbl">Capture traffic</span>
+        <div class="fld"><span class="lbl">{t('Capture traffic')}</span>
           <div class="togs">
-            <div class="tog"><Icon name="monitor" /><span>System proxy<small>Apps that follow the system proxy</small></span>
-              <button class="switch" role="switch" aria-label="System proxy" aria-checked={settings.system_proxy}
-                onclick={() => app.saveSettings((x) => (x.system_proxy = !x.system_proxy), settings.system_proxy ? 'System proxy off' : `System proxy set to 127.0.0.1:${settings.core.mixed_port}`)}></button></div>
-            <div class="tog"><Icon name="shield" /><span>TUN mode<small>All apps, games and UDP</small></span>
-              <button class="switch" role="switch" aria-label="TUN mode" aria-checked={settings.core.tun.enabled}
+            <div class="tog"><Icon name="monitor" /><span>{t('System proxy')}<small>{t('Apps that follow the system proxy')}</small></span>
+              <button class="switch" role="switch" aria-label={t('System proxy')} aria-checked={settings.system_proxy}
+                onclick={() => app.saveSettings((x) => (x.system_proxy = !x.system_proxy), settings.system_proxy ? t('System proxy off') : t('System proxy set to 127.0.0.1:{port}', { port: settings.core.mixed_port }))}></button></div>
+            <div class="tog"><Icon name="shield" /><span>{t('TUN mode')}<small>{t('All apps, games and UDP')}</small></span>
+              <button class="switch" role="switch" aria-label={t('TUN mode')} aria-checked={settings.core.tun.enabled}
                 onclick={() => app.saveSettings((x) => (x.core.tun.enabled = !x.core.tun.enabled))}></button></div>
           </div>
         </div>
@@ -148,58 +149,58 @@
   </section>
 
   <section class="card exit">
-    <div class="card-h"><h2>Exit point</h2><span class="aside">{s.running ? 'through the proxy' : 'without the proxy'}</span></div>
+    <div class="card-h"><h2>{t('Exit point')}</h2><span class="aside">{s.running ? t('through the proxy') : t('without the proxy')}</span></div>
     <div>
-      <div class="eyebrow">Public IP</div>
+      <div class="eyebrow">{t('Public IP')}</div>
       <div class="ip selectable">{exitLoading && !exit ? '…' : exit?.ip ?? '—'}</div>
     </div>
     <dl class="kv">
-      <dt>Location</dt><dd>{exit ? [exit.city, exit.country].filter(Boolean).join(', ') : exitErr ? 'Could not check' : '…'}</dd>
-      <dt>Network</dt><dd title={exit?.network}>{exit?.network || '—'}</dd>
-      <dt>Latency</dt><dd>{#if s.running && endNode}<Latency delay={app.delays[endNode]} />{:else}—{/if}</dd>
+      <dt>{t('Location')}</dt><dd>{exit ? [exit.city, exit.country].filter(Boolean).join(', ') : exitErr ? t('Could not check') : '…'}</dd>
+      <dt>{t('Network')}</dt><dd title={exit?.network}>{exit?.network || '—'}</dd>
+      <dt>{t('Latency')}</dt><dd>{#if s.running && endNode}<Latency delay={app.delays[endNode]} />{:else}—{/if}</dd>
       {#if settings}<dt>DNS</dt><dd>{settings.core.dns.fake_ip ? 'Fake-IP' : 'Redir-host'} · {settings.core.dns.nameservers[0]?.replace(/^https:\/\//, '').replace(/\/dns-query$/, '') ?? '—'}</dd>{/if}
     </dl>
     <div class="foot">
-      <button class="btn" class:busy={exitLoading} onclick={checkExit} disabled={exitLoading}><Icon name="refresh" />Check again</button>
-      {#if exit}<button class="btn ghost" onclick={() => app.run(() => navigator.clipboard.writeText(exit!.ip), 'IP copied')}><Icon name="copy" />Copy IP</button>{/if}
+      <button class="btn" class:busy={exitLoading} onclick={checkExit} disabled={exitLoading}><Icon name="refresh" />{t('Check again')}</button>
+      {#if exit}<button class="btn ghost" onclick={() => app.run(() => navigator.clipboard.writeText(exit!.ip), t('IP copied'))}><Icon name="copy" />{t('Copy IP')}</button>{/if}
     </div>
   </section>
 
   <section class="card">
-    <div class="card-h"><h2>Traffic</h2>
+    <div class="card-h"><h2>{t('Traffic')}</h2>
       <div class="legend">
-        <span class="leg"><i style="background:var(--accent)"></i>Download <b>{fmtSpeed(app.down[app.down.length - 1])}</b></span>
-        <span class="leg"><i style="background:var(--upload)"></i>Upload <b>{fmtSpeed(app.up[app.up.length - 1])}</b></span>
+        <span class="leg"><i style="background:var(--accent)"></i>{t('Download')} <b>{fmtSpeed(app.down[app.down.length - 1])}</b></span>
+        <span class="leg"><i style="background:var(--upload)"></i>{t('Upload')} <b>{fmtSpeed(app.up[app.up.length - 1])}</b></span>
       </div>
     </div>
     <TrafficChart down={app.down} up={app.up} />
-    <div class="traffic-foot"><span>This session ↓ <b>{fmtBytes(app.downTotal)}</b></span><span>↑ <b>{fmtBytes(app.upTotal)}</b></span></div>
+    <div class="traffic-foot"><span>{t('This session')} ↓ <b>{fmtBytes(app.downTotal)}</b></span><span>↑ <b>{fmtBytes(app.upTotal)}</b></span></div>
   </section>
 
   <section class="card">
-    <div class="card-h"><h2>Quick switch</h2>{#if mainGroup}<span class="aside">{mainGroup.name} group</span>{/if}</div>
+    <div class="card-h"><h2>{t('Quick switch')}</h2>{#if mainGroup}<span class="aside">{t('{name} group', { name: mainGroup.name })}</span>{/if}</div>
     {#if quick.length && mainGroup}
       <div class="qs">
         {#each quick as name (name)}
           {@const isGroup = app.proxies.groups.some((g) => g.name === name)}
           <button aria-pressed={mainGroup.now === name} onclick={() => app.select(mainGroup!.name, name)}>
             <span class="cc">{#if isGroup}<Icon name="bolt" />{:else}{countryCode(name) ?? '··'}{/if}</span>
-            <span class="nm">{displayName(name)}<span class="pr"> · {isGroup ? `now ${displayName(app.resolve(name))}` : (app.nodes[name]?.protocol ?? '')}</span></span>
+            <span class="nm">{displayName(name)}<span class="pr"> · {isGroup ? t('now {name}', { name: displayName(app.resolve(name)) }) : (app.nodes[name]?.protocol ?? '')}</span></span>
             <Latency delay={app.delayOf(name)} testing={app.testing.has(app.resolve(name))} />
           </button>
         {/each}
       </div>
-      <button class="btn ghost more" onclick={() => (app.view = 'proxies')}>All nodes and groups</button>
+      <button class="btn ghost more" onclick={() => (app.view = 'proxies')}>{t('All nodes and groups')}</button>
     {:else}
-      <p class="muted">Nodes appear here once a profile is added.</p>
+      <p class="muted">{t('Nodes appear here once a profile is added.')}</p>
     {/if}
   </section>
 
   <section class="tiles">
-    <div class="card tile"><span class="eyebrow">Connections</span><span class="v">{connCount}</span><span class="d">open right now</span></div>
-    <div class="card tile"><span class="eyebrow">Downloaded</span><span class="v">{fmtBytes(app.downTotal)}</span><span class="d">this session</span></div>
-    <div class="card tile"><span class="eyebrow">Uploaded</span><span class="v">{fmtBytes(app.upTotal)}</span><span class="d">this session</span></div>
-    <div class="card tile"><span class="eyebrow">Core memory</span><span class="v">{app.memory ? fmtBytes(app.memory) : '—'}</span><span class="d">{s.running ? (s.core === 'xray' ? 'not reported by Xray' : 'Mihomo') : 'not running'}</span></div>
+    <div class="card tile"><span class="eyebrow">{t('Connections')}</span><span class="v">{connCount}</span><span class="d">{t('open right now')}</span></div>
+    <div class="card tile"><span class="eyebrow">{t('Downloaded')}</span><span class="v">{fmtBytes(app.downTotal)}</span><span class="d">{t('this session')}</span></div>
+    <div class="card tile"><span class="eyebrow">{t('Uploaded')}</span><span class="v">{fmtBytes(app.upTotal)}</span><span class="d">{t('this session')}</span></div>
+    <div class="card tile"><span class="eyebrow">{t('Core memory')}</span><span class="v">{app.memory ? fmtBytes(app.memory) : '—'}</span><span class="d">{s.running ? (s.core === 'xray' ? t('not reported by Xray') : 'Mihomo') : t('not running')}</span></div>
   </section>
 </div>
 

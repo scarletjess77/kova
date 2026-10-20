@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import { api, type Connection } from '../lib/api';
   import { displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
+  import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
 
@@ -44,32 +45,32 @@
   }
   async function closeAll() {
     const n = rows.length;
-    await app.run(() => api.closeAllConnections(), `Closed ${n} connections`);
+    await app.run(() => api.closeAllConnections(), tn(n, 'Closed {n} connection', 'Closed {n} connections'));
     rows = [];
   }
 </script>
 
 <div class="page-head">
-  <h1>Connections</h1>
-  <span class="sub">{app.status.running ? `${shown.length} of ${rows.length} open` : 'Not connected'}</span>
+  <h1>{t('Connections')}</h1>
+  <span class="sub">{app.status.running ? t('{shown} of {total} open', { shown: shown.length, total: rows.length }) : t('Not connected')}</span>
   <div class="tools">
-    <label class="search"><Icon name="search" /><input class="input" placeholder="Filter by host, app or rule" bind:value={q} aria-label="Filter connections" /></label>
-    <div class="seg" role="group" aria-label="Show">
-      {#each [['all', 'All'], ['proxy', 'Proxied'], ['direct', 'Direct']] as [v, l] (v)}
+    <label class="search"><Icon name="search" /><input class="input" placeholder={t('Filter by host, app or rule')} bind:value={q} aria-label={t('Filter connections')} /></label>
+    <div class="seg" role="group" aria-label={t('Show')}>
+      {#each [['all', t('All')], ['proxy', t('Proxied')], ['direct', t('Direct')]] as [v, l] (v)}
         <button aria-pressed={filter === v} onclick={() => (filter = v as typeof filter)}>{l}</button>
       {/each}
     </div>
-    <button class="btn" onclick={() => (paused = !paused)}><Icon name={paused ? 'play' : 'pause'} />{paused ? 'Resume' : 'Pause'}</button>
-    <button class="btn danger" onclick={closeAll} disabled={!rows.length}><Icon name="x" />Close all</button>
+    <button class="btn" onclick={() => (paused = !paused)}><Icon name={paused ? 'play' : 'pause'} />{paused ? t('Resume') : t('Pause')}</button>
+    <button class="btn danger" onclick={closeAll} disabled={!rows.length}><Icon name="x" />{t('Close all')}</button>
   </div>
 </div>
 
 {#if app.status.running && app.status.core === 'xray'}
-  <div class="empty"><b>Live connections need Mihomo</b><span>This profile runs on Xray, which doesn’t report individual connections. Switch the profile’s core to Automatic to see them.</span></div>
+  <div class="empty"><b>{t('Live connections need Mihomo')}</b><span>{t('This profile runs on Xray, which doesn’t report individual connections. Switch the profile’s core to Automatic to see them.')}</span></div>
 {:else}
   <div class="twrap">
     <table>
-      <thead><tr><th>Host</th><th>App</th><th>Rule</th><th>Route</th><th class="r">↓</th><th class="r">↑</th><th class="r">Total</th><th class="r">Time</th><th></th></tr></thead>
+      <thead><tr><th>{t('Host')}</th><th>{t('App')}</th><th>{t('Rule')}</th><th>{t('Route')}</th><th class="r">↓</th><th class="r">↑</th><th class="r">{t('Total')}</th><th class="r">{t('Time')}</th><th></th></tr></thead>
       <tbody>
         {#each shown as r (r.id)}
           <tr>
@@ -81,10 +82,10 @@
             <td class="r num up">{r.ul > 0 ? fmtSpeed(r.ul) : '—'}</td>
             <td class="r num">{fmtBytes(r.upload + r.download)}</td>
             <td class="r num">{fmtDur(now - r.started)}</td>
-            <td><button class="x" onclick={() => close(r)} aria-label="Close connection to {r.host}"><Icon name="x" /></button></td>
+            <td><button class="x" onclick={() => close(r)} aria-label={t('Close connection to {host}', { host: r.host })}><Icon name="x" /></button></td>
           </tr>
         {:else}
-          <tr><td colspan="9" class="none">{app.status.running ? 'No open connections match this filter.' : 'Connect to see live connections.'}</td></tr>
+          <tr><td colspan="9" class="none">{app.status.running ? t('No open connections match this filter.') : t('Connect to see live connections.')}</td></tr>
         {/each}
       </tbody>
     </table>
