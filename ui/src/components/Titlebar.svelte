@@ -15,6 +15,9 @@
 </script>
 
 <header class="titlebar" data-tauri-drag-region>
+  {#if app.mobile}
+    <button class="tb-btn menu" onclick={() => (app.navOpen = true)} aria-label={t('Menu')} aria-expanded={app.navOpen}><Icon name="menu" /></button>
+  {/if}
   <div class="brand" data-tauri-drag-region>
     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent)" /><path d="M8.5 7v10M15.5 7l-5.2 5 5.2 5" stroke="var(--accent-fg)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
     Kova
@@ -23,7 +26,7 @@
     <div class="tb-profile" data-tauri-drag-region>/ <b>{app.activeProfile.name}</b></div>
   {/if}
   <div class="spacer" data-tauri-drag-region></div>
-  <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" /><span>{t('Donate')}</span></button>
+  <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" />{#if !app.mobile}<span>{t('Donate')}</span>{/if}</button>
   <button class="tb-btn" onclick={toggleTheme} title={t('Switch theme')} aria-label={t('Switch theme')}><Icon name="moon" /></button>
   {#if !app.mobile}
     <div class="winctl">
@@ -52,7 +55,10 @@
   .tb-btn.donate { width: auto; gap: 6px; padding: 0 9px; display: flex; align-items: center; font-size: 12.5px; font-weight: 500; }
   .tb-btn.donate :global(.i) { width: 15px; height: 15px; }
   .winctl { display: flex; height: 100%; }
-  :global(.app.mobile) .titlebar { padding-right: 8px; }
+  :global(.app.mobile) .titlebar { padding: 0 6px; gap: 8px; }
+  :global(.app.mobile) .tb-btn { width: 40px; height: 40px; border-radius: 10px; }
+  :global(.app.mobile) .tb-btn :global(.i) { width: 20px; height: 20px; }
+  :global(.app.mobile) .tb-btn.donate { width: 40px; padding: 0; justify-content: center; }
   .winctl button { width: 46px; display: grid; place-items: center; color: var(--muted); border: 0; background: none; }
   .winctl button:hover { background: var(--sunk); }
   .winctl .close:hover { background: #c42b1c; color: #fff; }

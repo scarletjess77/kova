@@ -347,9 +347,10 @@ impl Engine {
         if core_changed && (RuntimeOptions { mode: new.core.mode, ..old.core.clone() }) == new.core {
             // Only the routing mode changed: Mihomo can switch live.
             let api = self.run.lock().await.as_ref().and_then(|r| r.api.clone());
+            // The Android build of Mihomo refuses config changes over its API; then the
+            // core restarts with the new mode like for any other change.
             if let Some(api) = api {
-                api.set_mode(new.core.mode).await?;
-                core_changed = false;
+                core_changed = api.set_mode(new.core.mode).await.is_err();
             }
         }
         if core_changed {

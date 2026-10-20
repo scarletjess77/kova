@@ -16,10 +16,12 @@
   const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
 </script>
 
-<aside class="side">
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+{#if app.mobile && app.navOpen}<div class="scrim" onclick={() => (app.navOpen = false)}></div>{/if}
+<aside class="side" class:open={app.navOpen}>
   <nav class="nav">
     {#each NAV as [id, label] (id)}
-      <button onclick={() => (app.view = id)} aria-current={app.view === id ? 'page' : undefined}>
+      <button onclick={() => { app.view = id; app.navOpen = false; }} aria-current={app.view === id ? 'page' : undefined}>
         <Icon name={id === 'check' ? 'pulse' : id} />{label}
         {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
         {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
@@ -29,7 +31,7 @@
   {#if app.update && !app.mobile}
     <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
   {/if}
-  {#if app.activeProfile && !app.mobile}
+  {#if app.activeProfile}
     <div class="sub-card">
       <div class="eyebrow">{t('Active profile')}</div>
       <div class="t">{app.activeProfile.name}</div>
@@ -57,9 +59,11 @@
   .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .s { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
 
-  /* Phone: a bar of icons along the bottom, scrolling sideways if it doesn't fit. */
-  :global(.app.mobile) .side { grid-row: 3; grid-column: 1; flex-direction: row; border-right: 0; border-top: 1px solid var(--line); padding: 4px 4px 6px; overflow-x: auto; overflow-y: hidden; }
-  :global(.app.mobile) .nav { flex-direction: row; gap: 0; }
-  :global(.app.mobile) .nav button { flex-direction: column; gap: 3px; padding: 6px 8px; min-width: 64px; font-size: 10.5px; font-weight: 500; text-align: center; }
-  :global(.app.mobile) .badge { display: none; }
+  /* Phone: the same list as a panel that slides in from the left, over the page. */
+  .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .5); z-index: 24; }
+  :global(.app.mobile) .side { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 82vw); z-index: 25; background: var(--win); padding: 16px 12px; gap: 14px;
+    transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow); }
+  :global(.app.mobile) .side.open { transform: none; }
+  :global(.app.mobile) .nav button { padding: 13px 12px; font-size: 15px; gap: 14px; }
+  :global(.app.mobile) .nav button :global(.i) { width: 20px; height: 20px; }
 </style>

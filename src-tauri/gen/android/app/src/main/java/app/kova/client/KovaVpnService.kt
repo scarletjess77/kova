@@ -112,7 +112,7 @@ class KovaVpnService : VpnService() {
         }
         val open = PendingIntent.getActivity(this, 0, packageManager.getLaunchIntentForPackage(packageName), PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(this, CHANNEL)
-            .setSmallIcon(applicationInfo.icon)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("Kova")
             .setContentText("VPN is on")
             .setContentIntent(open)
