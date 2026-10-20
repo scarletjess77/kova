@@ -1,7 +1,7 @@
 {
   "name": "kova",
   "private": true,
-  "version": "0.1.2-alpha.1",
+  "version": "0.1.2-beta.1",
   "description": "VPN client for the Mihomo and Xray cores",
   "author": "scarletjess77",
   "license": "GPL-3.0-or-later",

@@ -127,20 +127,22 @@ fn blocked_only(opts: &RuntimeOptions) -> bool {
 /// Learned sites come right after the user's rules and presets: they were learned
 /// from traffic that only the catch-all matched, so they never override a rule.
 fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<String> {
-    use crate::smart::{PROVIDER_DIRECT, PROVIDER_PROXY};
+    use crate::smart::{PROVIDER_DIRECT, PROVIDER_DIRECT_IP, PROVIDER_PROXY, PROVIDER_PROXY_IP, PROVIDERS};
     let Some(sm) = &opts.smart else { return Vec::new() };
     let to_yaml = |v: Value| serde_yaml_ng::to_value(v).expect("json to yaml");
     let provider = |name: &str| {
         // Fetched from Kova over loopback and refreshed through the controller whenever
         // a site is learned; `interval: 0` keeps Mihomo from polling on its own.
-        to_yaml(json!({ "type": "http", "behavior": "domain", "format": "text", "url": format!("{}{name}.txt", sm.lists_url), "path": format!("./{name}.txt"), "interval": 0 }))
+        let behavior = if name.ends_with("-ip") { "ipcidr" } else { "domain" };
+        to_yaml(json!({ "type": "http", "behavior": behavior, "format": "text", "url": format!("{}{name}.txt", sm.lists_url), "path": format!("./{name}.txt"), "interval": 0 }))
     };
     let mut providers = match doc.remove("rule-providers") {
         Some(Yaml::Mapping(m)) => m,
         _ => Mapping::new(),
     };
-    providers.insert(Yaml::String(PROVIDER_PROXY.into()), provider(PROVIDER_PROXY));
-    providers.insert(Yaml::String(PROVIDER_DIRECT.into()), provider(PROVIDER_DIRECT));
+    for name in PROVIDERS {
+        providers.insert(Yaml::String(name.into()), provider(name));
+    }
     doc.insert(Yaml::String("rule-providers".into()), Yaml::Mapping(providers));
 
     let mut listeners = match doc.remove("listeners") {
@@ -151,7 +153,14 @@ fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<Stri
         listeners.push(to_yaml(json!({ "name": name, "type": "mixed", "listen": "127.0.0.1", "port": port, "udp": false, "proxy": proxy })));
     }
     doc.insert(Yaml::String("listeners".into()), Yaml::Sequence(listeners));
-    vec![format!("RULE-SET,{PROVIDER_DIRECT},DIRECT"), format!("RULE-SET,{PROVIDER_PROXY},{main}")]
+    vec![
+        format!("RULE-SET,{PROVIDER_DIRECT},DIRECT"),
+        format!("RULE-SET,{PROVIDER_PROXY},{main}"),
+        // Addresses only match connections that are already to an address: a name is
+        // never resolved just to check these.
+        format!("RULE-SET,{PROVIDER_DIRECT_IP},DIRECT,no-resolve"),
+        format!("RULE-SET,{PROVIDER_PROXY_IP},{main},no-resolve"),
+    ]
 }
 
 /// Address of the local Xray bridge for each bridged node.
@@ -390,6 +399,9 @@ mod tests {
         let at = |r: &str| rules.iter().position(|x| x.starts_with(r)).unwrap();
         assert!(at("GEOSITE,ru-blocked") < at("RULE-SET,kova-learned-direct,DIRECT"));
         assert!(at("RULE-SET,kova-learned-proxy,Proxy") < at("GEOSITE,private"));
+        assert!(at("RULE-SET,kova-learned-proxy-ip,Proxy,no-resolve") < at("GEOSITE,private"));
+        assert_eq!(doc["rule-providers"]["kova-learned-proxy-ip"]["behavior"], "ipcidr");
+        assert_eq!(doc["rule-providers"]["kova-learned-proxy"]["behavior"], "domain");
         assert_eq!(*rules.last().unwrap(), "MATCH,DIRECT");
         assert_eq!(doc["rule-providers"]["kova-learned-proxy"]["url"], "http://127.0.0.1:5000/t/kova-learned-proxy.txt");
         assert_eq!(doc["listeners"][0]["proxy"], "DIRECT");
