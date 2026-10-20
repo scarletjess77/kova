@@ -193,7 +193,7 @@
       {@const unavailable = p.needs === 'runetfreedom' && s.core.geodata.kind === 'default' && !s.core.presets.includes(p.id)}
       <div class="card preset">
         <div><div class="t">{p.title}</div><div class="d">{p.desc}</div>
-          {#if unavailable}<button class="link" onclick={() => (app.view = 'settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
+          {#if unavailable}<button class="link" onclick={() => app.go('settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
         <button class="switch" role="switch" aria-label={p.title} aria-checked={s.core.presets.includes(p.id)} disabled={unavailable} onclick={() => togglePreset(p.id)}></button>
       </div>
     {/each}

@@ -57,4 +57,9 @@
   .lv { font-weight: 500; }
   .lv.debug { color: var(--faint); } .lv.info { color: var(--fg); } .lv.warning { color: var(--warn); } .lv.error { color: var(--bad); }
   .none { color: var(--muted); }
+
+  /* Phone: time, level and source on one line, the message under them at full width. */
+  :global(.app.mobile) .logbox { padding: 10px; font-size: 11px; line-height: 1.5; height: calc(100vh - 230px); }
+  :global(.app.mobile) .ll { grid-template-columns: auto auto minmax(0, 1fr); gap: 2px 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+  :global(.app.mobile) .ll .msg { grid-column: 1 / -1; word-break: normal; overflow-wrap: anywhere; }
 </style>

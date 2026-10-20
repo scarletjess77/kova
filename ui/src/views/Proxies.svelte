@@ -74,7 +74,7 @@
   <div class="empty">
     <b>{t('No nodes yet')}</b>
     <span>{t('Add a subscription or share links in Profiles.')}</span>
-    <button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button>
+    <button class="btn primary" onclick={() => { app.go('profiles'); app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button>
   </div>
 {:else}
   <div class="px">

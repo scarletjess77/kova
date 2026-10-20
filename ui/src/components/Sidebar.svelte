@@ -17,11 +17,11 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-{#if app.mobile && app.navOpen}<div class="scrim" onclick={() => (app.navOpen = false)}></div>{/if}
+{#if app.mobile && app.navOpen}<div class="scrim" onclick={() => app.closeNav()}></div>{/if}
 <aside class="side" class:open={app.navOpen}>
   <nav class="nav">
     {#each NAV as [id, label] (id)}
-      <button onclick={() => { app.view = id; app.navOpen = false; }} aria-current={app.view === id ? 'page' : undefined}>
+      <button onclick={() => app.go(id)} aria-current={app.view === id ? 'page' : undefined}>
         <Icon name={id === 'check' ? 'pulse' : id} />{label}
         {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
         {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
@@ -29,7 +29,7 @@
     {/each}
   </nav>
   {#if app.update && !app.mobile}
-    <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
+    <button class="update" onclick={() => app.go('settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
   {/if}
   {#if app.activeProfile}
     <div class="sub-card">
