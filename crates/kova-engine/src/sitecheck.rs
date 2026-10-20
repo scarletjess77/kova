@@ -117,7 +117,7 @@ fn classify(e: &reqwest::Error) -> (Outcome, String) {
 
 /// Fetch `url` once (headers only) directly or through `proxy`.
 pub async fn probe(url: &str, proxy: Option<&str>) -> Probe {
-    let mut b = reqwest::Client::builder()
+    let mut b = crate::fetch::builder()
         .user_agent(BROWSER_UA)
         .connect_timeout(Duration::from_secs(8))
         .timeout(Duration::from_secs(10))

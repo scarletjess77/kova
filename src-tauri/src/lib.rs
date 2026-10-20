@@ -1,6 +1,10 @@
-//! Desktop shell: exposes the engine to the UI as commands and events, and owns the
-//! tray icon and window lifecycle.
+//! The app shell: exposes the engine to the UI as commands and events. The tray and
+//! window live in `desktop`, the Android VPN in `android`.
 
+#[cfg(target_os = "android")]
+mod android;
+#[cfg(desktop)]
+mod desktop;
 mod i18n;
 
 use std::collections::HashMap;
@@ -8,21 +12,47 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kova_core::CoreKind;
-use kova_core::options::Mode;
 use kova_engine::cores::CoreStatus;
 use kova_engine::engine::ProfilePatch;
 use kova_engine::mihomo_api::{ConnectionsSnapshot, ProxySnapshot};
 use kova_engine::store::{Profile, Settings};
 use kova_engine::{Engine, Error, Event, NodeView, Status};
 use serde::Serialize;
-use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent, Wry};
+use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
 use crate::i18n::tr;
 
 type Eng<'a> = State<'a, Arc<Engine>>;
 type R<T> = Result<T, Error>;
+
+/// Keep what shows outside the window (the desktop tray) in step with a change.
+fn refresh_ui(app: &AppHandle) {
+    #[cfg(desktop)]
+    desktop::refresh_tray(app);
+    #[cfg(not(desktop))]
+    let _ = app;
+}
+
+/// Connect: on Android through the system VPN, elsewhere directly.
+async fn start(app: &AppHandle, engine: &Arc<Engine>) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::connect(app, engine).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        engine.start().await
+    }
+}
+
+async fn stop(app: &AppHandle, engine: &Arc<Engine>) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::disconnect(app, engine).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        engine.stop().await
+    }
+}
 
 // ---------------------------------------------------------------------------- commands
 
@@ -45,6 +75,13 @@ fn system_language() -> String {
     i18n::system_language()
 }
 
+/// The operating system ("windows", "android", ...), so the UI can leave out what
+/// doesn't exist there.
+#[tauri::command]
+fn platform() -> &'static str {
+    std::env::consts::OS
+}
+
 #[tauri::command]
 fn learned_sites(engine: Eng) -> Vec<kova_core::smart::Learned> {
     engine.learned_sites()
@@ -58,7 +95,7 @@ async fn forget_learned(engine: Eng<'_>, domain: String) -> R<()> {
 #[tauri::command]
 async fn keep_learned(app: AppHandle, engine: Eng<'_>, domain: String) -> R<Settings> {
     engine.keep_learned(&domain).await?;
-    refresh_tray(&app);
+    refresh_ui(&app);
     Ok(engine.settings())
 }
 
@@ -68,19 +105,19 @@ async fn clear_learned(engine: Eng<'_>) -> R<()> {
 }
 
 #[tauri::command]
-async fn connect(engine: Eng<'_>) -> R<()> {
-    engine.start().await
+async fn connect(app: AppHandle, engine: Eng<'_>) -> R<()> {
+    start(&app, engine.inner()).await
 }
 
 #[tauri::command]
-async fn disconnect(engine: Eng<'_>) -> R<()> {
-    engine.stop().await
+async fn disconnect(app: AppHandle, engine: Eng<'_>) -> R<()> {
+    stop(&app, engine.inner()).await
 }
 
 #[tauri::command]
 async fn save_settings(app: AppHandle, engine: Eng<'_>, settings: Settings) -> R<Settings> {
     engine.update_settings(settings).await?;
-    refresh_tray(&app);
+    refresh_ui(&app);
     Ok(engine.settings())
 }
 
@@ -305,7 +342,7 @@ struct ExitInfo {
 #[tauri::command]
 async fn exit_info(engine: Eng<'_>) -> R<ExitInfo> {
     let st = engine.status();
-    let mut b = reqwest::Client::builder().timeout(Duration::from_secs(8));
+    let mut b = kova_engine::fetch::builder().timeout(Duration::from_secs(8));
     b = if st.running { b.proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", st.mixed_port))?) } else { b.no_proxy() };
     let c = b.build()?;
     // Any failure of the first service (blocked, down, bad answer) falls through to the second.
@@ -337,106 +374,17 @@ fn read_text_file(path: String) -> R<String> {
 
 #[tauri::command]
 fn window_action(app: AppHandle, action: String) {
-    let Some(w) = app.get_webview_window("main") else { return };
-    let _ = match action.as_str() {
-        "minimize" => w.minimize(),
-        "maximize" => w.is_maximized().and_then(|m| if m { w.unmaximize() } else { w.maximize() }),
-        "hide" => w.hide(),
-        _ => Ok(()),
-    };
+    #[cfg(desktop)]
+    desktop::window_action(&app, &action);
+    #[cfg(not(desktop))]
+    let _ = (app, action);
 }
 
 #[tauri::command]
 async fn quit(app: AppHandle, engine: Eng<'_>) -> R<()> {
-    let _ = engine.stop().await;
+    let _ = stop(&app, engine.inner()).await;
     app.exit(0);
     Ok(())
-}
-
-// ---------------------------------------------------------------------------- tray
-
-fn tray_menu(app: &AppHandle, st: &Status, s: &Settings) -> tauri::Result<Menu<Wry>> {
-    let l = i18n::lang(s);
-    let t = |en| tr(l, en, &[]);
-    let toggle = MenuItem::with_id(app, "toggle", t(if st.running { "Disconnect" } else { "Connect" }), !st.busy, None::<&str>)?;
-    let m = s.core.mode;
-    let rule = CheckMenuItem::with_id(app, "mode-rule", t("Rule"), true, m == Mode::Rule, None::<&str>)?;
-    let global = CheckMenuItem::with_id(app, "mode-global", t("Global"), true, m == Mode::Global, None::<&str>)?;
-    let direct = CheckMenuItem::with_id(app, "mode-direct", t("Direct"), true, m == Mode::Direct, None::<&str>)?;
-    let mode = Submenu::with_items(app, t("Routing mode"), true, &[&rule, &global, &direct])?;
-    let sys = CheckMenuItem::with_id(app, "sysproxy", t("System proxy"), true, s.system_proxy, None::<&str>)?;
-    let tun = CheckMenuItem::with_id(app, "tun", t("TUN mode"), true, s.core.tun.enabled, None::<&str>)?;
-    let show = MenuItem::with_id(app, "show", t("Open Kova"), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", t("Quit Kova"), true, None::<&str>)?;
-    let sep1 = PredefinedMenuItem::separator(app)?;
-    let sep2 = PredefinedMenuItem::separator(app)?;
-    Menu::with_items(app, &[&toggle, &sep1, &mode, &sys, &tun, &sep2, &show, &quit])
-}
-
-fn refresh_tray(app: &AppHandle) {
-    let engine = app.state::<Arc<Engine>>();
-    let (st, s) = (engine.status(), engine.settings());
-    if let Some(tray) = app.tray_by_id("main") {
-        if let Ok(menu) = tray_menu(app, &st, &s) {
-            let _ = tray.set_menu(Some(menu));
-        }
-        let l = i18n::lang(&s);
-        let tip = if st.running { tr(l, "Kova: connected ({})", &[st.core.map(|c| c.label()).unwrap_or("")]) } else { tr(l, "Kova: disconnected", &[]) };
-        let _ = tray.set_tooltip(Some(tip));
-    }
-}
-
-fn show_main(app: &AppHandle) {
-    if let Some(w) = app.get_webview_window("main") {
-        let _ = w.show();
-        let _ = w.unminimize();
-        let _ = w.set_focus();
-    }
-}
-
-fn on_menu(app: &AppHandle, id: &str) {
-    let app = app.clone();
-    let id = id.to_string();
-    tauri::async_runtime::spawn(async move {
-        let engine = app.state::<Arc<Engine>>().inner().clone();
-        let mut s = engine.settings();
-        let result = match id.as_str() {
-            "toggle" => {
-                if engine.status().running { engine.stop().await } else { engine.start().await }
-            }
-            "mode-rule" | "mode-global" | "mode-direct" => {
-                s.core.mode = match id.as_str() {
-                    "mode-global" => Mode::Global,
-                    "mode-direct" => Mode::Direct,
-                    _ => Mode::Rule,
-                };
-                engine.update_settings(s).await
-            }
-            "sysproxy" => {
-                s.system_proxy = !s.system_proxy;
-                engine.update_settings(s).await
-            }
-            "tun" => {
-                s.core.tun.enabled = !s.core.tun.enabled;
-                engine.update_settings(s).await
-            }
-            "show" => {
-                show_main(&app);
-                Ok(())
-            }
-            "quit" => {
-                let _ = engine.stop().await;
-                app.exit(0);
-                Ok(())
-            }
-            _ => Ok(()),
-        };
-        if let Err(e) = result {
-            let _ = app.emit("toast", e.to_string());
-        }
-        let _ = app.emit("settings-changed", engine.settings());
-        refresh_tray(&app);
-    });
 }
 
 // ---------------------------------------------------------------------------- background
@@ -461,7 +409,7 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
     }
     let s = engine.settings();
     if s.connect_on_launch && s.active_profile.is_some() {
-        if let Err(e) = engine.start().await {
+        if let Err(e) = start(&app, &engine).await {
             let _ = app.emit("toast", tr(l, "Could not connect: {}", &[&e.to_string()]));
         }
     }
@@ -490,7 +438,7 @@ fn forward_events(app: AppHandle, engine: Arc<Engine>) {
                     let is_status = matches!(ev, Event::Status(_));
                     let _ = app.emit("engine", &ev);
                     if is_status {
-                        refresh_tray(&app);
+                        refresh_ui(&app);
                     }
                 }
                 Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
@@ -506,52 +454,41 @@ fn forward_events(app: AppHandle, engine: Arc<Engine>) {
 pub fn run() {
     tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
 
-    let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| show_main(app)))
+    let builder = tauri::Builder::default();
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| desktop::show_main(app)))
         .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--minimized"])))
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
+        .on_window_event(|w, e| {
+            // Closing the window keeps Kova running in the tray, like other proxy clients.
+            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
+                let _ = w.hide();
+                api.prevent_close();
+            }
+        });
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android::plugin());
+    let app = builder
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
         .setup(|app| {
             let dir = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
             let engine = Engine::new(dir).map_err(|e| e.to_string())?;
             app.manage(engine.clone());
-
+            #[cfg(desktop)]
+            desktop::setup(app, &engine)?;
             let handle = app.handle().clone();
-            let menu = tray_menu(&handle, &engine.status(), &engine.settings())?;
-            TrayIconBuilder::with_id("main")
-                .icon(app.default_window_icon().cloned().expect("bundled icon"))
-                .tooltip("Kova")
-                .menu(&menu)
-                .show_menu_on_left_click(false)
-                .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
-                .on_tray_icon_event(|tray, e| {
-                    if let TrayIconEvent::Click { button: MouseButton::Left, button_state: MouseButtonState::Up, .. } = e {
-                        show_main(tray.app_handle());
-                    }
-                })
-                .build(app)?;
-
-            let minimized = std::env::args().any(|a| a == "--minimized") || engine.settings().start_minimized;
-            if !minimized {
-                show_main(&handle);
-            }
             forward_events(handle.clone(), engine.clone());
             tauri::async_runtime::spawn(background(handle, engine));
             Ok(())
         })
-        .on_window_event(|w, e| {
-            // Closing the window keeps Kova running in the tray, like other proxy clients.
-            if let WindowEvent::CloseRequested { api, .. } = e {
-                let _ = w.hide();
-                api.prevent_close();
-            }
-        })
         .invoke_handler(tauri::generate_handler![
             get_state,
             system_language,
+            platform,
             learned_sites,
             forget_learned,
             keep_learned,
@@ -593,10 +530,11 @@ pub fn run() {
 
     app.run(|app, e| {
         if let RunEvent::Exit = e {
-            // Always give the system proxy back, whatever path led here.
+            // Always give the system proxy (or the VPN) back, whatever path led here.
             let engine = app.state::<Arc<Engine>>().inner().clone();
+            let app = app.clone();
             tauri::async_runtime::block_on(async move {
-                let _ = engine.stop().await;
+                let _ = stop(&app, &engine).await;
             });
         }
     });

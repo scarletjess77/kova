@@ -90,8 +90,8 @@ pub struct ConnectionsSnapshot {
 
 impl Mihomo {
     pub fn new(port: u16, secret: &str) -> Self {
-        let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(15)).build().expect("client");
-        let stream_http = reqwest::Client::builder().no_proxy().build().expect("client");
+        let http = crate::fetch::builder().no_proxy().timeout(Duration::from_secs(15)).build().expect("client");
+        let stream_http = crate::fetch::builder().no_proxy().build().expect("client");
         Self { base: format!("http://127.0.0.1:{port}"), secret: secret.to_string(), http, stream_http }
     }
 

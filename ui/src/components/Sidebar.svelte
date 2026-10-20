@@ -26,10 +26,10 @@
       </button>
     {/each}
   </nav>
-  {#if app.update}
+  {#if app.update && !app.mobile}
     <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
   {/if}
-  {#if app.activeProfile}
+  {#if app.activeProfile && !app.mobile}
     <div class="sub-card">
       <div class="eyebrow">{t('Active profile')}</div>
       <div class="t">{app.activeProfile.name}</div>
@@ -56,4 +56,10 @@
   .sub-card { margin-top: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 7px; }
   .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .s { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+
+  /* Phone: a bar of icons along the bottom, scrolling sideways if it doesn't fit. */
+  :global(.app.mobile) .side { grid-row: 3; grid-column: 1; flex-direction: row; border-right: 0; border-top: 1px solid var(--line); padding: 4px 4px 6px; overflow-x: auto; overflow-y: hidden; }
+  :global(.app.mobile) .nav { flex-direction: row; gap: 0; }
+  :global(.app.mobile) .nav button { flex-direction: column; gap: 3px; padding: 6px 8px; min-width: 64px; font-size: 10.5px; font-weight: 500; text-align: center; }
+  :global(.app.mobile) .badge { display: none; }
 </style>
