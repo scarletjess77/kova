@@ -95,7 +95,7 @@
         <div class="state" class:off={!s.running && !s.busy}>{s.busy ? (s.running ? t('Switching…') : t('Connecting…')) : s.running ? (capturing ? t('Protected') : t('Proxy only')) : t('Disconnected')}</div>
         {#if !profile}
           <p class="muted">{t('Add a subscription or share links to start.')}</p>
-          <div><button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button></div>
+          <div><button class="btn primary" onclick={() => { app.go('profiles'); app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button></div>
         {:else if chain.length}
           <div class="route">
             {#each chain.slice(0, -1) as c (c)}<span>{c}</span><span class="sep">›</span>{/each}
@@ -197,7 +197,7 @@
           </button>
         {/each}
       </div>
-      <button class="btn ghost more" onclick={() => (app.view = 'proxies')}>{t('All nodes and groups')}</button>
+      <button class="btn ghost more" onclick={() => app.go('proxies')}>{t('All nodes and groups')}</button>
     {:else}
       <p class="muted">{t('Nodes appear here once a profile is added.')}</p>
     {/if}

@@ -57,6 +57,63 @@ class AppState {
   /** The system's display language, used when the language setting is "system". */
   private systemLang = navigator.language;
 
+  // Android's back gesture steps back through the page's history, and only leaves the
+  // app when there is none. So each step back should undo (opening a page, the menu,
+  // a dialog) adds a history entry together with how to undo it.
+  private backSteps: (() => void)[] = [];
+  private ignorePops = 0;
+  private readonly closeNavStep = () => {
+    this.navOpen = false;
+  };
+
+  /** Make the next back gesture run `undo`. */
+  pushBack(undo: () => void) {
+    if (!this.mobile) return;
+    history.pushState(null, '');
+    this.backSteps.push(undo);
+  }
+
+  /** Forget a step that was undone some other way (a dialog closed with its button). */
+  dropBack(undo: () => void) {
+    const i = this.backSteps.lastIndexOf(undo);
+    if (i < 0) return;
+    this.backSteps.splice(i, 1);
+    this.ignorePops++;
+    history.back();
+  }
+
+  private onPopState = () => {
+    if (this.ignorePops > 0) {
+      this.ignorePops--;
+      return;
+    }
+    this.backSteps.pop()?.();
+  };
+
+  /** Show a page; back returns to the one before. */
+  go(view: View) {
+    const from = this.view;
+    if (this.navOpen) {
+      // Chosen from the menu: the menu's step becomes the page's.
+      this.navOpen = false;
+      const i = this.backSteps.lastIndexOf(this.closeNavStep);
+      if (i >= 0) this.backSteps[i] = view === from ? () => {} : () => (this.view = from);
+    } else if (view !== from) {
+      this.pushBack(() => (this.view = from));
+    }
+    this.view = view;
+  }
+
+  openNav() {
+    this.navOpen = true;
+    this.pushBack(this.closeNavStep);
+  }
+
+  closeNav() {
+    this.navOpen = false;
+    this.dropBack(this.closeNavStep);
+  }
+
   get activeProfile(): Profile | undefined {
     return this.profiles.find((p) => p.id === this.settings?.active_profile);
   }
@@ -75,6 +132,7 @@ class AppState {
     await listen<Settings>('settings-changed', (e) => { this.settings = e.payload; this.applyTheme(); });
     await listen('cores-changed', () => { this.coresVersion++; });
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
+    window.addEventListener('popstate', this.onPopState);
     this.ready = true;
     void this.refreshProxies();
     if (this.settings?.check_updates && !this.mobile) setTimeout(() => void this.checkForUpdate(true), 5000);
