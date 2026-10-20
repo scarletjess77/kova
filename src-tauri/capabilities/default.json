@@ -10,7 +10,11 @@
     "clipboard-manager:allow-write-text",
     "dialog:allow-open",
     "opener:allow-open-url",
-    "opener:allow-open-path",
+    "opener:allow-default-urls",
+    {
+      "identifier": "opener:allow-open-path",
+      "allow": [{ "path": "$APPDATA" }, { "path": "$APPDATA/**" }]
+    },
     "autostart:allow-enable",
     "autostart:allow-disable",
     "autostart:allow-is-enabled",
