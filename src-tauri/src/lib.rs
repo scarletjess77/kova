@@ -17,6 +17,7 @@ use kova_engine::{Engine, Error, Event, NodeView, Status};
 use serde::Serialize;
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
+use tauri_plugin_updater::UpdaterExt;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State, WindowEvent, Wry};
 
 use crate::i18n::tr;
@@ -65,6 +66,87 @@ async fn keep_learned(app: AppHandle, engine: Eng<'_>, domain: String) -> R<Sett
 #[tauri::command]
 async fn clear_learned(engine: Eng<'_>) -> R<()> {
     engine.clear_learned().await
+}
+
+// ---------------------------------------------------------------------------- updates
+
+/// The repository releases come from. The updater's own endpoint (tauri.conf.json) is
+/// this repository's latest stable release.
+const RELEASES: &str = "scarletjess77/kova";
+
+/// The update the last check found, kept for installing (and retrying).
+#[derive(Default)]
+struct PendingUpdate(tokio::sync::Mutex<Option<tauri_plugin_updater::Update>>);
+
+#[derive(Serialize)]
+struct UpdateInfo {
+    version: String,
+    date: Option<String>,
+    body: Option<String>,
+}
+
+fn update_error(e: tauri_plugin_updater::Error) -> Error {
+    Error::Other(e.to_string())
+}
+
+/// The update manifest of the newest published release, betas included. GitHub's
+/// "latest" link skips pre-releases, so the beta channel looks them up itself.
+async fn newest_manifest() -> R<Option<String>> {
+    let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
+    let url = format!("https://api.github.com/repos/{RELEASES}/releases?per_page=30");
+    let list: Vec<serde_json::Value> = c.get(url).header("Accept", "application/vnd.github+json").send().await?.error_for_status()?.json().await?;
+    let newest = list
+        .iter()
+        .filter(|r| r["draft"].as_bool() != Some(true))
+        .filter_map(|r| {
+            let version = semver::Version::parse(r["tag_name"].as_str()?.trim_start_matches('v')).ok()?;
+            let manifest = r["assets"].as_array()?.iter().find(|a| a["name"] == "latest.json")?;
+            Some((version, manifest["browser_download_url"].as_str()?.to_string()))
+        })
+        .max_by(|a, b| a.0.cmp(&b.0));
+    Ok(newest.map(|(_, url)| url))
+}
+
+/// Look for a newer Kova: the latest stable release, or with beta updates on, the
+/// newest release of any kind. Either way only a version above this one counts.
+#[tauri::command]
+async fn check_update(app: AppHandle, engine: Eng<'_>) -> R<Option<UpdateInfo>> {
+    let mut builder = app.updater_builder();
+    if engine.settings().beta_updates {
+        if let Some(manifest) = newest_manifest().await? {
+            let url = tauri::Url::parse(&manifest).map_err(|e| Error::Other(e.to_string()))?;
+            builder = builder.endpoints(vec![url]).map_err(update_error)?;
+        }
+    }
+    let update = builder.build().map_err(update_error)?.check().await.map_err(update_error)?;
+    let info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
+    *app.state::<PendingUpdate>().0.lock().await = update;
+    Ok(info)
+}
+
+/// Download, install and restart, reporting progress (0..1) as `update-progress`.
+/// Disconnects first: the installer closes Kova without the usual shutdown, which would
+/// leave the system proxy pointing at it.
+#[tauri::command]
+async fn install_update(app: AppHandle, engine: Eng<'_>) -> R<()> {
+    let update = app.state::<PendingUpdate>().0.lock().await.clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
+    if engine.status().running {
+        engine.stop().await?;
+    }
+    let (progress, mut got, mut total) = (app.clone(), 0u64, 0u64);
+    update
+        .download_and_install(
+            move |chunk, len| {
+                got += chunk as u64;
+                total = len.unwrap_or(total);
+                let _ = progress.emit("update-progress", if total > 0 { got as f64 / total as f64 } else { 0.0 });
+            },
+            || {},
+        )
+        .await
+        .map_err(update_error)?;
+    // Windows has already closed Kova to run the installer; elsewhere start the new one.
+    app.restart()
 }
 
 #[tauri::command]
@@ -518,6 +600,7 @@ pub fn run() {
             let dir = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
             let engine = Engine::new(dir).map_err(|e| e.to_string())?;
             app.manage(engine.clone());
+            app.manage(PendingUpdate::default());
 
             let handle = app.handle().clone();
             let menu = tray_menu(&handle, &engine.status(), &engine.settings())?;
@@ -552,6 +635,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             system_language,
+            check_update,
+            install_update,
             learned_sites,
             forget_learned,
             keep_learned,
