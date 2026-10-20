@@ -332,8 +332,10 @@ export const ru: Dict = {
   '{domain} moved to your rules': '{domain} перенесён в ваши правила',
   'Learned sites cleared': 'Список изученных сайтов очищен',
   'Smart routing': 'Умная маршрутизация',
-  'Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. Learned sites are kept for 30 days.':
-    'Kova замечает сайты, которые не открываются обычным путём, проверяет их напрямую и через прокси и направляет туда, где они работают: заблокированные — через прокси, а не пускающие через прокси — напрямую. Изученные сайты хранятся 30 дней.',
+  'Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.':
+    'Kova замечает сайты, которые не открываются обычным путём, проверяет их напрямую и через прокси и направляет туда, где они работают: заблокированные — через прокси, а не пускающие через прокси — напрямую. В режиме TUN изучаются и приложения, которые подключаются по IP-адресу. Изученные сайты хранятся 30 дней.',
+  'In TUN mode Kova needs site names: turn on Sniff domains or Fake-IP in Settings, otherwise it can only learn IP addresses.':
+    'В режиме TUN Kova нужны имена сайтов: включите «Определять домены» или Fake-IP в настройках, иначе она сможет изучать только IP-адреса.',
   'Learning is paused: it works in Rule mode only.': 'Обучение приостановлено: оно работает только в режиме «По правилам».',
   'Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.': 'Включите выше «Применять к импортированным профилям Clash»: активный профиль — профиль Clash.',
   'Now goes': 'Теперь идёт',

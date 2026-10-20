@@ -3,11 +3,17 @@
 //! proxy goes direct. This module is the pure part: reading what Mihomo reports and
 //! keeping the learned list. The engine watches, probes and applies.
 
+use std::net::IpAddr;
+
 use serde::{Deserialize, Serialize};
 
-/// Mihomo rule providers holding the learned sites, one per route.
+/// Mihomo rule providers holding the learned sites: names and bare IP addresses (apps
+/// that connect without a name, mostly seen in TUN mode), one list per route.
 pub const PROVIDER_PROXY: &str = "kova-learned-proxy";
 pub const PROVIDER_DIRECT: &str = "kova-learned-direct";
+pub const PROVIDER_PROXY_IP: &str = "kova-learned-proxy-ip";
+pub const PROVIDER_DIRECT_IP: &str = "kova-learned-direct-ip";
+pub const PROVIDERS: [&str; 4] = [PROVIDER_PROXY, PROVIDER_DIRECT, PROVIDER_PROXY_IP, PROVIDER_DIRECT_IP];
 
 /// A learned site is forgotten after this long unless it is learned again.
 pub const MAX_AGE_SECS: i64 = 30 * 86_400;
@@ -21,7 +27,7 @@ pub enum Route {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Learned {
-    /// The rule covers this domain and its subdomains.
+    /// The rule covers this domain and its subdomains, or this one IP address.
     pub domain: String,
     pub route: Route,
     /// How the usual path failed: a site-check outcome such as "reset" or "timeout".
@@ -56,12 +62,49 @@ pub fn parse_dial_failure(line: &str) -> Option<DialFailure> {
     Some(DialFailure { direct: proxy == "DIRECT", catch_all: rule.starts_with("Match/"), host: host.to_string(), port: port.parse().ok()? })
 }
 
+impl Learned {
+    pub fn is_ip(&self) -> bool {
+        self.domain.parse::<IpAddr>().is_ok()
+    }
+}
+
+/// An IP address written as Mihomo prints it, with or without IPv6 brackets.
+pub fn parse_ip(host: &str) -> Option<IpAddr> {
+    host.trim().trim_start_matches('[').trim_end_matches(']').parse().ok()
+}
+
+/// Whether an address is a public one worth a rule. Private and special ranges are
+/// left out, and so is Mihomo's fake-IP range: those addresses stand for names.
+pub fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v) => {
+            let [a, b, c, _] = v.octets();
+            let special = v.is_private() || v.is_loopback() || v.is_link_local() || v.is_broadcast() || v.is_documentation() || v.is_unspecified() || v.is_multicast();
+            let reserved = a == 0 || a >= 240 || (a == 100 && (64..128).contains(&b)) || (a == 198 && (18..20).contains(&b)) || (a == 192 && b == 0 && c == 0);
+            !special && !reserved
+        }
+        IpAddr::V6(v) => {
+            let s = v.segments();
+            (s[0] & 0xe000) == 0x2000 && !(s[0] == 0x2001 && s[1] == 0x0db8)
+        }
+    }
+}
+
+/// What a rule should cover for a connection's destination: the registrable domain
+/// for a name (see [`rule_domain`]) or the address itself for a public IP.
+pub fn rule_target(host: &str) -> Option<String> {
+    match parse_ip(host) {
+        Some(ip) => is_public_ip(ip).then(|| ip.to_string()),
+        None => rule_domain(host),
+    }
+}
+
 /// The domain a rule should cover for `host`: its registrable domain, so that
 /// `rr3---sn-abc.googlevideo.com` gives `googlevideo.com` while `someone.github.io`
 /// stays itself. `None` for IP addresses and names that are not public.
 pub fn rule_domain(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
-    if host.parse::<std::net::IpAddr>().is_ok() || host.starts_with('[') || !host.contains('.') {
+    if parse_ip(&host).is_some() || !host.contains('.') {
         return None;
     }
     let d = psl::domain(host.as_bytes())?;
@@ -71,8 +114,11 @@ pub fn rule_domain(host: &str) -> Option<String> {
     std::str::from_utf8(d.as_bytes()).ok().map(String::from)
 }
 
-/// Whether `host` is `domain` or one of its subdomains.
+/// Whether `host` is `domain` or one of its subdomains, or is that IP address.
 pub fn covers(domain: &str, host: &str) -> bool {
+    if let (Some(a), Some(b)) = (parse_ip(domain), parse_ip(host)) {
+        return a == b;
+    }
     let host = host.trim_end_matches('.').to_ascii_lowercase();
     host == domain || host.strip_suffix(domain).is_some_and(|rest| rest.ends_with('.'))
 }
@@ -90,16 +136,26 @@ pub fn prune(list: &mut Vec<Learned>, now: i64) -> bool {
     list.len() != before
 }
 
-/// One route's sites as a Mihomo rule list (text format, domain behaviour). It always
-/// has a line, because Mihomo rejects an empty list.
-pub fn provider_text(list: &[Learned], route: Route) -> String {
-    let mut out = String::from("+.kova-learned.invalid\n");
-    for l in list.iter().filter(|l| l.route == route) {
-        out.push_str("+.");
-        out.push_str(&l.domain);
-        out.push('\n');
+/// The contents of one rule provider (text format): domains for the name lists,
+/// CIDRs for the address lists. Each list always has a line, because Mihomo rejects an
+/// empty one; the placeholder matches nothing real.
+pub fn provider_text(list: &[Learned], provider: &str) -> Option<String> {
+    let (route, ips) = match provider {
+        PROVIDER_PROXY => (Route::Proxy, false),
+        PROVIDER_DIRECT => (Route::Direct, false),
+        PROVIDER_PROXY_IP => (Route::Proxy, true),
+        PROVIDER_DIRECT_IP => (Route::Direct, true),
+        _ => return None,
+    };
+    let mut out = String::from(if ips { "255.255.255.255/32\n" } else { "+.kova-learned.invalid\n" });
+    for l in list.iter().filter(|l| l.route == route && l.is_ip() == ips) {
+        match parse_ip(&l.domain) {
+            Some(IpAddr::V4(ip)) => out.push_str(&format!("{ip}/32\n")),
+            Some(IpAddr::V6(ip)) => out.push_str(&format!("{ip}/128\n")),
+            None => out.push_str(&format!("+.{}\n", l.domain)),
+        }
     }
-    out
+    Some(out)
 }
 
 #[cfg(test)]
@@ -132,6 +188,18 @@ mod tests {
     }
 
     #[test]
+    fn bare_addresses_get_rules_only_when_public() {
+        assert_eq!(rule_target("149.154.167.51").as_deref(), Some("149.154.167.51"));
+        assert_eq!(rule_target("[2001:67c:4e8:f004::9]").as_deref(), Some("2001:67c:4e8:f004::9"));
+        assert_eq!(rule_target("cdn.example.org").as_deref(), Some("example.org"));
+        // Private, special, and Mihomo's fake-IP range, whose addresses stand for names.
+        for not_public in ["10.1.2.3", "192.168.1.1", "100.64.0.1", "198.18.0.7", "127.0.0.1", "192.0.2.1", "224.0.0.1", "fd00::1", "2001:db8::1", "::1"] {
+            assert_eq!(rule_target(not_public), None, "{not_public}");
+        }
+        assert!(covers("149.154.167.51", "149.154.167.51") && !covers("149.154.167.51", "149.154.167.5"));
+    }
+
+    #[test]
     fn covers_subdomains_only() {
         assert!(covers("example.org", "example.org"));
         assert!(covers("example.org", "cdn.example.org."));
@@ -145,8 +213,13 @@ mod tests {
         upsert(&mut list, Learned { domain: "a.com".into(), route: Route::Direct, reason: "refused".into(), learned_at: 10 });
         upsert(&mut list, Learned { domain: "b.com".into(), route: Route::Proxy, reason: "timeout".into(), learned_at: 20 });
         assert_eq!(list.len(), 2);
-        assert_eq!(provider_text(&list, Route::Proxy), "+.kova-learned.invalid\n+.b.com\n");
-        assert_eq!(provider_text(&list, Route::Direct), "+.kova-learned.invalid\n+.a.com\n");
+        upsert(&mut list, Learned { domain: "149.154.167.51".into(), route: Route::Proxy, reason: "connect-failed".into(), learned_at: 30 });
+        assert_eq!(provider_text(&list, PROVIDER_PROXY).unwrap(), "+.kova-learned.invalid\n+.b.com\n");
+        assert_eq!(provider_text(&list, PROVIDER_DIRECT).unwrap(), "+.kova-learned.invalid\n+.a.com\n");
+        assert_eq!(provider_text(&list, PROVIDER_PROXY_IP).unwrap(), "255.255.255.255/32\n149.154.167.51/32\n");
+        assert_eq!(provider_text(&list, PROVIDER_DIRECT_IP).unwrap(), "255.255.255.255/32\n");
+        assert!(provider_text(&list, "other").is_none());
+        list.retain(|l| !l.is_ip());
         assert!(prune(&mut list, MAX_AGE_SECS + 15));
         assert_eq!(list.iter().map(|l| l.domain.as_str()).collect::<Vec<_>>(), ["b.com"]);
     }

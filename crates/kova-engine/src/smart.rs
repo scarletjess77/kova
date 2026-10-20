@@ -9,9 +9,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kova_core::options::{SmartRuntime, TEST_URL};
-use kova_core::smart::{self, Learned, PROVIDER_DIRECT, PROVIDER_PROXY, Route};
+use std::net::{IpAddr, SocketAddr};
+
+use kova_core::smart::{self, Learned, PROVIDERS, Route};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpListener;
+use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{OnceCell, mpsc};
 use tokio::task::JoinSet;
 
@@ -114,14 +116,10 @@ async fn serve(listener: TcpListener, token: String, smart: std::sync::Weak<Smar
             }
             let head = String::from_utf8_lossy(&buf);
             let path = head.lines().next().and_then(|l| l.strip_prefix("GET ")).and_then(|l| l.split(' ').next()).unwrap_or_default();
-            let route = match path.strip_prefix(&format!("/{token}/")).and_then(|p| p.strip_suffix(".txt")) {
-                Some(PROVIDER_PROXY) => Some(Route::Proxy),
-                Some(PROVIDER_DIRECT) => Some(Route::Direct),
-                _ => None,
-            };
-            let reply = match route {
-                Some(r) => {
-                    let body = smart::provider_text(&smart.list.lock().unwrap(), r);
+            let name = path.strip_prefix(&format!("/{token}/")).and_then(|p| p.strip_suffix(".txt"));
+            let body = name.and_then(|n| smart::provider_text(&smart.list.lock().unwrap(), n));
+            let reply = match body {
+                Some(body) => {
                     format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
                 }
                 None => "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_string(),
@@ -132,9 +130,9 @@ async fn serve(listener: TcpListener, token: String, smart: std::sync::Weak<Smar
     }
 }
 
-/// Make the running Mihomo fetch both lists again.
+/// Make the running Mihomo fetch the lists again.
 pub async fn refresh(api: &Mihomo) {
-    for name in [PROVIDER_PROXY, PROVIDER_DIRECT] {
+    for name in PROVIDERS {
         if let Err(e) = api.update_rule_provider(name).await {
             tracing::warn!("could not refresh {name}: {e}");
         }
@@ -154,6 +152,8 @@ struct Suspect {
     host: String,
     port: u16,
     failed: Route,
+    /// Mihomo could not open the connection at all (rather than it going silent).
+    dial_failed: bool,
 }
 
 /// Watch, check and learn for as long as the connection runs. Aborting the task stops
@@ -176,7 +176,7 @@ async fn watch_logs(api: Mihomo, tx: mpsc::Sender<Suspect>) {
                     // preset set on purpose is never second-guessed.
                     if f.catch_all {
                         let failed = if f.direct { Route::Direct } else { Route::Proxy };
-                        let _ = tx.try_send(Suspect { host: f.host, port: f.port, failed });
+                        let _ = tx.try_send(Suspect { host: f.host, port: f.port, failed, dial_failed: true });
                     }
                 }
                 !tx.is_closed()
@@ -214,7 +214,7 @@ async fn watch_connections(api: Mihomo, tx: mpsc::Sender<Suspect>, hooks: Arc<Ho
             }
             let since = *first_seen.entry(c.id.clone()).or_insert_with(Instant::now);
             if since.elapsed() >= SILENT_FOR && reported.insert(c.id.clone()) {
-                let _ = tx.try_send(Suspect { host: c.host.clone(), port: 443, failed: Route::Direct });
+                let _ = tx.try_send(Suspect { host: c.host.clone(), port: 443, failed: Route::Direct, dial_failed: false });
             }
         }
     }
@@ -231,20 +231,29 @@ async fn check(smart: Arc<Smart>, api: Mihomo, ports: SmartRuntime, hooks: Arc<H
         if !(hooks.active)() {
             continue;
         }
-        let Some(domain) = smart::rule_domain(&s.host) else { continue };
+        let Some(domain) = smart::rule_target(&s.host) else { continue };
         if smart.get(&domain).is_some() || checked.get(&s.host).is_some_and(|t| t.elapsed() < RECHECK_AFTER) || running.len() >= 2 {
             continue;
         }
-        let url = match s.port {
-            443 => format!("https://{}/", s.host),
-            80 => format!("http://{}/", s.host),
-            _ => continue,
+        // A bare address (an app that connects without a name, as TUN mode shows) is
+        // checked at the connection level: whatever it speaks, it either connects or it
+        // doesn't. Only for a connection that could not be opened at all, and only
+        // toward the proxy: an address that refuses the proxy can't be told apart from
+        // one the proxy server can't reach.
+        let target = match smart::parse_ip(&s.host) {
+            Some(ip) if s.dial_failed && s.failed == Route::Direct => Target::Addr(SocketAddr::new(ip, s.port)),
+            Some(_) => continue,
+            None => match s.port {
+                443 => Target::Url(format!("https://{}/", s.host)),
+                80 => Target::Url(format!("http://{}/", s.host)),
+                _ => continue,
+            },
         };
         checked.insert(s.host.clone(), Instant::now());
         checked.retain(|_, t| t.elapsed() < RECHECK_AFTER);
         let (smart, api, ports, hooks, health) = (smart.clone(), api.clone(), ports.clone(), hooks.clone(), health.clone());
         running.spawn(async move {
-            let Some(reason) = confirm(&url, s.failed, &ports, &health).await else { return };
+            let Some(reason) = confirm(&target, s.failed, &ports, &health).await else { return };
             let route = match s.failed {
                 Route::Direct => Route::Proxy,
                 Route::Proxy => Route::Direct,
@@ -268,27 +277,96 @@ fn answered(p: &Probe) -> bool {
     matches!(p.outcome, Outcome::Ok | Outcome::HttpError)
 }
 
+/// What gets checked: a website, or a bare address and port.
+enum Target {
+    Url(String),
+    Addr(SocketAddr),
+}
+
+/// Try `target` through one of Mihomo's probe ports. `Err` holds how it failed.
+async fn attempt(target: &Target, port: u16) -> Result<(), String> {
+    match target {
+        Target::Url(url) => {
+            let p = probe(url, Some(&format!("http://127.0.0.1:{port}"))).await;
+            if answered(&p) {
+                return Ok(());
+            }
+            Err(serde_json::to_value(&p.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "connect-failed".into()))
+        }
+        Target::Addr(addr) => if reaches(port, *addr).await { Ok(()) } else { Err("connect-failed".into()) },
+    }
+}
+
 /// Whether the site fails on `failed` and works the other way, twice. Returns how it
 /// failed. A path that is down for everything proves nothing about one site, so each
 /// path is first checked against a site that always answers.
-async fn confirm(url: &str, failed: Route, ports: &SmartRuntime, health: &Health) -> Option<String> {
-    let via = |port: u16| format!("http://127.0.0.1:{port}");
+async fn confirm(target: &Target, failed: Route, ports: &SmartRuntime, health: &Health) -> Option<String> {
     let (usual, other) = match failed {
-        Route::Direct => (via(ports.direct_port), via(ports.proxy_port)),
-        Route::Proxy => (via(ports.proxy_port), via(ports.direct_port)),
+        Route::Direct => (ports.direct_port, ports.proxy_port),
+        Route::Proxy => (ports.proxy_port, ports.direct_port),
     };
-    if answered(&probe(url, Some(&usual)).await) || !answered(&probe(url, Some(&other)).await) {
+    if attempt(target, usual).await.is_ok() || attempt(target, other).await.is_err() {
         return None;
     }
-    if !health.ok(&usual).await || !health.ok(&other).await {
+    let via = |port: u16| format!("http://127.0.0.1:{port}");
+    if !health.ok(&via(usual)).await || !health.ok(&via(other)).await {
         return None;
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
-    let again = probe(url, Some(&usual)).await;
-    if answered(&again) {
-        return None;
-    }
-    serde_json::to_value(&again.outcome).ok().and_then(|v| v.as_str().map(String::from))
+    attempt(target, usual).await.err()
+}
+
+/// Whether a TCP connection to `dest` can be opened through the probe port `port`,
+/// using its SOCKS5 side. Mihomo may confirm the request before it has connected, so a
+/// connection it then could not open shows as it closing; one that stays open waiting
+/// for us to speak, or that greets us, is up.
+pub async fn reaches(port: u16, dest: SocketAddr) -> bool {
+    let attempt = async {
+        let mut s = TcpStream::connect(("127.0.0.1", port)).await?;
+        s.write_all(&[5, 1, 0]).await?;
+        let mut hello = [0u8; 2];
+        s.read_exact(&mut hello).await?;
+        if hello != [5, 0] {
+            return Ok(false);
+        }
+        let mut req = vec![5, 1, 0];
+        match dest.ip() {
+            IpAddr::V4(ip) => {
+                req.push(1);
+                req.extend_from_slice(&ip.octets());
+            }
+            IpAddr::V6(ip) => {
+                req.push(4);
+                req.extend_from_slice(&ip.octets());
+            }
+        }
+        req.extend_from_slice(&dest.port().to_be_bytes());
+        s.write_all(&req).await?;
+        let mut head = [0u8; 4];
+        s.read_exact(&mut head).await?;
+        if head[1] != 0 {
+            return Ok(false);
+        }
+        let rest = match head[3] {
+            1 => 6,
+            4 => 18,
+            3 => {
+                let mut len = [0u8; 1];
+                s.read_exact(&mut len).await?;
+                len[0] as usize + 2
+            }
+            _ => return Ok(false),
+        };
+        let mut bound = vec![0u8; rest];
+        s.read_exact(&mut bound).await?;
+        let mut first = [0u8; 1];
+        Ok(match tokio::time::timeout(Duration::from_secs(8), s.read(&mut first)).await {
+            Err(_) => true,
+            Ok(Ok(n)) => n > 0,
+            Ok(Err(_)) => false,
+        })
+    };
+    matches!(tokio::time::timeout(Duration::from_secs(20), attempt).await, Ok(Ok::<bool, std::io::Error>(true)))
 }
 
 /// Whether a path reaches the internet at all, remembered for a minute.
@@ -318,6 +396,7 @@ impl Health {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kova_core::smart::{PROVIDER_DIRECT, PROVIDER_PROXY, PROVIDER_PROXY_IP};
 
     /// A stand-in for one of Mihomo's probe ports: an HTTP proxy that answers every
     /// request except those for hosts in `drops`, whose connection it just closes.
@@ -351,7 +430,7 @@ Connection: close
     #[tokio::test]
     async fn learns_only_what_fails_on_one_path_and_works_on_the_other() {
         let health = || Health::new("http://health.test/");
-        let site = "http://blocked.test/";
+        let site = &Target::Url("http://blocked.test/".into());
         // Blocked direct, fine through the proxy: send it through the proxy.
         let p = ports(&["blocked.test"], &[]).await;
         assert!(confirm(site, Route::Direct, &p, &health()).await.is_some());
@@ -378,16 +457,20 @@ Connection: close
         let base = s.lists_url().await.unwrap();
         assert_eq!(s.lists_url().await.unwrap(), base, "one server per app");
         let get = |u: String| async move { reqwest::Client::builder().no_proxy().build().unwrap().get(u).send().await.unwrap() };
+        s.learn(Learned { domain: "149.154.167.51".into(), route: Route::Proxy, reason: "connect-failed".into(), learned_at: now() });
         let proxy = get(format!("{base}{PROVIDER_PROXY}.txt")).await.text().await.unwrap();
         assert_eq!(proxy, "+.kova-learned.invalid\n+.blocked.example\n");
         let direct = get(format!("{base}{PROVIDER_DIRECT}.txt")).await.text().await.unwrap();
         assert!(direct.ends_with("+.local.example\n"));
+        let ips = get(format!("{base}{PROVIDER_PROXY_IP}.txt")).await.text().await.unwrap();
+        assert_eq!(ips, "255.255.255.255/32\n149.154.167.51/32\n");
         let port = base.split(':').nth(2).unwrap().split('/').next().unwrap();
         assert_eq!(get(format!("http://127.0.0.1:{port}/wrong/{PROVIDER_PROXY}.txt")).await.status(), 404);
+        assert_eq!(get(format!("{base}nothing.txt")).await.status(), 404);
 
         // Kept across restarts; forgetting updates what is served.
         let again = Smart::load(dir.path().join("learned.json"));
-        assert_eq!(again.list().len(), 2);
+        assert_eq!(again.list().len(), 3);
         assert!(s.forget("blocked.example").is_some());
         let proxy = get(format!("{base}{PROVIDER_PROXY}.txt")).await.text().await.unwrap();
         assert_eq!(proxy, "+.kova-learned.invalid\n");

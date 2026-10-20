@@ -251,7 +251,8 @@ impl Controller {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "downloads cores and runs real processes"]
 async fn smart_routing_in_real_mihomo() {
-    use kova_core::smart::{PROVIDER_PROXY, parse_dial_failure};
+    use kova_core::smart::{PROVIDER_PROXY, PROVIDER_PROXY_IP, parse_dial_failure};
+    use kova_engine::smart::reaches;
 
     let cores_cache = ensure_cores().await;
     let root = tempfile::tempdir().unwrap();
@@ -335,6 +336,18 @@ async fn smart_routing_in_real_mihomo() {
     assert!(chains.contains(&"Local WS".to_string()), "{chains:?}");
     let (_, chains) = ctl.route_of(&url, ctl.listener_port("kova-probe-direct")).await;
     assert_eq!(chains, ["DIRECT"]);
+
+    // Bare addresses (apps that connect without a name, as in TUN mode) are checked at
+    // the connection level through the same ports. Their list is loaded too.
+    assert_eq!(ctl.rule_count(PROVIDER_PROXY_IP).await, 1);
+    let open: std::net::SocketAddr = format!("127.0.0.1:{slow}").parse().unwrap();
+    let closed: std::net::SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
+    for name in ["kova-probe-direct", "kova-probe-proxy"] {
+        let port = ctl.listener_port(name);
+        assert!(reaches(port, open).await, "{name}: an open port looked closed");
+        // Through VLESS the server reports a failed connection only after accepting it.
+        assert!(!reaches(port, closed).await, "{name}: a closed port looked open");
+    }
 
     // With the proxy down every site fails through it. That must teach nothing, or every
     // site would end up "refusing the proxy". The warning Mihomo prints for the failure

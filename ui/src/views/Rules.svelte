@@ -244,12 +244,14 @@
   </section>
 
   <section class="card smart">
-    <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">alpha</span>
+    <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">beta</span>
       <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
         onclick={() => app.saveSettings((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
-    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. Learned sites are kept for 30 days.')}</p>
+    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>
     {#if s.core.smart_routing && s.core.mode !== 'rule'}
       <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
+    {:else if s.core.smart_routing && s.core.tun.enabled && !s.core.sniff && !s.core.dns.fake_ip}
+      <p class="hint warn-text">{t('In TUN mode Kova needs site names: turn on Sniff domains or Fake-IP in Settings, otherwise it can only learn IP addresses.')}</p>
     {:else if s.core.smart_routing && isClash && !s.core.apply_rules_to_clash_profiles}
       <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
     {/if}

@@ -1032,9 +1032,14 @@ impl Engine {
             kova_core::smart::Route::Proxy => PROXY,
             kova_core::smart::Route::Direct => "DIRECT",
         };
+        let rule = match kova_core::smart::parse_ip(&l.domain) {
+            Some(std::net::IpAddr::V4(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/32"), target: target.into() },
+            Some(std::net::IpAddr::V6(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/128"), target: target.into() },
+            None => Rule { kind: RuleKind::DomainSuffix, value: l.domain.clone(), target: target.into() },
+        };
         let mut s = self.settings();
-        s.core.custom_rules.retain(|r| !(r.kind == RuleKind::DomainSuffix && r.value == l.domain));
-        s.core.custom_rules.push(Rule { kind: RuleKind::DomainSuffix, value: l.domain.clone(), target: target.into() });
+        s.core.custom_rules.retain(|r| !(r.kind == rule.kind && r.value == rule.value));
+        s.core.custom_rules.push(rule);
         self.smart.forget(domain);
         self.update_settings(s).await
     }
