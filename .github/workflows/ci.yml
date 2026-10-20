@@ -1,11 +1,13 @@
-# Unit tests on every push and pull request. Linux and macOS check that the shared
-# crates build there; the desktop shell is built on Windows only for now.
+# Unit tests on every push and pull request. Linux checks that the shared crates build
+# there; the desktop shell is built on Windows only for now. macOS runs only when started
+# by hand (Actions → CI → Run workflow): hosted Mac runners are often unavailable.
 name: CI
 
 on:
   push:
     branches: [main, master]
   pull_request:
+  workflow_dispatch:
 
 jobs:
   windows:
@@ -26,7 +28,7 @@ jobs:
   unix:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: ${{ github.event_name == 'workflow_dispatch' && fromJSON('["ubuntu-latest","macos-latest"]') || fromJSON('["ubuntu-latest"]') }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
