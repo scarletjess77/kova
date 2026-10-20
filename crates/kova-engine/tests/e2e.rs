@@ -22,6 +22,9 @@ fn free_port() -> u16 {
 }
 
 async fn ensure_cores() -> PathBuf {
+    // The tests run in parallel and share the cache: one download at a time.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = ONE_AT_A_TIME.lock().await;
     let dir = cache_dir();
     for core in [CoreKind::Mihomo, CoreKind::Xray] {
         if !cores::binary_path(&dir, core).exists() {
@@ -160,7 +163,10 @@ async fn connects_through_ws_and_bridged_xhttp() {
     // Only the Mihomo this test started is stopped: the machine may be running Kova for real.
     #[cfg(windows)]
     {
-        let filter = format!("Name='mihomo.exe' AND ParentProcessId={}", std::process::id());
+        // Started by this test process and running from this test's data folder: the
+        // other tests here run in the same process.
+        let dir = root.path().file_name().unwrap().to_string_lossy().to_string();
+        let filter = format!("Name='mihomo.exe' AND ParentProcessId={} AND CommandLine LIKE '%{dir}%'", std::process::id());
         let script = format!("Get-CimInstance Win32_Process -Filter \"{filter}\" | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}");
         let _ = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &script]).output();
         let mut noticed = false;

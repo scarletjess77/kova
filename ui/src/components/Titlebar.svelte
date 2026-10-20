@@ -14,18 +14,19 @@
   }
 </script>
 
-<header class="titlebar" data-tauri-drag-region>
+<!-- Dragging moves the window on desktop; a phone has no window to move. -->
+<header class="titlebar" data-tauri-drag-region={app.mobile ? undefined : ''}>
   {#if app.mobile}
     <button class="tb-btn menu" onclick={() => app.openNav()} aria-label={t('Menu')} aria-expanded={app.navOpen}><Icon name="menu" /></button>
   {/if}
-  <div class="brand" data-tauri-drag-region>
+  <div class="brand" data-tauri-drag-region={app.mobile ? undefined : ''}>
     <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="2" y="2" width="20" height="20" rx="6" fill="var(--accent)" /><path d="M8.5 7v10M15.5 7l-5.2 5 5.2 5" stroke="var(--accent-fg)" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round" /></svg>
     Kova
   </div>
   {#if app.activeProfile}
-    <div class="tb-profile" data-tauri-drag-region>/ <b>{app.activeProfile.name}</b></div>
+    <div class="tb-profile" data-tauri-drag-region={app.mobile ? undefined : ''}>/ <b>{app.activeProfile.name}</b></div>
   {/if}
-  <div class="spacer" data-tauri-drag-region></div>
+  <div class="spacer" data-tauri-drag-region={app.mobile ? undefined : ''}></div>
   <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" />{#if !app.mobile}<span>{t('Donate')}</span>{/if}</button>
   <button class="tb-btn" onclick={toggleTheme} title={t('Switch theme')} aria-label={t('Switch theme')}><Icon name="moon" /></button>
   {#if !app.mobile}

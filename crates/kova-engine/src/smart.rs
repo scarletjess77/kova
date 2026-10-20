@@ -95,7 +95,11 @@ impl Smart {
 
 async fn serve(listener: TcpListener, token: String, smart: std::sync::Weak<Smart>) {
     loop {
-        let Ok((mut sock, _)) = listener.accept().await else { continue };
+        let Ok((mut sock, _)) = listener.accept().await else {
+            // Out of descriptors or similar: wait instead of spinning.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        };
         let Some(smart) = smart.upgrade() else { return };
         let token = token.clone();
         tokio::spawn(async move {
@@ -190,13 +194,14 @@ async fn watch_logs(api: Mihomo, tx: mpsc::Sender<Suspect>) {
 }
 
 /// Blocking that drops packets instead of refusing them leaves a direct connection
-/// open with the greeting sent and nothing ever coming back.
+/// open with the greeting sent and nothing ever coming back. A browser waits far longer
+/// than the polling interval, so a slow poll catches these without loading Mihomo.
 async fn watch_connections(api: Mihomo, tx: mpsc::Sender<Suspect>, hooks: Arc<Hooks>) {
     const SILENT_FOR: Duration = Duration::from_secs(5);
     let mut first_seen: HashMap<String, Instant> = HashMap::new();
     let mut reported: HashSet<String> = HashSet::new();
     loop {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
         if tx.is_closed() {
             return;
         }
@@ -254,6 +259,10 @@ async fn check(smart: Arc<Smart>, api: Mihomo, ports: SmartRuntime, hooks: Arc<H
         let (smart, api, ports, hooks, health) = (smart.clone(), api.clone(), ports.clone(), hooks.clone(), health.clone());
         running.spawn(async move {
             let Some(reason) = confirm(&target, s.failed, &ports, &health).await else { return };
+            // The check takes a while; smart routing may have been turned off meanwhile.
+            if !(hooks.active)() {
+                return;
+            }
             let route = match s.failed {
                 Route::Direct => Route::Proxy,
                 Route::Proxy => Route::Direct,

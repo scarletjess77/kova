@@ -88,7 +88,7 @@
 <div class="dash">
   <section class="card hero">
     <div class="hero-top">
-      <button class="power" class:on={s.running} class:busy={s.busy} onclick={() => app.toggleConnection()} disabled={!profile || s.busy}
+      <button class="power" class:on={s.running} class:busy={s.busy || app.toggling} onclick={() => app.toggleConnection()} disabled={!profile || s.busy || app.toggling}
         aria-pressed={s.running} aria-label={s.running ? t('Disconnect') : t('Connect')}><Icon name="power" /></button>
       <div class="hero-text">
         <div class="eyebrow">{t('Status')}</div>

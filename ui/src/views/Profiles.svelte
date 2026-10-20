@@ -98,7 +98,9 @@
             {/if}
             <div class="fld"><label for="pf-core">{t('Run on core')}</label>
               <select id="pf-core" class="input" value={sel.core} onchange={(e) => edit({ core: e.currentTarget.value as CorePreference })}>
-                <option value="auto">{t('Automatic')}</option><option value="mihomo">{t('Mihomo only')}</option><option value="xray">{t('Xray only')}</option>
+                <option value="auto">{t('Automatic')}</option><option value="mihomo">{t('Mihomo only')}</option>
+                <!-- On a phone the VPN needs Mihomo in front; Xray still runs what only it supports. -->
+                {#if !app.mobile || sel.core === 'xray'}<option value="xray">{t('Xray only')}</option>{/if}
               </select></div>
             {#if sel.source.kind === 'remote'}
               <div class="fld"><label for="pf-every">{t('Auto-update')}</label>
