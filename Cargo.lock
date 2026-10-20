@@ -2421,6 +2421,7 @@ dependencies = [
  "kova-engine",
  "kova-service",
  "reqwest",
+ "semver",
  "serde",
  "serde_json",
  "sys-locale",

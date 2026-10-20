@@ -1,9 +1,7 @@
 // Global reactive state, fed by commands and the engine's event stream.
 
 import { listen } from '@tauri-apps/api/event';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { check, type Update } from '@tauri-apps/plugin-updater';
-import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status } from './api';
+import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo } from './api';
 import { i18n, resolveLang, t, tn } from './i18n.svelte';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
@@ -37,7 +35,7 @@ class AppState {
   testing = $state<Set<string>>(new Set());
 
   /** A newer Kova release, once found. */
-  update = $state.raw<Update | null>(null);
+  update = $state.raw<UpdateInfo | null>(null);
   /** Download progress 0..1 while installing an update; `null` when idle. */
   updateProgress = $state<number | null>(null);
   checkingUpdate = $state(false);
@@ -181,7 +179,7 @@ class AppState {
   async checkForUpdate(silent = false) {
     this.checkingUpdate = true;
     try {
-      this.update = await check();
+      this.update = await api.checkUpdate();
       if (!silent) this.notify(this.update ? t('Kova {version} is available', { version: this.update.version }) : t('Kova is up to date'));
     } catch (e) {
       if (!silent) this.notify(t('Could not check for updates: {error}', { error: errText(e) }));
@@ -189,27 +187,18 @@ class AppState {
     this.checkingUpdate = false;
   }
 
-  /** Download, install and restart. Disconnects first: the installer closes Kova
-   *  without the usual shutdown, which would leave the system proxy pointing at it. */
+  /** Download, install and restart (Kova disconnects first). */
   async installUpdate() {
-    const u = this.update;
-    if (!u || this.updateProgress !== null) return;
-    if (this.status.running) await this.run(() => api.disconnect());
-    let total = 0;
-    let got = 0;
+    if (!this.update || this.updateProgress !== null) return;
     this.updateProgress = 0;
+    const stop = await listen<number>('update-progress', (e) => (this.updateProgress = e.payload));
     try {
-      await u.downloadAndInstall((ev) => {
-        if (ev.event === 'Started') total = ev.data.contentLength ?? 0;
-        else if (ev.event === 'Progress') {
-          got += ev.data.chunkLength;
-          this.updateProgress = total ? got / total : 0;
-        } else this.updateProgress = 1;
-      });
-      await relaunch();
+      await api.installUpdate();
     } catch (e) {
       this.notify(t('The update failed: {error}', { error: errText(e) }));
       this.updateProgress = null;
+    } finally {
+      stop();
     }
   }
 

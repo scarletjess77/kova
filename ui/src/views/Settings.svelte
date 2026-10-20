@@ -308,6 +308,9 @@
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Check for updates on launch')}</div><div class="d">{t('Releases are signed; Kova only installs updates signed with its key')}</div></div>
             <button class="switch" role="switch" aria-label={t('Check for updates on launch')} aria-checked={s.check_updates} onclick={() => toggle((x) => x.check_updates, (x, v) => (x.check_updates = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Get beta versions')}</div><div class="d">{t('New features earlier, before they are fully tested. Kova updates to whichever is newer, beta or stable.')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Get beta versions')} aria-checked={s.beta_updates}
+              onclick={async () => { await set((x) => (x.beta_updates = !x.beta_updates)); void app.checkForUpdate(true); }}></button></div>
         </div>
         <div class="actions gap"><button class="btn" class:busy={app.checkingUpdate} disabled={app.checkingUpdate || app.updateProgress !== null} onclick={() => app.checkForUpdate()}><Icon name="refresh" />{t('Check now')}</button></div>
       </section>
