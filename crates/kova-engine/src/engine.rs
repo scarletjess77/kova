@@ -10,7 +10,7 @@ use kova_core::compat::{self, CoreKind, CorePreference, Plan};
 use kova_core::gen_mihomo::{self, Bridges};
 use kova_core::gen_xray::{self, Selection};
 use kova_core::model::Node;
-use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, RuntimeOptions, TEST_URL};
+use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, Rule, RuleKind, RuntimeOptions, SmartRuntime, TEST_URL};
 use kova_core::subscription::{self, Format};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,8 @@ pub enum Event {
     Memory { bytes: u64 },
     Profiles,
     Delays { delays: HashMap<String, Option<u32>> },
+    /// Smart routing learned a site.
+    Learned { domain: String, route: kova_core::smart::Route, reason: String },
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -165,6 +167,8 @@ pub struct Engine {
     /// Routing-data updates run one at a time (background refresh, Update now, source
     /// change); they write the same files.
     geodata_lock: Mutex<()>,
+    /// Sites smart routing learned.
+    smart: Arc<crate::smart::Smart>,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -257,6 +261,7 @@ impl Engine {
         let settings = Settings::load(&paths);
         let profiles = ProfileIndex::load(&paths);
         let (events, _) = broadcast::channel(2048);
+        let smart = crate::smart::Smart::load(paths.learned());
         Ok(Arc::new_cyclic(|me| Self {
             status: RwLock::new(Status { mixed_port: settings.core.mixed_port, ..Default::default() }),
             paths,
@@ -266,6 +271,7 @@ impl Engine {
             delays: RwLock::new(HashMap::new()),
             tun_error: RwLock::new(None),
             geodata_lock: Mutex::new(()),
+            smart,
             events,
             me: me.clone(),
         }))
@@ -882,6 +888,12 @@ impl Engine {
             }
         }
 
+        // Smart routing needs Kova's rules in the config; an imported Clash profile has
+        // them only when the user applies them.
+        if !quiet && opts.smart_routing && (profile.format != Format::Clash || opts.apply_rules_to_clash_profiles) {
+            let lists_url = self.smart.lists_url().await?;
+            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port() });
+        }
         let home = run_dir.join("mihomo");
         std::fs::create_dir_all(&home)?;
         self.seed_geodata(&home);
@@ -963,10 +975,78 @@ impl Engine {
         };
         r.tasks.extend(log_poller);
         if !quiet {
+            if let Some(sm) = opts.smart.clone() {
+                r.tasks.push(self.spawn_learner(api.clone(), sm));
+            }
             r.tasks.push(self.spawn_mihomo_streams(api));
             r.tasks.push(self.spawn_watchdog());
         }
         Ok((r, plan))
+    }
+
+    fn spawn_learner(&self, api: Mihomo, sm: SmartRuntime) -> JoinHandle<()> {
+        use crate::smart::Hooks;
+        let (me, me2) = (self.me.clone(), self.me.clone());
+        let hooks = Hooks {
+            active: Box::new(move || me.upgrade().is_some_and(|e| {
+                let c = e.settings().core;
+                c.smart_routing && c.mode == Mode::Rule
+            })),
+            learned: Box::new(move |l| {
+                if let Some(e) = me2.upgrade() {
+                    let how = match l.route {
+                        kova_core::smart::Route::Proxy => "now goes through the proxy",
+                        kova_core::smart::Route::Direct => "now goes direct",
+                    };
+                    e.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("smart routing: {} failed on its usual path ({}), {how}", l.domain, l.reason) });
+                    e.emit(Event::Learned { domain: l.domain.clone(), route: l.route, reason: l.reason.clone() });
+                }
+            }),
+        };
+        tokio::spawn(crate::smart::learn(self.smart.clone(), api, sm, hooks))
+    }
+
+    // ------------------------------------------------------------------ smart routing
+
+    /// Sites smart routing learned, newest first.
+    pub fn learned_sites(&self) -> Vec<kova_core::smart::Learned> {
+        self.smart.list()
+    }
+
+    pub async fn forget_learned(&self, domain: &str) -> Result<()> {
+        self.smart.forget(domain);
+        self.refresh_learned().await;
+        Ok(())
+    }
+
+    pub async fn clear_learned(&self) -> Result<()> {
+        self.smart.clear();
+        self.refresh_learned().await;
+        Ok(())
+    }
+
+    /// Turn a learned site into a rule of the user's own, so it never expires.
+    pub async fn keep_learned(&self, domain: &str) -> Result<()> {
+        let l = self.smart.get(domain).ok_or_else(|| Error::Other(format!("{domain} is not in the learned list")))?;
+        let target = match l.route {
+            kova_core::smart::Route::Proxy => PROXY,
+            kova_core::smart::Route::Direct => "DIRECT",
+        };
+        let mut s = self.settings();
+        s.core.custom_rules.retain(|r| !(r.kind == RuleKind::DomainSuffix && r.value == l.domain));
+        s.core.custom_rules.push(Rule { kind: RuleKind::DomainSuffix, value: l.domain.clone(), target: target.into() });
+        self.smart.forget(domain);
+        self.update_settings(s).await
+    }
+
+    /// Make the running core pick up a changed learned list.
+    async fn refresh_learned(&self) {
+        let api = self.run.lock().await.as_ref().and_then(|r| r.api.clone());
+        if let Some(api) = api {
+            if self.settings().core.smart_routing {
+                crate::smart::refresh(&api).await;
+            }
+        }
     }
 
     /// Relay Mihomo's log lines from the service into the normal log stream.

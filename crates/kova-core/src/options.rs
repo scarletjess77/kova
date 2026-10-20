@@ -277,6 +277,22 @@ pub struct RuntimeOptions {
     /// bridge talks to. Unlike rules this also holds in Global mode. Set per run.
     #[serde(skip)]
     pub tun_exclude: Vec<String>,
+    /// Learn sites that fail on their usual path and route them the other way.
+    pub smart_routing: bool,
+    /// Where this run's smart routing lives. Set per run when it is on.
+    #[serde(skip)]
+    pub smart: Option<SmartRuntime>,
+}
+
+/// Per-run parts of smart routing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SmartRuntime {
+    /// Base URL Mihomo fetches the learned rule lists from, ending in `/`.
+    pub lists_url: String,
+    /// Local ports that skip the rules and always go direct, or always use the main
+    /// group; Kova checks a site both ways through them.
+    pub direct_port: u16,
+    pub proxy_port: u16,
 }
 
 impl Default for RuntimeOptions {
@@ -299,6 +315,8 @@ impl Default for RuntimeOptions {
             geodata: GeoSource::Default,
             bypass_processes: Vec::new(),
             tun_exclude: Vec::new(),
+            smart_routing: false,
+            smart: None,
         }
     }
 }

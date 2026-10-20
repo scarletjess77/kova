@@ -39,7 +39,12 @@ export interface RuntimeOptions {
   apply_rules_to_clash_profiles: boolean;
   xray_metrics_port: number;
   geodata: GeoSource;
+  smart_routing: boolean;
 }
+
+export type Route = 'proxy' | 'direct';
+/** A site smart routing learned. `reason` is a site-check outcome such as "reset". */
+export interface Learned { domain: string; route: Route; reason: string; learned_at: number }
 
 export interface Settings {
   core: RuntimeOptions;
@@ -121,7 +126,8 @@ export type EngineEvent =
   | { type: 'log'; source: string; level: string; message: string }
   | { type: 'memory'; bytes: number }
   | { type: 'profiles' }
-  | { type: 'delays'; delays: Record<string, number | null> };
+  | { type: 'delays'; delays: Record<string, number | null> }
+  | { type: 'learned'; domain: string; route: Route; reason: string };
 
 export interface Snapshot { status: Status; settings: Settings; profiles: Profile[]; data_dir: string }
 
@@ -159,6 +165,10 @@ export const api = {
   windowAction: (action: 'minimize' | 'maximize' | 'hide') => invoke<void>('window_action', { action }),
   quit: () => invoke<void>('quit'),
   systemLanguage: () => invoke<string>('system_language'),
+  learnedSites: () => invoke<Learned[]>('learned_sites'),
+  forgetLearned: (domain: string) => invoke<void>('forget_learned', { domain }),
+  keepLearned: (domain: string) => invoke<Settings>('keep_learned', { domain }),
+  clearLearned: () => invoke<void>('clear_learned'),
 };
 
 /** Tauri rejects with the serialised error string; make sure we always show text. */

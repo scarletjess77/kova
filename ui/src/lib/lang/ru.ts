@@ -319,6 +319,32 @@ export const ru: Dict = {
   'Order: your rules → presets → local network goes direct → everything else uses': 'Порядок: ваши правила → наборы → локальная сеть напрямую → всё остальное через',
   'Global and Direct modes skip rules entirely.': 'В режимах «Глобальный» и «Напрямую» правила не применяются.',
 
+  // Smart routing
+  '{domain} is blocked here; it now goes through the proxy': '{domain} здесь заблокирован — теперь открывается через прокси',
+  '{domain} refuses the proxy; it now goes direct': '{domain} не открывается через прокси — теперь идёт напрямую',
+  'no answer': 'нет ответа',
+  'connection reset': 'соединение сброшено',
+  'secure connection broken': 'защищённое соединение прервано',
+  'name not resolved': 'адрес не определён',
+  'could not connect': 'не удалось подключиться',
+  'access refused': 'доступ запрещён',
+  '{domain} forgotten': '{domain} удалён из списка',
+  '{domain} moved to your rules': '{domain} перенесён в ваши правила',
+  'Learned sites cleared': 'Список изученных сайтов очищен',
+  'Smart routing': 'Умная маршрутизация',
+  'Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. Learned sites are kept for 30 days.':
+    'Kova замечает сайты, которые не открываются обычным путём, проверяет их напрямую и через прокси и направляет туда, где они работают: заблокированные — через прокси, а не пускающие через прокси — напрямую. Изученные сайты хранятся 30 дней.',
+  'Learning is paused: it works in Rule mode only.': 'Обучение приостановлено: оно работает только в режиме «По правилам».',
+  'Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.': 'Включите выше «Применять к импортированным профилям Clash»: активный профиль — профиль Clash.',
+  'Now goes': 'Теперь идёт',
+  'Why': 'Причина',
+  'Learned': 'Изучен',
+  'Through the proxy': 'Через прокси',
+  'Make it one of your rules, kept for good': 'Сделать своим правилом навсегда',
+  'Forget {domain}': 'Забыть {domain}',
+  'Forget all': 'Забыть все',
+  'Nothing learned yet. A site appears here when Kova finds it works only the other way.': 'Пока ничего не изучено. Сайт появится здесь, когда Kova обнаружит, что он работает только другим путём.',
+
   // Site check
   'Baseline': 'Контрольные',
   'Video': 'Видео',

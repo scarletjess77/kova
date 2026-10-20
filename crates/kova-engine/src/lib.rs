@@ -9,6 +9,7 @@ pub mod mihomo_api;
 pub mod process;
 pub mod service;
 pub mod sitecheck;
+pub mod smart;
 pub mod store;
 pub mod sysproxy;
 
