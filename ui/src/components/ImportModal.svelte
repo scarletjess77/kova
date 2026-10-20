@@ -50,7 +50,7 @@
   <div class="seg" role="group" aria-label={t('Import from')}>
     <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>{t('Link')}</button>
     <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>{t('Clipboard')}</button>
-    <button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>
+    {#if !app.mobile}<button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>{/if}
   </div>
 
   {#if tab === 'link'}

@@ -463,6 +463,7 @@ export const ru: Dict = {
   'XTLS/Xray-core · XHTTP, Reality, bridged nodes': 'XTLS/Xray-core · XHTTP, Reality, серверы через мост',
   'MetaCubeX/mihomo · rules, groups, TUN, most protocols': 'MetaCubeX/mihomo · правила, группы, TUN, большинство протоколов',
   'not installed': 'не установлено',
+  'Included with the app and updated together with it.': 'Входят в приложение и обновляются вместе с ним.',
   'Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.': 'Загружаются из официальных релизов на GitHub. Перед установкой Kova проверяет SHA-256 каждого файла.',
   'Launch at sign-in': 'Запускать при входе в систему',
   'Start in the tray': 'Запускать свёрнутой в трей',

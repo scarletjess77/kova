@@ -48,6 +48,8 @@ class AppState {
   toast = $state<string | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   coresVersion = $state(0);
+  /** Running on a phone (Android): no window, tray, system proxy or in-app updates. */
+  mobile = $state(false);
   /** Bumped whenever smart routing learns a site, so lists can reload. */
   learnedVersion = $state(0);
   /** The system's display language, used when the language setting is "system". */
@@ -63,6 +65,7 @@ class AppState {
     this.settings = snap.settings;
     this.profiles = snap.profiles;
     this.dataDir = snap.data_dir;
+    this.mobile = ['android', 'ios'].includes(await api.platform().catch(() => ''));
     this.systemLang = await api.systemLanguage().catch(() => navigator.language);
     this.applyTheme();
     await listen<EngineEvent>('engine', (e) => this.onEvent(e.payload));
@@ -72,7 +75,7 @@ class AppState {
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
     this.ready = true;
     void this.refreshProxies();
-    if (this.settings?.check_updates) setTimeout(() => void this.checkForUpdate(true), 5000);
+    if (this.settings?.check_updates && !this.mobile) setTimeout(() => void this.checkForUpdate(true), 5000);
   }
 
   private onEvent(e: EngineEvent) {

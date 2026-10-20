@@ -282,6 +282,10 @@ pub struct RuntimeOptions {
     /// Where this run's smart routing lives. Set per run when it is on.
     #[serde(skip)]
     pub smart: Option<SmartRuntime>,
+    /// Android: the VPN interface's file descriptor, which the core uses as its TUN
+    /// device instead of creating one. Set per run.
+    #[serde(skip)]
+    pub tun_fd: Option<i32>,
 }
 
 /// Per-run parts of smart routing.
@@ -317,6 +321,7 @@ impl Default for RuntimeOptions {
             tun_exclude: Vec::new(),
             smart_routing: false,
             smart: None,
+            tun_fd: None,
         }
     }
 }

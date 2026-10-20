@@ -165,6 +165,7 @@ export const api = {
   windowAction: (action: 'minimize' | 'maximize' | 'hide') => invoke<void>('window_action', { action }),
   quit: () => invoke<void>('quit'),
   systemLanguage: () => invoke<string>('system_language'),
+  platform: () => invoke<string>('platform'),
   learnedSites: () => invoke<Learned[]>('learned_sites'),
   forgetLearned: (domain: string) => invoke<void>('forget_learned', { domain }),
   keepLearned: (domain: string) => invoke<Settings>('keep_learned', { domain }),

@@ -10,7 +10,9 @@
     "dev": "vite",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json && node scripts/check-i18n.mjs",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "android:cores": "node scripts/android-cores.mjs",
+    "android:build": "node scripts/android-cores.mjs && tauri android build --apk --target aarch64"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

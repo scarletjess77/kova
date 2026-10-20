@@ -39,7 +39,8 @@ fn base(opts: &RuntimeOptions) -> Value {
         "ipv6": opts.ipv6,
         "unified-delay": true,
         "tcp-concurrent": true,
-        "find-process-mode": "always",
+        // Android doesn't let an app see other apps' connections.
+        "find-process-mode": if opts.tun_fd.is_some() { "off" } else { "always" },
         "external-controller": format!("127.0.0.1:{}", opts.controller_port),
         "secret": opts.secret,
         "geodata-mode": true,
@@ -106,6 +107,15 @@ fn tun(opts: &RuntimeOptions) -> Value {
     });
     if !opts.tun_exclude.is_empty() {
         v["route-exclude-address"] = json!(opts.tun_exclude);
+    }
+    if let Some(fd) = opts.tun_fd {
+        // Android: the system made the interface and set its routes and DNS; Kova's own
+        // traffic (the core included) is kept out of it by the VPN itself.
+        v["file-descriptor"] = json!(fd);
+        v["stack"] = json!("gvisor");
+        for k in ["auto-route", "auto-redirect", "auto-detect-interface", "strict-route"] {
+            v[k] = json!(false);
+        }
     }
     v
 }
@@ -433,6 +443,21 @@ rules:
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
         assert!(rules.contains(&"RULE-SET,kova-learned-proxy,Sel"));
         assert_eq!(*rules.last().unwrap(), "MATCH,Sel");
+    }
+
+    #[test]
+    fn android_uses_the_interface_it_is_given() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let mut o = opts();
+        o.tun.enabled = true;
+        o.tun_fd = Some(42);
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert_eq!(doc["tun"]["file-descriptor"], 42);
+        assert_eq!(doc["tun"]["auto-route"], false);
+        assert_eq!(doc["find-process-mode"], "off");
+        let saved: RuntimeOptions = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
+        assert_eq!(saved.tun_fd, None, "a descriptor is never stored");
     }
 
     #[test]

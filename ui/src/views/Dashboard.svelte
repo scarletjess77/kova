@@ -134,6 +134,8 @@
             {/each}
           </div>
         </div>
+        <!-- On a phone the VPN captures everything; there is nothing to choose. -->
+        {#if !app.mobile}
         <div class="fld"><span class="lbl">{t('Capture traffic')}</span>
           <div class="togs">
             <div class="tog"><Icon name="monitor" /><span>{t('System proxy')}<small>{t('Apps that follow the system proxy')}</small></span>
@@ -144,6 +146,7 @@
                 onclick={() => app.saveSettings((x) => (x.core.tun.enabled = !x.core.tun.enabled))}></button></div>
           </div>
         </div>
+        {/if}
       </div>
     {/if}
   </section>

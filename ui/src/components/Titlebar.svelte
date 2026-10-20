@@ -25,11 +25,13 @@
   <div class="spacer" data-tauri-drag-region></div>
   <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" /><span>{t('Donate')}</span></button>
   <button class="tb-btn" onclick={toggleTheme} title={t('Switch theme')} aria-label={t('Switch theme')}><Icon name="moon" /></button>
-  <div class="winctl">
-    <button onclick={() => api.windowAction('minimize')} aria-label={t('Minimize')}><Icon name="min" /></button>
-    <button onclick={() => api.windowAction('maximize')} aria-label={t('Maximize')}><Icon name="max" /></button>
-    <button class="close" onclick={() => api.windowAction('hide')} aria-label={t('Close to tray')} title={t('Close to tray')}><Icon name="x" /></button>
-  </div>
+  {#if !app.mobile}
+    <div class="winctl">
+      <button onclick={() => api.windowAction('minimize')} aria-label={t('Minimize')}><Icon name="min" /></button>
+      <button onclick={() => api.windowAction('maximize')} aria-label={t('Maximize')}><Icon name="max" /></button>
+      <button class="close" onclick={() => api.windowAction('hide')} aria-label={t('Close to tray')} title={t('Close to tray')}><Icon name="x" /></button>
+    </div>
+  {/if}
 </header>
 
 {#if donateOpen}
@@ -50,6 +52,7 @@
   .tb-btn.donate { width: auto; gap: 6px; padding: 0 9px; display: flex; align-items: center; font-size: 12.5px; font-weight: 500; }
   .tb-btn.donate :global(.i) { width: 15px; height: 15px; }
   .winctl { display: flex; height: 100%; }
+  :global(.app.mobile) .titlebar { padding-right: 8px; }
   .winctl button { width: 46px; display: grid; place-items: center; color: var(--muted); border: 0; background: none; }
   .winctl button:hover { background: var(--sunk); }
   .winctl .close:hover { background: #c42b1c; color: #fff; }

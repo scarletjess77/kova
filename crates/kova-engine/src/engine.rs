@@ -169,6 +169,9 @@ pub struct Engine {
     geodata_lock: Mutex<()>,
     /// Sites smart routing learned.
     smart: Arc<crate::smart::Smart>,
+    /// Android: the VPN interface the system opened for Kova. Mihomo reads and writes
+    /// it directly; it stays open across core restarts and is closed on disconnect.
+    tun_fd: std::sync::Mutex<Option<i32>>,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -272,9 +275,24 @@ impl Engine {
             tun_error: RwLock::new(None),
             geodata_lock: Mutex::new(()),
             smart,
+            tun_fd: std::sync::Mutex::new(None),
             events,
             me: me.clone(),
         }))
+    }
+
+    /// Android: hand over the VPN interface to run the core on (see `tun_fd`).
+    pub fn set_tun_fd(&self, fd: Option<i32>) {
+        *self.tun_fd.lock().unwrap() = fd;
+    }
+
+    pub fn has_tun_fd(&self) -> bool {
+        self.tun_fd.lock().unwrap().is_some()
+    }
+
+    /// Android: give the VPN interface back, to be closed.
+    pub fn take_tun_fd(&self) -> Option<i32> {
+        self.tun_fd.lock().unwrap().take()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -343,6 +361,10 @@ impl Engine {
     }
 
     fn apply_system_proxy(&self) -> Result<()> {
+        // Android has no system proxy to set: the VPN captures everything.
+        if cfg!(target_os = "android") {
+            return Ok(());
+        }
         let s = self.settings();
         let marker = self.paths.proxy_marker();
         if s.system_proxy && self.status().running {
@@ -848,7 +870,20 @@ impl Engine {
         // Mihomo in front, with an Xray sidecar for nodes only Xray can run.
         // TUN needs elevated rights. Without them, Mihomo runs inside the Kova service.
         let mut via_service = !quiet && std::env::var_os("KOVA_FORCE_SERVICE").is_some();
-        if opts.tun.enabled && !crate::process::is_elevated() {
+        // Android: TUN is the VPN interface the system gave Kova, which needs no rights.
+        let tun_fd = if quiet { None } else { *self.tun_fd.lock().unwrap() };
+        if cfg!(target_os = "android") {
+            opts.tun.enabled = tun_fd.is_some();
+        }
+        if let Some(fd) = tun_fd {
+            opts.tun.enabled = true;
+            opts.tun_fd = Some(fd);
+            // Let the core inherit the interface.
+            #[cfg(unix)]
+            unsafe {
+                libc::fcntl(fd, libc::F_SETFD, 0);
+            }
+        } else if opts.tun.enabled && !crate::process::is_elevated() {
             if !quiet && crate::service::hello().await.is_some() {
                 via_service = true;
             } else {
@@ -1127,7 +1162,7 @@ impl Engine {
     fn spawn_xray_metrics(&self, port: u16) -> JoinHandle<()> {
         let me = self.me.clone();
         tokio::spawn(async move {
-            let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().expect("client");
+            let http = fetch::builder().no_proxy().timeout(Duration::from_secs(2)).build().expect("client");
             let url = format!("http://127.0.0.1:{port}/debug/vars");
             let (mut last_up, mut last_down) = (None::<u64>, None::<u64>);
             loop {

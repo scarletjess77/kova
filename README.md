@@ -37,6 +37,23 @@ npm run tauri build      # release build and installer
 
 Set `KOVA_DATA_DIR` to keep development data away from your real profile (`dev-data/` is ignored by git). On first launch Kova downloads any missing core.
 
+### Android (early)
+
+The same app runs on Android (arm64, Android 7+) through Tauri: the same interface, laid out for a phone, and the same engine. What differs:
+
+- **The VPN.** Android lets an app capture traffic only through its VpnService. The Kotlin part (`src-tauri/gen/android/app/src/main/java/app/kova/client/`) asks for permission, opens the VPN interface and hands its descriptor to Mihomo, which uses it as its TUN device. Kova's own traffic, the cores' included, is excluded from the VPN so it can reach the servers. There is no system proxy, TUN switch or Kova service on Android; the VPN covers all apps.
+- **The cores ship inside the APK** as `libmihomo.so` and `libxray.so`, because Android only runs programs that come with the app. `npm run android:cores` downloads the Android builds from the official releases and checks their SHA-256; they are updated together with the app.
+- **HTTPS** uses the certificates the device trusts.
+
+Requirements: Android SDK with platform 36 and NDK r28, JDK 17 or 21, and the Rust target `aarch64-linux-android`. With `ANDROID_HOME`, `NDK_HOME` and `JAVA_HOME` set:
+
+```bash
+npm run android:build                      # release APK (sign it before installing)
+npm run android:cores && npx tauri android build --apk --target aarch64 --debug   # debug APK, installable as is
+```
+
+The APK is in `src-tauri/gen/android/app/build/outputs/apk/`.
+
 ## Tests
 
 ```bash
