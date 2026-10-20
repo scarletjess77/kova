@@ -163,6 +163,16 @@ fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<Stri
     ]
 }
 
+/// Kova's own rules (bypass, the user's, presets, learned lists, LAN and catch-all), as
+/// Mihomo names them in its logs. Smart routing never second-guesses these.
+pub fn own_rule_keys(opts: &RuntimeOptions) -> std::collections::HashSet<String> {
+    use crate::smart::{PROVIDERS, rule_key};
+    let mut keys: std::collections::HashSet<String> = opts.rules().iter().chain(opts.tail_rules().iter()).map(|r| rule_key(r.kind.mihomo_name(), &r.value)).collect();
+    keys.extend(opts.bypass_processes.iter().map(|p| rule_key("ProcessName", p)));
+    keys.extend(PROVIDERS.iter().map(|p| rule_key("RuleSet", p)));
+    keys
+}
+
 /// Address of the local Xray bridge for each bridged node.
 pub type Bridges = HashMap<String, u16>;
 
@@ -246,21 +256,33 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     let main = main_group(&doc);
     let known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
+    let mut learned = Vec::new();
     if opts.apply_rules_to_clash_profiles {
         ours.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(&main)));
-        ours.extend(apply_smart(&mut doc, opts, &main));
+        learned = apply_smart(&mut doc, opts, &main);
     }
-    if !ours.is_empty() {
-        let existing = match doc.remove("rules") {
+    if !ours.is_empty() || !learned.is_empty() {
+        let mut existing = match doc.remove("rules") {
             Some(Yaml::Sequence(s)) => s,
             _ => Vec::new(),
         };
         let mut merged: Vec<Yaml> = ours.into_iter().map(Yaml::String).collect();
+        let learned = learned.into_iter().map(Yaml::String);
         if opts.apply_rules_to_clash_profiles && blocked_only(opts) {
             // "Only blocked sites through the proxy": everything after our rules goes
             // direct, so the profile's own catch-all must not run.
+            merged.extend(learned);
             merged.extend(opts.tail_rules().iter().map(|r| Yaml::String(r.to_clash(&main))));
         } else {
+            // Learned from traffic only the catch-all matched, learned sites go right before
+            // it, so the profile's own rules keep deciding everything else. When smart
+            // routing may also correct the profile's rules, they must come first.
+            let catch_all = if opts.smart_profile_rules {
+                0
+            } else {
+                existing.iter().position(|r| r.as_str().is_some_and(|r| r.trim_start().starts_with("MATCH,"))).unwrap_or(existing.len())
+            };
+            existing.splice(catch_all..catch_all, learned);
             merged.extend(existing);
         }
         doc.insert(Yaml::String("rules".into()), Yaml::Sequence(merged));
@@ -393,7 +415,7 @@ mod tests {
         let p = plan(&nodes, CorePreference::Auto);
         let mut o = opts();
         o.presets = vec![Preset::ProxyBlockedRu];
-        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002 });
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, scope: Default::default() });
         let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
         let at = |r: &str| rules.iter().position(|x| x.starts_with(r)).unwrap();
@@ -422,17 +444,41 @@ proxy-groups:
 listeners:
   - {name: mine, type: socks, port: 7000}
 rules:
+  - DOMAIN,mine.example,DIRECT
   - MATCH,Sel
 ";
         let mut o = opts();
-        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002 });
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, scope: Default::default() });
         let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
         let names: Vec<&str> = doc["listeners"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["mine", "kova-probe-direct", "kova-probe-proxy"]);
         assert_eq!(doc["listeners"][2]["proxy"], "Sel");
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
-        assert!(rules.contains(&"RULE-SET,kova-learned-proxy,Sel"));
+        // The profile's own rules still come first; learned sites only precede its catch-all.
+        let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
+        assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("MATCH,Sel"));
+        assert!(at("DOMAIN,mine.example,DIRECT") < at("RULE-SET,kova-learned-direct,DIRECT"));
         assert_eq!(*rules.last().unwrap(), "MATCH,Sel");
+
+        // Allowed to correct the profile's rules: learned sites come before them.
+        o.smart_profile_rules = true;
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
+        assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("DOMAIN,mine.example,DIRECT"));
+    }
+
+    #[test]
+    fn own_rules_are_named_as_mihomo_logs_them() {
+        let mut o = opts();
+        o.presets = vec![Preset::DirectRu];
+        o.custom_rules = vec![Rule { kind: RuleKind::DomainSuffix, value: "example.org".into(), target: PROXY.into() }];
+        o.bypass_processes = vec!["xray.exe".into()];
+        let keys = own_rule_keys(&o);
+        for k in ["GeoSite(category-ru)", "GeoIP(RU)", "DomainSuffix(example.org)", "IPCIDR(10.0.0.0/8)", "Match", "ProcessName(xray.exe)", "RuleSet(kova-learned-proxy)"] {
+            assert!(keys.contains(k), "{k} missing from {keys:?}");
+        }
+        assert!(!keys.contains("GeoSite(category-games)"));
     }
 
     #[test]

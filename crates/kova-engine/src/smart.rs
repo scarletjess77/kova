@@ -95,7 +95,11 @@ impl Smart {
 
 async fn serve(listener: TcpListener, token: String, smart: std::sync::Weak<Smart>) {
     loop {
-        let Ok((mut sock, _)) = listener.accept().await else { continue };
+        let Ok((mut sock, _)) = listener.accept().await else {
+            // Out of descriptors or similar: wait instead of spinning.
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            continue;
+        };
         let Some(smart) = smart.upgrade() else { return };
         let token = token.clone();
         tokio::spawn(async move {
@@ -156,27 +160,45 @@ struct Suspect {
     dial_failed: bool,
 }
 
+/// Direct HTTPS connections the log reported opening, by host, with when: those that
+/// never get an answer are checked (see `watch_connections`).
+type Opened = Arc<Mutex<HashMap<String, Instant>>>;
+
 /// Watch, check and learn for as long as the connection runs. Aborting the task stops
 /// everything it started.
 pub async fn learn(smart: Arc<Smart>, api: Mihomo, ports: SmartRuntime, hooks: Hooks) {
     refresh(&api).await;
     let hooks = Arc::new(hooks);
+    let scope = Arc::new(ports.scope.clone());
+    let opened: Opened = Default::default();
     let (tx, rx) = mpsc::channel(256);
-    tokio::join!(watch_logs(api.clone(), tx.clone()), watch_connections(api.clone(), tx, hooks.clone()), check(smart, api, ports, hooks, rx));
+    tokio::join!(
+        watch_logs(api.clone(), tx.clone(), scope.clone(), opened.clone()),
+        watch_connections(api.clone(), tx, hooks.clone(), scope, opened),
+        check(smart, api, ports, hooks, rx)
+    );
 }
 
-/// Mihomo reports a connection it could not open as a warning. Subscribing through the
-/// controller gets these whatever log level the user chose.
-async fn watch_logs(api: Mihomo, tx: mpsc::Sender<Suspect>) {
+/// Mihomo logs every connection it opens, with the rule that chose its route, and
+/// warns about each it could not open. Subscribing through the controller gets these
+/// whatever log level the user chose.
+async fn watch_logs(api: Mihomo, tx: mpsc::Sender<Suspect>, scope: Arc<smart::Scope>, opened: Opened) {
     loop {
         let _ = api
-            .stream("/logs?level=warning", |v| {
-                if let Some(f) = v["payload"].as_str().and_then(smart::parse_dial_failure) {
-                    // Only traffic no rule chose a route for: a rule the user or a
-                    // preset set on purpose is never second-guessed.
-                    if f.catch_all {
+            .stream("/logs?level=info", |v| {
+                let line = v["payload"].as_str().unwrap_or_default();
+                // Only routes no rule chose on purpose: the user's rules and presets
+                // are never second-guessed, a subscription's only when allowed.
+                if let Some(f) = smart::parse_dial_failure(line) {
+                    if scope.covers(&f.rule) {
                         let failed = if f.direct { Route::Direct } else { Route::Proxy };
                         let _ = tx.try_send(Suspect { host: f.host, port: f.port, failed, dial_failed: true });
+                    }
+                } else if let Some(o) = smart::parse_opened(line) {
+                    // Blocking often lets the connection open and resets it right after
+                    // the greeting: too quick to ever show among open connections.
+                    if o.direct && o.port == 443 && scope.covers(&o.rule) {
+                        opened.lock().unwrap().entry(o.host).or_insert_with(Instant::now);
                     }
                 }
                 !tx.is_closed()
@@ -189,26 +211,38 @@ async fn watch_logs(api: Mihomo, tx: mpsc::Sender<Suspect>) {
     }
 }
 
-/// Blocking that drops packets instead of refusing them leaves a direct connection
-/// open with the greeting sent and nothing ever coming back.
-async fn watch_connections(api: Mihomo, tx: mpsc::Sender<Suspect>, hooks: Arc<Hooks>) {
+/// Two ways blocking shows among direct HTTPS connections:
+/// - dropped packets: the connection stays open, greeting sent, nothing ever back;
+/// - a reset right after the greeting: the connection was opened (the log said so) but
+///   gone before it got an answer, so the host is never seen receiving anything.
+///
+/// A site that works has connections that receive data, so it's left alone.
+async fn watch_connections(api: Mihomo, tx: mpsc::Sender<Suspect>, hooks: Arc<Hooks>, scope: Arc<smart::Scope>, opened: Opened) {
     const SILENT_FOR: Duration = Duration::from_secs(5);
+    const ANSWER_WITHIN: Duration = Duration::from_secs(6);
     let mut first_seen: HashMap<String, Instant> = HashMap::new();
     let mut reported: HashSet<String> = HashSet::new();
+    let mut answered: HashMap<String, Instant> = HashMap::new();
     loop {
-        tokio::time::sleep(Duration::from_millis(1500)).await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
         if tx.is_closed() {
             return;
         }
         if !(hooks.active)() {
+            opened.lock().unwrap().clear();
             continue;
         }
         let Ok(snap) = api.connections().await else { continue };
         let open: HashSet<&str> = snap.connections.iter().map(|c| c.id.as_str()).collect();
         first_seen.retain(|id, _| open.contains(id.as_str()));
         reported.retain(|id| open.contains(id.as_str()));
+        answered.retain(|_, t| t.elapsed() < Duration::from_secs(120));
         for c in &snap.connections {
-            let silent = c.network == "TCP" && c.port == "443" && c.rule == "Match" && c.chains.last().is_some_and(|x| x == "DIRECT") && c.upload > 0 && c.download == 0;
+            if c.download > 0 {
+                answered.insert(c.host.clone(), Instant::now());
+            }
+            let direct = c.network == "TCP" && c.port == "443" && c.chains.last().is_some_and(|x| x == "DIRECT");
+            let silent = direct && scope.covers(&api_rule_key(&c.rule)) && c.upload > 0 && c.download == 0;
             if !silent {
                 continue;
             }
@@ -217,10 +251,31 @@ async fn watch_connections(api: Mihomo, tx: mpsc::Sender<Suspect>, hooks: Arc<Ho
                 let _ = tx.try_send(Suspect { host: c.host.clone(), port: 443, failed: Route::Direct, dial_failed: false });
             }
         }
+        // Opened a while ago and still nothing received for that host: check it.
+        let due: Vec<String> = {
+            let mut o = opened.lock().unwrap();
+            let due = o.iter().filter(|(_, t)| t.elapsed() >= ANSWER_WITHIN).map(|(h, _)| h.clone()).collect::<Vec<_>>();
+            o.retain(|_, t| t.elapsed() < ANSWER_WITHIN);
+            due
+        };
+        for host in due.into_iter().filter(|h| !answered.contains_key(h)) {
+            let _ = tx.try_send(Suspect { host, port: 443, failed: Route::Direct, dial_failed: false });
+        }
     }
 }
 
-const RECHECK_AFTER: Duration = Duration::from_secs(600);
+/// The controller shows a connection's rule as `GeoSite category-games`; the log, as
+/// `GeoSite(category-games)`.
+fn api_rule_key(rule: &str) -> String {
+    match rule.split_once(' ') {
+        Some((kind, payload)) => smart::rule_key(kind, payload),
+        None => rule.to_string(),
+    }
+}
+
+/// A host checked once isn't checked again for this long, whatever the result: sites
+/// that work keep opening short connections, and each would cost a check.
+const RECHECK_AFTER: Duration = Duration::from_secs(1800);
 
 async fn check(smart: Arc<Smart>, api: Mihomo, ports: SmartRuntime, hooks: Arc<Hooks>, mut rx: mpsc::Receiver<Suspect>) {
     let mut checked: HashMap<String, Instant> = HashMap::new();
@@ -254,6 +309,10 @@ async fn check(smart: Arc<Smart>, api: Mihomo, ports: SmartRuntime, hooks: Arc<H
         let (smart, api, ports, hooks, health) = (smart.clone(), api.clone(), ports.clone(), hooks.clone(), health.clone());
         running.spawn(async move {
             let Some(reason) = confirm(&target, s.failed, &ports, &health).await else { return };
+            // The check takes a while; smart routing may have been turned off meanwhile.
+            if !(hooks.active)() {
+                return;
+            }
             let route = match s.failed {
                 Route::Direct => Route::Proxy,
                 Route::Proxy => Route::Direct,
@@ -424,7 +483,7 @@ Connection: close
     }
 
     async fn ports(direct: &'static [&'static str], proxy: &'static [&'static str]) -> SmartRuntime {
-        SmartRuntime { lists_url: String::new(), direct_port: fake_path(direct).await, proxy_port: fake_path(proxy).await }
+        SmartRuntime { lists_url: String::new(), direct_port: fake_path(direct).await, proxy_port: fake_path(proxy).await, scope: Default::default() }
     }
 
     #[tokio::test]

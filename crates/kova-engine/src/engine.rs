@@ -892,7 +892,10 @@ impl Engine {
         // them only when the user applies them.
         if !quiet && opts.smart_routing && (profile.format != Format::Clash || opts.apply_rules_to_clash_profiles) {
             let lists_url = self.smart.lists_url().await?;
-            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port() });
+            // A subscription's own rules exist only in an imported Clash profile.
+            let profile_rules = opts.smart_profile_rules && profile.format == Format::Clash;
+            let scope = kova_core::smart::Scope { own_rules: gen_mihomo::own_rule_keys(&opts), profile_rules };
+            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port(), scope });
         }
         let home = run_dir.join("mihomo");
         std::fs::create_dir_all(&home)?;

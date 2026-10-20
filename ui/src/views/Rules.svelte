@@ -255,6 +255,14 @@
     {:else if s.core.smart_routing && isClash && !s.core.apply_rules_to_clash_profiles}
       <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
     {/if}
+    {#if s.core.smart_routing && isClash}
+      <div class="row-sw profile-rules">
+        <div><div class="t">{t('Also correct the subscription’s rules')}</div>
+          <div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div></div>
+        <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
+          onclick={() => app.saveSettings((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
+      </div>
+    {/if}
     {#if learned.length}
       <div class="twrap list">
         <table>
@@ -308,6 +316,7 @@
   .apply { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   .order { margin-top: 14px; }
   .smart { margin-top: 12px; }
+  .profile-rules { margin: 4px 0 6px; }
   .smart .card-h { gap: 8px; }
   .aside-sw { margin-left: auto; }
   .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }

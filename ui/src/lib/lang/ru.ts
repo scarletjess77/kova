@@ -332,6 +332,9 @@ export const ru: Dict = {
   '{domain} moved to your rules': '{domain} перенесён в ваши правила',
   'Learned sites cleared': 'Список изученных сайтов очищен',
   'Smart routing': 'Умная маршрутизация',
+  'Also correct the subscription’s rules': 'Исправлять и правила подписки',
+  'By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.':
+    'Обычно изучаются только сайты, для которых ни одно правило не выбрало путь. С этим параметром Kova исправляет и сайты, которые правила самой подписки отправляют не туда, — например, список игр, отправленный напрямую, где он заблокирован. Ваши правила и наборы не меняются никогда.',
   'Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.':
     'Kova замечает сайты, которые не открываются обычным путём, проверяет их напрямую и через прокси и направляет туда, где они работают: заблокированные — через прокси, а не пускающие через прокси — напрямую. В режиме TUN изучаются и приложения, которые подключаются по IP-адресу. Изученные сайты хранятся 30 дней.',
   'In TUN mode Kova needs site names: turn on Sniff domains or Fake-IP in Settings, otherwise it can only learn IP addresses.':
