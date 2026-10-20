@@ -69,12 +69,12 @@ input, textarea, .selectable { user-select: text; }
 
 /* ---------- controls ---------- */
 .btn { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--panel); font-weight: 500; font-size: 13px; white-space: nowrap; }
-.btn:hover:not(:disabled) { border-color: var(--faint); }
+@media (hover: hover) { .btn:hover:not(:disabled) { border-color: var(--faint); } }
 .btn:disabled { opacity: .5; cursor: default; }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-.btn.primary:hover:not(:disabled) { filter: brightness(.92); }
+@media (hover: hover) { .btn.primary:hover:not(:disabled) { filter: brightness(.92); } }
 .btn.ghost { border-color: transparent; background: none; color: var(--muted); }
-.btn.ghost:hover:not(:disabled) { background: var(--sunk); color: var(--fg); }
+@media (hover: hover) { .btn.ghost:hover:not(:disabled) { background: var(--sunk); color: var(--fg); } }
 .btn.danger { color: var(--bad); }
 .btn .i { width: 16px; height: 16px; }
 .btn.busy .i { animation: spin .8s linear infinite; }
@@ -140,7 +140,7 @@ table { border-collapse: collapse; width: 100%; font-size: 13px; }
 th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; background: var(--panel); position: sticky; top: 0; z-index: 1; }
 td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
-tbody tr:hover td { background: var(--sunk); }
+@media (hover: hover) { tbody tr:hover td { background: var(--sunk); } }
 td.r, th.r { text-align: right; }
 .rt { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); }
 .pol { font-size: 12px; font-weight: 500; }
@@ -148,7 +148,7 @@ td.r, th.r { text-align: right; }
 .pol.reject { color: var(--bad); }
 .pol.proxy { color: var(--fg); }
 .x { border: 0; background: none; color: var(--faint); width: 24px; height: 24px; border-radius: 6px; display: grid; place-items: center; flex: none; }
-.x:hover { background: var(--bad-soft); color: var(--bad); }
+@media (hover: hover) { .x:hover { background: var(--bad-soft); color: var(--bad); } }
 .x .i { width: 14px; height: 14px; }
 .up { color: var(--upload); }
 .dn { color: var(--fg); }

@@ -49,7 +49,7 @@
   .side { border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; min-height: 0; overflow: auto; }
   .nav { display: flex; flex-direction: column; gap: 2px; }
   .nav button { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
-  .nav button:hover { background: var(--sunk); color: var(--fg); }
+  @media (hover: hover) { .nav button:hover { background: var(--sunk); color: var(--fg); } }
   .nav button[aria-current='page'] { background: var(--accent-soft); color: var(--fg); }
   .badge { margin-left: auto; font: 500 11px var(--f-mono); color: var(--faint); }
   .update { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--accent-soft); color: var(--fg); font-size: 12.5px; font-weight: 500; text-align: left; }

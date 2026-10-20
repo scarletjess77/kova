@@ -357,7 +357,14 @@ async fn exit_info(engine: Eng<'_>) -> R<ExitInfo> {
             return Ok(ExitInfo { ip: s("ip"), country: s("country"), country_code: s("country_code"), city: s("city"), network: net });
         }
     }
-    let v: serde_json::Value = c.get("https://ipinfo.io/json").send().await?.json().await?;
+    let second = async { c.get("https://ipinfo.io/json").send().await?.json::<serde_json::Value>().await };
+    let v = second.await.map_err(|e| {
+        let mut why = kova_engine::fetch::describe(&e);
+        if let Some(n) = kova_engine::fetch::trusted_certificates() {
+            why.push_str(&format!(" ({n} trusted certificates on this device)"));
+        }
+        Error::Other(why)
+    })?;
     let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
     Ok(ExitInfo { ip: s("ip"), country: s("country"), country_code: s("country"), city: s("city"), network: s("org") })
 }
