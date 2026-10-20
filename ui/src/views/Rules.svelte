@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import type { Preset, Rule, RuleKind } from '../lib/api';
+  import { api, type Learned, type Preset, type Rule, type RuleKind } from '../lib/api';
+  import { fmtAgo } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
@@ -155,6 +156,28 @@
     }
   }
 
+  // Smart routing
+  let learned = $state<Learned[]>([]);
+  const loadLearned = async () => { learned = (await app.run(() => api.learnedSites())) ?? learned; };
+  $effect(() => { void app.learnedVersion; void loadLearned(); });
+  let REASON = $derived<Record<string, string>>({
+    timeout: t('no answer'), reset: t('connection reset'), tls: t('secure connection broken'), dns: t('name not resolved'),
+    'connect-failed': t('could not connect'), refused: t('access refused'),
+  });
+  async function forget(domain: string) {
+    await app.run(() => api.forgetLearned(domain), t('{domain} forgotten', { domain }));
+    await loadLearned();
+  }
+  async function keep(domain: string) {
+    const saved = await app.run(() => api.keepLearned(domain), t('{domain} moved to your rules', { domain }));
+    if (saved) app.settings = saved;
+    await loadLearned();
+  }
+  async function clearAll() {
+    await app.run(() => api.clearLearned(), t('Learned sites cleared'));
+    await loadLearned();
+  }
+
   const remove = (i: number) => app.saveSettings((x) => (x.core.custom_rules = x.core.custom_rules.filter((_, k) => k !== i)));
   const polClass = (t: string) => (t === 'DIRECT' ? 'direct' : t === 'REJECT' ? 'reject' : 'proxy');
 </script>
@@ -220,6 +243,42 @@
     </div>
   </section>
 
+  <section class="card smart">
+    <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">alpha</span>
+      <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
+        onclick={() => app.saveSettings((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
+    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. Learned sites are kept for 30 days.')}</p>
+    {#if s.core.smart_routing && s.core.mode !== 'rule'}
+      <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
+    {:else if s.core.smart_routing && isClash && !s.core.apply_rules_to_clash_profiles}
+      <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
+    {/if}
+    {#if learned.length}
+      <div class="twrap list">
+        <table>
+          <thead><tr><th>{t('Site')}</th><th>{t('Now goes')}</th><th>{t('Why')}</th><th>{t('Learned')}</th><th></th></tr></thead>
+          <tbody>
+            {#each learned as l (l.domain)}
+              <tr>
+                <td class="mono small selectable">{l.domain}</td>
+                <td><span class="pol {l.route === 'proxy' ? 'proxy' : 'direct'}">{l.route === 'proxy' ? t('Through the proxy') : t('Direct')}</span></td>
+                <td class="muted">{REASON[l.reason] ?? l.reason}</td>
+                <td class="muted">{fmtAgo(l.learned_at)}</td>
+                <td class="r"><div class="ops">
+                  <button class="btn ghost small-btn" onclick={() => keep(l.domain)} title={t('Make it one of your rules, kept for good')}>{t('Keep')}</button>
+                  <button class="x" onclick={() => forget(l.domain)} aria-label={t('Forget {domain}', { domain: l.domain })}><Icon name="x" /></button>
+                </div></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      <div class="actions gap"><button class="btn ghost danger" onclick={clearAll}>{t('Forget all')}</button></div>
+    {:else if s.core.smart_routing}
+      <p class="hint">{t('Nothing learned yet. A site appears here when Kova finds it works only the other way.')}</p>
+    {/if}
+  </section>
+
   <p class="hint order">{t('Order: your rules → presets → local network goes direct → everything else uses')} <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. {t('Global and Direct modes skip rules entirely.')}</p>
 {/if}
 
@@ -246,5 +305,11 @@
   .hint :global(.inline-grip) { width: 13px; height: 13px; stroke-width: 3; vertical-align: -2px; }
   .apply { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   .order { margin-top: 14px; }
+  .smart { margin-top: 12px; }
+  .smart .card-h { gap: 8px; }
+  .aside-sw { margin-left: auto; }
+  .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
+  .small-btn { height: 26px; padding: 0 9px; font-size: 12px; }
+  .gap { margin-top: 10px; }
   .order b { color: var(--fg); font-weight: 600; }
 </style>

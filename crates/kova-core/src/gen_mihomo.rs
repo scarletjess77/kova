@@ -123,6 +123,37 @@ fn blocked_only(opts: &RuntimeOptions) -> bool {
     opts.presets.contains(&Preset::ProxyBlockedRu)
 }
 
+/// Smart routing's rule lists and probe ports, added to the config when it is on.
+/// Learned sites come right after the user's rules and presets: they were learned
+/// from traffic that only the catch-all matched, so they never override a rule.
+fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<String> {
+    use crate::smart::{PROVIDER_DIRECT, PROVIDER_PROXY};
+    let Some(sm) = &opts.smart else { return Vec::new() };
+    let to_yaml = |v: Value| serde_yaml_ng::to_value(v).expect("json to yaml");
+    let provider = |name: &str| {
+        // Fetched from Kova over loopback and refreshed through the controller whenever
+        // a site is learned; `interval: 0` keeps Mihomo from polling on its own.
+        to_yaml(json!({ "type": "http", "behavior": "domain", "format": "text", "url": format!("{}{name}.txt", sm.lists_url), "path": format!("./{name}.txt"), "interval": 0 }))
+    };
+    let mut providers = match doc.remove("rule-providers") {
+        Some(Yaml::Mapping(m)) => m,
+        _ => Mapping::new(),
+    };
+    providers.insert(Yaml::String(PROVIDER_PROXY.into()), provider(PROVIDER_PROXY));
+    providers.insert(Yaml::String(PROVIDER_DIRECT.into()), provider(PROVIDER_DIRECT));
+    doc.insert(Yaml::String("rule-providers".into()), Yaml::Mapping(providers));
+
+    let mut listeners = match doc.remove("listeners") {
+        Some(Yaml::Sequence(s)) => s,
+        _ => Vec::new(),
+    };
+    for (name, port, proxy) in [("kova-probe-direct", sm.direct_port, "DIRECT"), ("kova-probe-proxy", sm.proxy_port, main)] {
+        listeners.push(to_yaml(json!({ "name": name, "type": "mixed", "listen": "127.0.0.1", "port": port, "udp": false, "proxy": proxy })));
+    }
+    doc.insert(Yaml::String("listeners".into()), Yaml::Sequence(listeners));
+    vec![format!("RULE-SET,{PROVIDER_DIRECT},DIRECT"), format!("RULE-SET,{PROVIDER_PROXY},{main}")]
+}
+
 /// Address of the local Xray bridge for each bridged node.
 pub type Bridges = HashMap<String, u16>;
 
@@ -155,7 +186,6 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     let known: HashSet<&str> = names.iter().map(String::as_str).chain([AUTO, FALLBACK]).collect();
     let mut rules = bypass_rules(opts);
     rules.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(PROXY)));
-    rules.extend(opts.tail_rules().iter().map(|r| r.to_clash(PROXY)));
 
     let mut doc = base(opts);
     doc["sniffer"] = if opts.sniff { sniffer() } else { json!({ "enable": false }) };
@@ -163,7 +193,10 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     doc["tun"] = tun(opts);
     doc["proxies"] = Value::Array(proxies);
     doc["proxy-groups"] = groups;
-    doc["rules"] = json!(rules);
+    let mut doc: Mapping = serde_yaml_ng::from_value(serde_yaml_ng::to_value(doc).expect("json to yaml")).expect("an object");
+    rules.extend(apply_smart(&mut doc, opts, PROXY));
+    rules.extend(opts.tail_rules().iter().map(|r| r.to_clash(PROXY)));
+    doc.insert(Yaml::String("rules".into()), serde_yaml_ng::to_value(rules).expect("strings"));
     serde_yaml_ng::to_string(&doc).expect("JSON values always serialise to YAML")
 }
 
@@ -206,6 +239,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     let mut ours: Vec<String> = bypass_rules(opts);
     if opts.apply_rules_to_clash_profiles {
         ours.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(&main)));
+        ours.extend(apply_smart(&mut doc, opts, &main));
     }
     if !ours.is_empty() {
         let existing = match doc.remove("rules") {
@@ -342,6 +376,51 @@ mod tests {
         assert_eq!(rules[0], "GEOSITE,ru-blocked,Sel");
         assert_eq!(*rules.last().unwrap(), "MATCH,DIRECT");
         assert!(!rules.contains(&"MATCH,Sel"));
+    }
+
+    #[test]
+    fn smart_routing_lists_come_before_the_catch_all() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let mut o = opts();
+        o.presets = vec![Preset::ProxyBlockedRu];
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002 });
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        let at = |r: &str| rules.iter().position(|x| x.starts_with(r)).unwrap();
+        assert!(at("GEOSITE,ru-blocked") < at("RULE-SET,kova-learned-direct,DIRECT"));
+        assert!(at("RULE-SET,kova-learned-proxy,Proxy") < at("GEOSITE,private"));
+        assert_eq!(*rules.last().unwrap(), "MATCH,DIRECT");
+        assert_eq!(doc["rule-providers"]["kova-learned-proxy"]["url"], "http://127.0.0.1:5000/t/kova-learned-proxy.txt");
+        assert_eq!(doc["listeners"][0]["proxy"], "DIRECT");
+        assert_eq!(doc["listeners"][1]["proxy"], "Proxy");
+        assert_eq!(doc["listeners"][1]["listen"], "127.0.0.1");
+
+        o.smart = None;
+        let plain: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert!(plain["rule-providers"].is_null() && plain["listeners"].is_null());
+    }
+
+    #[test]
+    fn smart_routing_keeps_a_clash_profiles_own_listeners() {
+        let raw = "proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+listeners:
+  - {name: mine, type: socks, port: 7000}
+rules:
+  - MATCH,Sel
+";
+        let mut o = opts();
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002 });
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let names: Vec<&str> = doc["listeners"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["mine", "kova-probe-direct", "kova-probe-proxy"]);
+        assert_eq!(doc["listeners"][2]["proxy"], "Sel");
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        assert!(rules.contains(&"RULE-SET,kova-learned-proxy,Sel"));
+        assert_eq!(*rules.last().unwrap(), "MATCH,Sel");
     }
 
     #[test]

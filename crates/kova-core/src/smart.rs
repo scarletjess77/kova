@@ -1,0 +1,153 @@
+//! Smart routing: sites Kova learned to route differently because the usual path fails.
+//! A site blocked on the direct path goes through the proxy; a site that refuses the
+//! proxy goes direct. This module is the pure part: reading what Mihomo reports and
+//! keeping the learned list. The engine watches, probes and applies.
+
+use serde::{Deserialize, Serialize};
+
+/// Mihomo rule providers holding the learned sites, one per route.
+pub const PROVIDER_PROXY: &str = "kova-learned-proxy";
+pub const PROVIDER_DIRECT: &str = "kova-learned-direct";
+
+/// A learned site is forgotten after this long unless it is learned again.
+pub const MAX_AGE_SECS: i64 = 30 * 86_400;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Route {
+    Proxy,
+    Direct,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Learned {
+    /// The rule covers this domain and its subdomains.
+    pub domain: String,
+    pub route: Route,
+    /// How the usual path failed: a site-check outcome such as "reset" or "timeout".
+    pub reason: String,
+    /// Unix seconds it was last learned.
+    pub learned_at: i64,
+}
+
+/// A connection Mihomo could not open, from its "dial ... error" warning.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DialFailure {
+    /// The connection was to go direct (otherwise through a proxy or group).
+    pub direct: bool,
+    /// It matched the catch-all rule, i.e. no rule chose its route on purpose.
+    pub catch_all: bool,
+    pub host: String,
+    pub port: u16,
+}
+
+/// Read a Mihomo warning such as
+/// `[TCP] dial DIRECT (match Match/) 127.0.0.1:50812(chrome.exe) --> example.org:443 error: i/o timeout`.
+pub fn parse_dial_failure(line: &str) -> Option<DialFailure> {
+    let rest = line.strip_prefix("[TCP] dial ")?;
+    let (proxy, rest) = rest.split_once(" (match ")?;
+    let (rule, rest) = rest.split_once(") ")?;
+    let (_source, rest) = rest.split_once(" --> ")?;
+    let (dest, _error) = rest.split_once(" error: ")?;
+    let (host, port) = dest.rsplit_once(':')?;
+    if proxy == "REJECT" || proxy.starts_with("REJECT-") {
+        return None;
+    }
+    Some(DialFailure { direct: proxy == "DIRECT", catch_all: rule.starts_with("Match/"), host: host.to_string(), port: port.parse().ok()? })
+}
+
+/// The domain a rule should cover for `host`: its registrable domain, so that
+/// `rr3---sn-abc.googlevideo.com` gives `googlevideo.com` while `someone.github.io`
+/// stays itself. `None` for IP addresses and names that are not public.
+pub fn rule_domain(host: &str) -> Option<String> {
+    let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
+    if host.parse::<std::net::IpAddr>().is_ok() || host.starts_with('[') || !host.contains('.') {
+        return None;
+    }
+    let d = psl::domain(host.as_bytes())?;
+    if !d.suffix().is_known() {
+        return None;
+    }
+    std::str::from_utf8(d.as_bytes()).ok().map(String::from)
+}
+
+/// Whether `host` is `domain` or one of its subdomains.
+pub fn covers(domain: &str, host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == domain || host.strip_suffix(domain).is_some_and(|rest| rest.ends_with('.'))
+}
+
+/// Add a site, or refresh it if it is already known (possibly with the other route).
+pub fn upsert(list: &mut Vec<Learned>, item: Learned) {
+    list.retain(|l| l.domain != item.domain);
+    list.push(item);
+}
+
+/// Drop sites learned longer ago than [`MAX_AGE_SECS`]. Returns whether any went.
+pub fn prune(list: &mut Vec<Learned>, now: i64) -> bool {
+    let before = list.len();
+    list.retain(|l| now - l.learned_at < MAX_AGE_SECS);
+    list.len() != before
+}
+
+/// One route's sites as a Mihomo rule list (text format, domain behaviour). It always
+/// has a line, because Mihomo rejects an empty list.
+pub fn provider_text(list: &[Learned], route: Route) -> String {
+    let mut out = String::from("+.kova-learned.invalid\n");
+    for l in list.iter().filter(|l| l.route == route) {
+        out.push_str("+.");
+        out.push_str(&l.domain);
+        out.push('\n');
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_direct_and_proxy_dial_failures() {
+        let d = parse_dial_failure("[TCP] dial DIRECT (match Match/) 127.0.0.1:50812(chrome.exe) --> rutracker.org:443 error: dial tcp 1.2.3.4:443: i/o timeout").unwrap();
+        assert_eq!(d, DialFailure { direct: true, catch_all: true, host: "rutracker.org".into(), port: 443 });
+
+        let p = parse_dial_failure("[TCP] dial 🚀 Proxy (match GeoSite/ru-blocked) 198.18.0.1:6000(Code Helper.exe) --> x.com:443 error: EOF").unwrap();
+        assert!(!p.direct && !p.catch_all);
+        assert_eq!(p.host, "x.com");
+
+        assert!(parse_dial_failure("[TCP] dial REJECT (match GeoSite/category-ads-all) a --> ads.example:443 error: x").is_none());
+        assert!(parse_dial_failure("[UDP] dial DIRECT (match Match/) a --> b.com:443 error: x").is_none());
+        assert!(parse_dial_failure("[TCP] 127.0.0.1:1 --> b.com:443 match Match using DIRECT").is_none());
+    }
+
+    #[test]
+    fn rules_cover_the_registrable_domain() {
+        assert_eq!(rule_domain("rr3---sn-abc.googlevideo.com").as_deref(), Some("googlevideo.com"));
+        assert_eq!(rule_domain("WWW.BBC.CO.UK.").as_deref(), Some("bbc.co.uk"));
+        assert_eq!(rule_domain("someone.github.io").as_deref(), Some("someone.github.io"));
+        assert_eq!(rule_domain("rutracker.org").as_deref(), Some("rutracker.org"));
+        for not_public in ["1.2.3.4", "[2001:db8::1]", "2001:db8::1", "localhost", "printer.local", "nas.lan", "github.io"] {
+            assert_eq!(rule_domain(not_public), None, "{not_public}");
+        }
+    }
+
+    #[test]
+    fn covers_subdomains_only() {
+        assert!(covers("example.org", "example.org"));
+        assert!(covers("example.org", "cdn.example.org."));
+        assert!(!covers("example.org", "badexample.org"));
+    }
+
+    #[test]
+    fn keeps_one_entry_per_domain_and_expires_old_ones() {
+        let mut list = Vec::new();
+        upsert(&mut list, Learned { domain: "a.com".into(), route: Route::Proxy, reason: "reset".into(), learned_at: 0 });
+        upsert(&mut list, Learned { domain: "a.com".into(), route: Route::Direct, reason: "refused".into(), learned_at: 10 });
+        upsert(&mut list, Learned { domain: "b.com".into(), route: Route::Proxy, reason: "timeout".into(), learned_at: 20 });
+        assert_eq!(list.len(), 2);
+        assert_eq!(provider_text(&list, Route::Proxy), "+.kova-learned.invalid\n+.b.com\n");
+        assert_eq!(provider_text(&list, Route::Direct), "+.kova-learned.invalid\n+.a.com\n");
+        assert!(prune(&mut list, MAX_AGE_SECS + 15));
+        assert_eq!(list.iter().map(|l| l.domain.as_str()).collect::<Vec<_>>(), ["b.com"]);
+    }
+}

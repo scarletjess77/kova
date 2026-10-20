@@ -46,6 +46,28 @@ fn system_language() -> String {
 }
 
 #[tauri::command]
+fn learned_sites(engine: Eng) -> Vec<kova_core::smart::Learned> {
+    engine.learned_sites()
+}
+
+#[tauri::command]
+async fn forget_learned(engine: Eng<'_>, domain: String) -> R<()> {
+    engine.forget_learned(&domain).await
+}
+
+#[tauri::command]
+async fn keep_learned(app: AppHandle, engine: Eng<'_>, domain: String) -> R<Settings> {
+    engine.keep_learned(&domain).await?;
+    refresh_tray(&app);
+    Ok(engine.settings())
+}
+
+#[tauri::command]
+async fn clear_learned(engine: Eng<'_>) -> R<()> {
+    engine.clear_learned().await
+}
+
+#[tauri::command]
 async fn connect(engine: Eng<'_>) -> R<()> {
     engine.start().await
 }
@@ -530,6 +552,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_state,
             system_language,
+            learned_sites,
+            forget_learned,
+            keep_learned,
+            clear_learned,
             connect,
             disconnect,
             save_settings,

@@ -229,6 +229,12 @@ impl Mihomo {
         Ok(())
     }
 
+    /// Make Mihomo fetch a rule provider again.
+    pub async fn update_rule_provider(&self, name: &str) -> Result<(), Error> {
+        self.req(&self.http, reqwest::Method::PUT, &format!("/providers/rules/{}", seg(name))).send().await?.error_for_status()?;
+        Ok(())
+    }
+
     pub async fn set_mode(&self, mode: kova_core::options::Mode) -> Result<(), Error> {
         self.req(&self.http, reqwest::Method::PATCH, "/configs").json(&serde_json::json!({ "mode": mode })).send().await?.error_for_status()?;
         Ok(())

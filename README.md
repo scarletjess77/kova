@@ -92,6 +92,18 @@ https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/
 
 You can also drop your own files into `cores`. They are used until the next scheduled update replaces them; to keep them, pick a source whose files you control.
 
+## Smart routing (alpha)
+
+Rules → **Smart routing**, off by default. Kova learns sites that fail on their usual path and routes them the other way: a site that is blocked when going direct goes through the proxy, and a site that refuses the proxy (one that blocks foreign IPs) goes direct. It complements the routing presets: the lists cover known blocks, smart routing catches new ones, blocks of one ISP, and the extra domains a blocked site loads.
+
+How it decides, in Rule mode with Mihomo in front:
+
+1. **Suspects.** Mihomo reports every connection it could not open; Kova reads these warnings through the controller, whatever the log level. It also flags a direct HTTPS connection that sent its greeting and got nothing back for 5 seconds, which is how blocking that drops packets looks. Only connections that reached the catch-all rule count: a rule chosen on purpose, the user's or a preset's, is never second-guessed.
+2. **Check.** Mihomo gets two extra loopback ports that ignore the rules, one always direct and one always through the main group. Kova fetches the site both ways. It is learned only if the usual path fails twice, the other path works, and both paths can reach a known-good site (otherwise the internet or the proxy is simply down).
+3. **Apply.** Learned sites (the registrable domain, via the public suffix list) go into two rule lists that Mihomo fetches from Kova over loopback, right after your rules and presets. Mihomo reloads them on request, so nothing restarts; connections stuck on the failing path are closed so the page retries on the new route.
+
+Learned sites are stored in `learned.json` in the data folder and expire after 30 days unless learned again. The list on the Rules page shows why each site was learned; **Keep** turns one into a rule of your own. The first visit to a newly blocked site still fails once; throttling (as opposed to blocking) is not detected yet.
+
 ## Status
 
 Working and tested on Windows 11:

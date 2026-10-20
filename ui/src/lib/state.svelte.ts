@@ -48,6 +48,8 @@ class AppState {
   toast = $state<string | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   coresVersion = $state(0);
+  /** Bumped whenever smart routing learns a site, so lists can reload. */
+  learnedVersion = $state(0);
   /** The system's display language, used when the language setting is "system". */
   private systemLang = navigator.language;
 
@@ -106,6 +108,12 @@ class AppState {
         break;
       case 'delays':
         this.delays = { ...this.delays, ...e.delays };
+        break;
+      case 'learned':
+        this.learnedVersion++;
+        this.notify(e.route === 'proxy'
+          ? t('{domain} is blocked here; it now goes through the proxy', { domain: e.domain })
+          : t('{domain} refuses the proxy; it now goes direct', { domain: e.domain }));
         break;
     }
   }

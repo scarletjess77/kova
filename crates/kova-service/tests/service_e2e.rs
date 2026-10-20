@@ -135,8 +135,13 @@ async fn engine_runs_mihomo_through_the_service() {
     }
     assert!(got_log, "no Mihomo log lines were relayed from the service");
 
-    // A crash inside the service is noticed by the app.
-    let _ = std::process::Command::new("taskkill").args(["/IM", "mihomo.exe", "/F"]).output();
+    // A crash inside the service is noticed by the app. Only the Mihomo this test's
+    // in-process service started is stopped: the machine may be running Kova for real.
+    {
+        let filter = format!("Name='mihomo.exe' AND ParentProcessId={}", std::process::id());
+        let script = format!("Get-CimInstance Win32_Process -Filter \"{filter}\" | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}");
+        let _ = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &script]).output();
+    }
     let mut noticed = false;
     for _ in 0..40 {
         tokio::time::sleep(Duration::from_millis(250)).await;

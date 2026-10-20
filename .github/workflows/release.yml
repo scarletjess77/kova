@@ -34,5 +34,8 @@ jobs:
           releaseName: Kova ${{ github.ref_name }}
           releaseBody: "Changes in this release:"
           releaseDraft: true
+          # Tags like v0.2.0-alpha.1 become pre-releases: never "latest", so installed
+          # copies don't update to them.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
           args: '--bundles nsis --config {"bundle":{"createUpdaterArtifacts":true}}'

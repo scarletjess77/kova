@@ -48,6 +48,10 @@ impl Paths {
     pub fn runtime_dir(&self) -> PathBuf {
         self.root.join("runtime")
     }
+    /// Sites smart routing learned.
+    pub fn learned(&self) -> PathBuf {
+        self.root.join("learned.json")
+    }
     /// Marker written while Kova owns the system proxy, so a crash can be undone.
     pub fn proxy_marker(&self) -> PathBuf {
         self.runtime_dir().join("system-proxy.json")
@@ -72,7 +76,7 @@ pub fn temp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
 }
 
-fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
+pub(crate) fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
     match std::fs::read(path) {
         Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
             tracing::warn!("{} is unreadable ({e}); using defaults", path.display());
@@ -82,7 +86,7 @@ fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
     }
 }
 
-fn write_json<T: Serialize>(path: &Path, v: &T) -> Result<(), Error> {
+pub(crate) fn write_json<T: Serialize>(path: &Path, v: &T) -> Result<(), Error> {
     write_atomic(path, &serde_json::to_vec_pretty(v).expect("serialisable"))?;
     Ok(())
 }
