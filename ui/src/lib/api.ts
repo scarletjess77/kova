@@ -40,6 +40,7 @@ export interface RuntimeOptions {
   xray_metrics_port: number;
   geodata: GeoSource;
   smart_routing: boolean;
+  smart_profile_rules: boolean;
 }
 
 export type Route = 'proxy' | 'direct';

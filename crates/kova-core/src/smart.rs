@@ -36,13 +36,23 @@ pub struct Learned {
     pub learned_at: i64,
 }
 
+/// The catch-all rule's key (see [`rule_key`]).
+pub const CATCH_ALL: &str = "Match";
+
+/// How Mihomo names a rule in its logs: `GeoSite(category-games)`, or just `Match`
+/// for a rule without a value. Kova compares rules by this key to tell its own rules
+/// from a subscription's.
+pub fn rule_key(kind: &str, payload: &str) -> String {
+    if payload.is_empty() { kind.to_string() } else { format!("{kind}({payload})") }
+}
+
 /// A connection Mihomo could not open, from its "dial ... error" warning.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DialFailure {
     /// The connection was to go direct (otherwise through a proxy or group).
     pub direct: bool,
-    /// It matched the catch-all rule, i.e. no rule chose its route on purpose.
-    pub catch_all: bool,
+    /// The rule that chose its route, as a [`rule_key`].
+    pub rule: String,
     pub host: String,
     pub port: u16,
 }
@@ -59,7 +69,48 @@ pub fn parse_dial_failure(line: &str) -> Option<DialFailure> {
     if proxy == "REJECT" || proxy.starts_with("REJECT-") {
         return None;
     }
-    Some(DialFailure { direct: proxy == "DIRECT", catch_all: rule.starts_with("Match/"), host: host.to_string(), port: port.parse().ok()? })
+    let (kind, payload) = rule.split_once('/').unwrap_or((rule, ""));
+    Some(DialFailure { direct: proxy == "DIRECT", rule: rule_key(kind, payload), host: host.to_string(), port: port.parse().ok()? })
+}
+
+/// A connection Mihomo opened, from its info line
+/// `[TCP] 127.0.0.1:62890(curl.exe) --> modrinth.com:443 match GeoSite(category-games) using DIRECT`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Opened {
+    /// It goes direct (otherwise through a proxy or group).
+    pub direct: bool,
+    /// The rule that chose its route, as a [`rule_key`].
+    pub rule: String,
+    pub host: String,
+    pub port: u16,
+}
+
+pub fn parse_opened(line: &str) -> Option<Opened> {
+    let rest = line.strip_prefix("[TCP] ")?;
+    let (_source, rest) = rest.split_once(" --> ")?;
+    let (dest, rest) = rest.split_once(" match ")?;
+    let (rule, chain) = rest.rsplit_once(" using ")?;
+    let (host, port) = dest.rsplit_once(':')?;
+    if chain == "REJECT" || chain.starts_with("REJECT-") {
+        return None;
+    }
+    Some(Opened { direct: chain == "DIRECT", rule: rule.to_string(), host: host.to_string(), port: port.parse().ok()? })
+}
+
+/// Which failures smart routing may act on, by the rule that chose the route.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Scope {
+    /// Kova's own rules (the user's, presets, its internal ones), which it never
+    /// second-guesses.
+    pub own_rules: std::collections::HashSet<String>,
+    /// Also act on a subscription's own rules, not just the catch-all.
+    pub profile_rules: bool,
+}
+
+impl Scope {
+    pub fn covers(&self, rule: &str) -> bool {
+        rule == CATCH_ALL || (self.profile_rules && !self.own_rules.contains(rule))
+    }
 }
 
 impl Learned {
@@ -165,15 +216,36 @@ mod tests {
     #[test]
     fn reads_direct_and_proxy_dial_failures() {
         let d = parse_dial_failure("[TCP] dial DIRECT (match Match/) 127.0.0.1:50812(chrome.exe) --> rutracker.org:443 error: dial tcp 1.2.3.4:443: i/o timeout").unwrap();
-        assert_eq!(d, DialFailure { direct: true, catch_all: true, host: "rutracker.org".into(), port: 443 });
+        assert_eq!(d, DialFailure { direct: true, rule: CATCH_ALL.into(), host: "rutracker.org".into(), port: 443 });
 
         let p = parse_dial_failure("[TCP] dial 🚀 Proxy (match GeoSite/ru-blocked) 198.18.0.1:6000(Code Helper.exe) --> x.com:443 error: EOF").unwrap();
-        assert!(!p.direct && !p.catch_all);
+        assert!(!p.direct);
+        assert_eq!(p.rule, "GeoSite(ru-blocked)");
         assert_eq!(p.host, "x.com");
 
         assert!(parse_dial_failure("[TCP] dial REJECT (match GeoSite/category-ads-all) a --> ads.example:443 error: x").is_none());
         assert!(parse_dial_failure("[UDP] dial DIRECT (match Match/) a --> b.com:443 error: x").is_none());
         assert!(parse_dial_failure("[TCP] 127.0.0.1:1 --> b.com:443 match Match using DIRECT").is_none());
+    }
+
+    #[test]
+    fn reads_opened_connections_and_their_rule() {
+        let o = parse_opened("[TCP] 127.0.0.1:62890(curl.exe) --> modrinth.com:443 match GeoSite(category-games) using DIRECT").unwrap();
+        assert_eq!(o, Opened { direct: true, rule: "GeoSite(category-games)".into(), host: "modrinth.com".into(), port: 443 });
+        let p = parse_opened("[TCP] 198.18.0.1:5000(Code Helper.exe) --> x.com:443 match Match using Remnawave[🇵🇱 hysteria-pl]").unwrap();
+        assert!(!p.direct && p.rule == CATCH_ALL);
+        assert!(parse_opened("[TCP] 127.0.0.1:1 --> ads.example:443 match GeoSite(category-ads-all) using REJECT").is_none());
+        assert!(parse_opened("[TCP] dial DIRECT (match Match/) a --> b.com:443 error: x").is_none());
+    }
+
+    #[test]
+    fn scope_never_touches_kovas_own_rules() {
+        let own: std::collections::HashSet<String> = ["GeoSite(category-ru)".to_string()].into();
+        let catch_all_only = Scope { own_rules: own.clone(), profile_rules: false };
+        assert!(catch_all_only.covers("Match") && !catch_all_only.covers("GeoSite(category-games)"));
+        let with_profile = Scope { own_rules: own, profile_rules: true };
+        assert!(with_profile.covers("GeoSite(category-games)"));
+        assert!(!with_profile.covers("GeoSite(category-ru)"), "a preset's rule is Kova's own");
     }
 
     #[test]
