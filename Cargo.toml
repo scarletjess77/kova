@@ -1,0 +1,17 @@
+[workspace]
+resolver = "3"
+members = ["crates/kova-core", "crates/kova-engine", "crates/kova-service", "src-tauri"]
+
+[workspace.package]
+version = "0.1.0"
+authors = ["scarletjess77"]
+repository = "https://github.com/scarletjess77/kova"
+edition = "2024"
+license = "GPL-3.0-or-later"
+rust-version = "1.85"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

@@ -1,0 +1,7 @@
+/target
+node_modules/
+/ui/dist
+/dev-data
+*.log
+/dev-server
+/src-tauri/gen/schemas

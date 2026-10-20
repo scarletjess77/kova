@@ -1,0 +1,58 @@
+<script lang="ts">
+  import { daysUntil } from '../lib/format';
+  import { app, type View } from '../lib/state.svelte';
+  import Icon from './Icon.svelte';
+
+  const NAV: [View, string][] = [
+    ['dashboard', 'Dashboard'], ['proxies', 'Proxies'], ['profiles', 'Profiles'], ['connections', 'Connections'],
+    ['rules', 'Rules'], ['check', 'Site check'], ['logs', 'Logs'], ['settings', 'Settings'],
+  ];
+
+  let nodeCount = $derived(app.activeProfile?.node_count);
+  let usage = $derived(app.activeProfile?.usage);
+  let used = $derived(usage ? usage.upload + usage.download : 0);
+  let pct = $derived(usage && usage.total ? Math.min(100, (used / usage.total) * 100) : 0);
+  const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
+</script>
+
+<aside class="side">
+  <nav class="nav">
+    {#each NAV as [id, label] (id)}
+      <button onclick={() => (app.view = id)} aria-current={app.view === id ? 'page' : undefined}>
+        <Icon name={id === 'check' ? 'pulse' : id} />{label}
+        {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
+        {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
+      </button>
+    {/each}
+  </nav>
+  {#if app.update}
+    <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />Kova {app.update.version} is available</button>
+  {/if}
+  {#if app.activeProfile}
+    <div class="sub-card">
+      <div class="eyebrow">Active profile</div>
+      <div class="t">{app.activeProfile.name}</div>
+      {#if usage && usage.total}
+        <div class="bar" class:warn={pct > 85}><i style="width:{pct}%"></i></div>
+        <div class="s"><span class="num">{gb(used)} / {gb(usage.total)} GB</span>{#if usage.expire}<span>{daysUntil(usage.expire)} days left</span>{/if}</div>
+      {:else}
+        <div class="s"><span>{app.activeProfile.source.kind === 'remote' ? 'Subscription' : 'Local'}</span><span>{app.activeProfile.node_count} nodes</span></div>
+      {/if}
+    </div>
+  {/if}
+</aside>
+
+<style>
+  .side { border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; min-height: 0; overflow: auto; }
+  .nav { display: flex; flex-direction: column; gap: 2px; }
+  .nav button { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
+  .nav button:hover { background: var(--sunk); color: var(--fg); }
+  .nav button[aria-current='page'] { background: var(--accent-soft); color: var(--fg); }
+  .badge { margin-left: auto; font: 500 11px var(--f-mono); color: var(--faint); }
+  .update { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--accent-soft); color: var(--fg); font-size: 12.5px; font-weight: 500; text-align: left; }
+  .update :global(.i) { width: 15px; height: 15px; }
+  .update + .sub-card { margin-top: 0; }
+  .sub-card { margin-top: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 7px; }
+  .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .s { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+</style>

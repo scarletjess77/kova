@@ -1,0 +1,64 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Kova",
+  "version": "0.1.0",
+  "identifier": "app.kova.client",
+  "build": {
+    "frontendDist": "../ui/dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "title": "Kova",
+        "width": 1200,
+        "height": 780,
+        "minWidth": 880,
+        "minHeight": 580,
+        "center": true,
+        "decorations": false,
+        "visible": false,
+        "backgroundColor": "#101012"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "Utility",
+    "shortDescription": "VPN client for Mihomo and Xray",
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "perMachine",
+        "installerHooks": "./windows/hooks.nsh"
+      }
+    },
+    "publisher": "scarletjess77",
+    "copyright": "Copyright © 2026 scarletjess77",
+    "homepage": "https://github.com/scarletjess77/kova"
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdBMjgyNEY1RkYxMTE0ODYKUldTR0ZCSC85U1FvZWtzTmJCS3c4TUpXS3IzZVN5NnlwU1gwbExIWmlWSENwdkFkbmljMUlPbHMK",
+      "endpoints": [
+        "https://github.com/scarletjess77/kova/releases/latest/download/latest.json"
+      ],
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  }
+}
