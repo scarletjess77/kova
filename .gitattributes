@@ -1,0 +1,7 @@
+# Normalise line endings in the repository; Git converts them on checkout as needed.
+* text=auto
+
+*.png binary
+*.ico binary
+*.icns binary
+*.webp binary

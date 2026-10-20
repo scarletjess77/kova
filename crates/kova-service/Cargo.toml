@@ -1,0 +1,24 @@
+[package]
+name = "kova-service"
+version.workspace = true
+authors.workspace = true
+repository.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+kova-core = { version = "0.1.0", path = "../kova-core" }
+kova-engine = { version = "0.1.0", path = "../kova-engine" }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tokio = { version = "1.54.0", features = ["full"] }
+tracing = "0.1.44"
+
+[target."cfg(windows)".dependencies]
+windows-service = "0.8.1"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_System_Pipes", "Win32_System_Com"] }
+
+[dev-dependencies]
+reqwest = "0.13.5"
+tempfile = "3.27.0"
