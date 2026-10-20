@@ -814,10 +814,13 @@ impl Engine {
             self.check_geodata(&opts).await?;
         }
 
-        let mut plan = if profile.format == Format::Clash && profile.core != CorePreference::Xray {
+        // On Android the VPN is Mihomo's TUN, which Xray can't provide: a profile set to
+        // Xray only runs as Automatic there (Mihomo, with Xray bridging what needs it).
+        let core = if cfg!(target_os = "android") && profile.core == CorePreference::Xray { CorePreference::Auto } else { profile.core };
+        let mut plan = if profile.format == Format::Clash && core != CorePreference::Xray {
             Plan { front: CoreKind::Mihomo, bridged: Vec::new(), dropped: Vec::new() }
         } else {
-            compat::plan(&nodes, profile.core)
+            compat::plan(&nodes, core)
         };
         // Testing always runs through Mihomo, which can measure every node it runs.
         if quiet && plan.front == CoreKind::Xray {
@@ -879,11 +882,6 @@ impl Engine {
         if let Some(fd) = tun_fd {
             opts.tun.enabled = true;
             opts.tun_fd = Some(fd);
-            // Let the core inherit the interface.
-            #[cfg(unix)]
-            unsafe {
-                libc::fcntl(fd, libc::F_SETFD, 0);
-            }
         } else if opts.tun.enabled && !crate::process::is_elevated() {
             if !quiet && crate::service::hello().await.is_some() {
                 via_service = true;
@@ -964,7 +962,7 @@ impl Engine {
             }
             Front::Service(crate::service::RemoteCore::new(tail))
         } else {
-            Front::Local(CoreProcess::spawn("mihomo", &mihomo_bin, &["-d", &h, "-f", &c], &home, &[], self.log_sink(quiet))?)
+            Front::Local(CoreProcess::spawn_with_fd("mihomo", &mihomo_bin, &["-d", &h, "-f", &c], &home, &[], self.log_sink(quiet), opts.tun_fd)?)
         };
         let api = Mihomo::new(opts.controller_port, &opts.secret);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(if via_service { 60 } else { 30 });

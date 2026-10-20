@@ -65,6 +65,13 @@ impl CoreProcess {
     /// Start `bin` with `args`. Every output line goes to `sink(name, line)`; the last
     /// lines are also kept so a failed start can be explained.
     pub fn spawn(name: &'static str, bin: &Path, args: &[&str], cwd: &Path, envs: &[(&str, &Path)], sink: LineSink) -> Result<Self, Error> {
+        Self::spawn_with_fd(name, bin, args, cwd, envs, sink, None)
+    }
+
+    /// Like `spawn`, handing the child the open descriptor `fd` (Android's VPN
+    /// interface). It is made inheritable in the child only, just before the core
+    /// starts, so no other process Kova starts ever holds it.
+    pub fn spawn_with_fd(name: &'static str, bin: &Path, args: &[&str], cwd: &Path, envs: &[(&str, &Path)], sink: LineSink, fd: Option<i32>) -> Result<Self, Error> {
         if !bin.exists() {
             return Err(Error::Core(format!("{name} is not installed")));
         }
@@ -74,6 +81,21 @@ impl CoreProcess {
             std_cmd.env(k, v);
         }
         hide_window(&mut std_cmd);
+        #[cfg(unix)]
+        if let Some(fd) = fd {
+            use std::os::unix::process::CommandExt;
+            // Runs in the child between fork and exec.
+            unsafe {
+                std_cmd.pre_exec(move || {
+                    if libc::fcntl(fd, libc::F_SETFD, 0) == -1 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = fd;
         let mut cmd = Command::from(std_cmd);
         cmd.kill_on_drop(true);
         let mut child = cmd.spawn().map_err(|e| Error::Core(format!("could not start {name}: {e}")))?;

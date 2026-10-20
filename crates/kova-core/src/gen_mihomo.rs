@@ -256,21 +256,28 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     let main = main_group(&doc);
     let known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
+    let mut learned = Vec::new();
     if opts.apply_rules_to_clash_profiles {
         ours.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(&main)));
-        ours.extend(apply_smart(&mut doc, opts, &main));
+        learned = apply_smart(&mut doc, opts, &main);
     }
-    if !ours.is_empty() {
-        let existing = match doc.remove("rules") {
+    if !ours.is_empty() || !learned.is_empty() {
+        let mut existing = match doc.remove("rules") {
             Some(Yaml::Sequence(s)) => s,
             _ => Vec::new(),
         };
         let mut merged: Vec<Yaml> = ours.into_iter().map(Yaml::String).collect();
+        let learned = learned.into_iter().map(Yaml::String);
         if opts.apply_rules_to_clash_profiles && blocked_only(opts) {
             // "Only blocked sites through the proxy": everything after our rules goes
             // direct, so the profile's own catch-all must not run.
+            merged.extend(learned);
             merged.extend(opts.tail_rules().iter().map(|r| Yaml::String(r.to_clash(&main))));
         } else {
+            // Learned sites were learned from traffic only the catch-all matched, so they
+            // go right before it: the profile's own rules keep deciding everything else.
+            let catch_all = existing.iter().position(|r| r.as_str().is_some_and(|r| r.trim_start().starts_with("MATCH,"))).unwrap_or(existing.len());
+            existing.splice(catch_all..catch_all, learned);
             merged.extend(existing);
         }
         doc.insert(Yaml::String("rules".into()), Yaml::Sequence(merged));
@@ -432,6 +439,7 @@ proxy-groups:
 listeners:
   - {name: mine, type: socks, port: 7000}
 rules:
+  - DOMAIN,mine.example,DIRECT
   - MATCH,Sel
 ";
         let mut o = opts();
@@ -441,7 +449,10 @@ rules:
         assert_eq!(names, ["mine", "kova-probe-direct", "kova-probe-proxy"]);
         assert_eq!(doc["listeners"][2]["proxy"], "Sel");
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
-        assert!(rules.contains(&"RULE-SET,kova-learned-proxy,Sel"));
+        // The profile's own rules still come first; learned sites only precede its catch-all.
+        let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
+        assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("MATCH,Sel"));
+        assert!(at("DOMAIN,mine.example,DIRECT") < at("RULE-SET,kova-learned-direct,DIRECT"));
         assert_eq!(*rules.last().unwrap(), "MATCH,Sel");
     }
 

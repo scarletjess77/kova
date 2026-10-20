@@ -50,6 +50,9 @@ class AppState {
   coresVersion = $state(0);
   /** Running on a phone (Android): no window, tray, system proxy or in-app updates. */
   mobile = $state(false);
+  /** A connect or disconnect the user started is under way. On Android that includes
+   *  the permission dialog and opening the VPN, before the engine reports busy. */
+  toggling = $state(false);
   /** Phone: the page list, opened from the title bar, is showing. */
   navOpen = $state(false);
   /** Bumped whenever smart routing learns a site, so lists can reload. */
@@ -61,7 +64,11 @@ class AppState {
   // app when there is none. So each step back should undo (opening a page, the menu,
   // a dialog) adds a history entry together with how to undo it.
   private backSteps: (() => void)[] = [];
+  /** Pops caused by dropBack, still to come, which mean nothing to undo. */
   private ignorePops = 0;
+  /** Entries pushed while such a pop was still on its way. history.back() is
+   *  asynchronous: an entry pushed before it lands would be the one it removes. */
+  private deferredPushes = 0;
   private readonly closeNavStep = () => {
     this.navOpen = false;
   };
@@ -69,8 +76,9 @@ class AppState {
   /** Make the next back gesture run `undo`. */
   pushBack(undo: () => void) {
     if (!this.mobile) return;
-    history.pushState(null, '');
     this.backSteps.push(undo);
+    if (this.ignorePops > 0) this.deferredPushes++;
+    else history.pushState(null, '');
   }
 
   /** Forget a step that was undone some other way (a dialog closed with its button). */
@@ -78,6 +86,11 @@ class AppState {
     const i = this.backSteps.lastIndexOf(undo);
     if (i < 0) return;
     this.backSteps.splice(i, 1);
+    if (this.deferredPushes > 0) {
+      // Its entry was never pushed.
+      this.deferredPushes--;
+      return;
+    }
     this.ignorePops++;
     history.back();
   }
@@ -85,6 +98,9 @@ class AppState {
   private onPopState = () => {
     if (this.ignorePops > 0) {
       this.ignorePops--;
+      if (this.ignorePops === 0) {
+        for (; this.deferredPushes > 0; this.deferredPushes--) history.pushState(null, '');
+      }
       return;
     }
     this.backSteps.pop()?.();
@@ -93,11 +109,16 @@ class AppState {
   /** Show a page; back returns to the one before. */
   go(view: View) {
     const from = this.view;
+    if (this.navOpen && view === from) {
+      // The page already showing: just close the menu.
+      this.closeNav();
+      return;
+    }
     if (this.navOpen) {
       // Chosen from the menu: the menu's step becomes the page's.
       this.navOpen = false;
       const i = this.backSteps.lastIndexOf(this.closeNavStep);
-      if (i >= 0) this.backSteps[i] = view === from ? () => {} : () => (this.view = from);
+      if (i >= 0) this.backSteps[i] = () => (this.view = from);
     } else if (view !== from) {
       this.pushBack(() => (this.view = from));
     }
@@ -236,9 +257,14 @@ class AppState {
   }
 
   async toggleConnection() {
-    if (this.status.busy) return;
-    if (this.status.running) await this.run(() => api.disconnect());
-    else await this.run(() => api.connect());
+    if (this.status.busy || this.toggling) return;
+    this.toggling = true;
+    try {
+      if (this.status.running) await this.run(() => api.disconnect());
+      else await this.run(() => api.connect());
+    } finally {
+      this.toggling = false;
+    }
   }
 
   async checkForUpdate(silent = false) {

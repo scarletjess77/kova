@@ -4,6 +4,7 @@
 //! interface, and runs Mihomo on that interface.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use kova_engine::{Engine, Error};
@@ -49,7 +50,14 @@ struct TunnelArgs {
     ipv6: bool,
 }
 
+/// Connecting and disconnecting run one at a time: a second tap while the permission
+/// dialog is up must not open a second interface.
+static BUSY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+/// Each connection's watcher stops when a newer connection starts.
+static SESSION: AtomicU64 = AtomicU64::new(0);
+
 pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
+    let _one = BUSY.lock().await;
     if engine.status().running {
         return Ok(());
     }
@@ -59,6 +67,10 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
     }
     let s = engine.settings();
     let t: Tunnel = call(app, "establish", TunnelArgs { mtu: s.core.tun.mtu.into(), ipv6: s.core.ipv6 }).await?;
+    // An interface still held from a connection that ended on its own is closed first.
+    if let Some(old) = engine.take_tun_fd() {
+        close_fd(old);
+    }
     engine.set_tun_fd(Some(t.fd));
     if let Err(e) = engine.start().await {
         close(app, engine).await;
@@ -70,43 +82,70 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
     let st = engine.status();
     if st.running && !st.tun_active {
         let why = st.warning.unwrap_or_else(|| "the VPN interface could not be used".into());
-        let _ = disconnect(app, engine).await;
+        let _ = shutdown(app, engine).await;
         return Err(Error::Core(why));
     }
-    watch(app.clone(), engine.clone());
+    let session = SESSION.fetch_add(1, Ordering::SeqCst) + 1;
+    watch(app.clone(), engine.clone(), session);
     Ok(())
 }
 
 pub async fn disconnect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
+    let _one = BUSY.lock().await;
+    shutdown(app, engine).await
+}
+
+async fn shutdown(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
     let stopped = engine.stop().await;
     close(app, engine).await;
     stopped
 }
 
+fn close_fd(fd: i32) {
+    unsafe {
+        libc::close(fd);
+    }
+}
+
 /// Close the interface and stop the service.
 async fn close(app: &AppHandle, engine: &Arc<Engine>) {
     if let Some(fd) = engine.take_tun_fd() {
-        unsafe {
-            libc::close(fd);
-        }
+        close_fd(fd);
     }
     let _: Result<serde_json::Value, _> = call(app, "stop", ()).await;
 }
 
-/// Android can end the VPN without asking Kova: another VPN app taking over, or the
-/// user turning Kova off in the system settings. Notice it and disconnect cleanly.
-fn watch(app: AppHandle, engine: Arc<Engine>) {
+/// The VPN can end without Kova being asked (another VPN app taking over, the user
+/// turning Kova off in the system settings), and the core can stop on its own (a crash,
+/// or a restart after a settings change that failed). Either way an interface with
+/// nothing behind it would hold all traffic: notice it and turn the VPN off. Each sign
+/// has to hold twice in a row, so a core restarting for a settings change doesn't count.
+fn watch(app: AppHandle, engine: Arc<Engine>, session: u64) {
     tauri::async_runtime::spawn(async move {
+        let (mut core_down, mut vpn_gone) = (0, 0);
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
-            if !engine.has_tun_fd() {
+            if SESSION.load(Ordering::SeqCst) != session || !engine.has_tun_fd() {
                 return;
             }
-            if let Ok(Active { active: false }) = call(&app, "status", ()).await {
-                let _ = disconnect(&app, &engine).await;
-                let _ = app.emit("toast", "The VPN was turned off by Android or another app");
+            let st = engine.status();
+            core_down = if !st.running && !st.busy { core_down + 1 } else { 0 };
+            vpn_gone = if matches!(call(&app, "status", ()).await, Ok(Active { active: false })) { vpn_gone + 1 } else { 0 };
+            if core_down < 2 && vpn_gone < 2 {
+                continue;
+            }
+            let _one = BUSY.lock().await;
+            if SESSION.load(Ordering::SeqCst) != session {
                 return;
             }
+            let _ = shutdown(&app, &engine).await;
+            let msg = if vpn_gone >= 2 {
+                "The VPN was turned off by Android or another app".to_string()
+            } else {
+                format!("Kova stopped, so the VPN was turned off: {}", st.error.unwrap_or_else(|| "the core is not running".into()))
+            };
+            let _ = app.emit("toast", msg);
+            return;
         }
     });
 }

@@ -55,6 +55,7 @@ fn android_roots() -> &'static [reqwest::Certificate] {
                 .flatten()
                 .filter_map(|e| std::fs::read(e.path()).ok())
                 .filter_map(|pem| reqwest::Certificate::from_pem(&pem).ok())
+                .filter(|c| reqwest::Client::builder().tls_certs_only([c.clone()]).build().is_ok())
                 .collect();
             if !certs.is_empty() {
                 return certs;

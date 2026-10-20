@@ -10,7 +10,7 @@
 // Usage: node scripts/android-cores.mjs
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
@@ -48,7 +48,12 @@ async function mihomo() {
   const { tag_name: tag } = await github('repos/MetaCubeX/mihomo/releases/latest');
   const src = join(root, 'target', 'android-src', `mihomo-${tag}`);
   if (!existsSync(src)) {
-    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', tag, 'https://github.com/MetaCubeX/mihomo.git', src], { stdio: 'inherit' });
+    // Into a temporary folder first: an interrupted clone must not be mistaken for a
+    // finished one next time.
+    const partial = `${src}.partial`;
+    rmSync(partial, { recursive: true, force: true });
+    execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', tag, 'https://github.com/MetaCubeX/mihomo.git', partial], { stdio: 'inherit' });
+    renameSync(partial, src);
   }
   const ldflags = `-X "github.com/metacubex/mihomo/constant.Version=${tag}" -w -s`;
   execFileSync('go', ['build', '-tags', 'with_gvisor,cmfa', '-trimpath', '-ldflags', ldflags, '-o', join(out, 'libmihomo.so'), '.'], {

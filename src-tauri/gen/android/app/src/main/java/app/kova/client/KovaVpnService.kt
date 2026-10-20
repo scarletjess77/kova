@@ -32,11 +32,10 @@ class KovaVpnService : VpnService() {
         fun open(context: Context, mtu: Int, ipv6: Boolean, done: (Int?, String?) -> Unit) {
             this.mtu = mtu
             this.ipv6 = ipv6
-            val running = instance
-            if (running != null) {
-                running.establishTunnel(done)
-                return
-            }
+            // Always through startService, never a direct call on `instance`: after a
+            // disconnect that instance may be on its way out, and its onDestroy would end
+            // the new tunnel. Android finishes the old instance before starting anew.
+            pending?.invoke(null, "Superseded by a newer connection attempt")
             pending = done
             context.startService(Intent(context, KovaVpnService::class.java))
         }
@@ -95,8 +94,10 @@ class KovaVpnService : VpnService() {
     }
 
     override fun onDestroy() {
-        active = false
-        instance = null
+        if (instance === this) {
+            active = false
+            instance = null
+        }
         super.onDestroy()
     }
 
