@@ -51,7 +51,7 @@
   .tb-profile b { font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spacer { flex: 1; align-self: stretch; }
   .tb-btn { height: 28px; width: 30px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--muted); }
-  .tb-btn:hover { background: var(--sunk); color: var(--fg); }
+  @media (hover: hover) { .tb-btn:hover { background: var(--sunk); color: var(--fg); } }
   .tb-btn.donate { width: auto; gap: 6px; padding: 0 9px; display: flex; align-items: center; font-size: 12.5px; font-weight: 500; }
   .tb-btn.donate :global(.i) { width: 15px; height: 15px; }
   .winctl { display: flex; height: 100%; }

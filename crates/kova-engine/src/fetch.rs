@@ -21,6 +21,28 @@ pub fn builder() -> reqwest::ClientBuilder {
     b
 }
 
+/// How many trusted certificates HTTPS checks use: the device's on Android, `None`
+/// where the system checks them itself.
+pub fn trusted_certificates() -> Option<usize> {
+    #[cfg(target_os = "android")]
+    return Some(android_roots().len());
+    #[cfg(not(target_os = "android"))]
+    None
+}
+
+/// A request error with everything it was caused by: reqwest's own message alone
+/// ("error sending request") doesn't say what went wrong.
+pub fn describe(e: &reqwest::Error) -> String {
+    let mut out = e.to_string();
+    let mut src = std::error::Error::source(e);
+    while let Some(s) = src {
+        out.push_str(": ");
+        out.push_str(&s.to_string());
+        src = s.source();
+    }
+    out
+}
+
 /// The certificates Android trusts: the updatable store (Android 14+), else the system one.
 #[cfg(target_os = "android")]
 fn android_roots() -> &'static [reqwest::Certificate] {
