@@ -1,18 +1,20 @@
 <script lang="ts">
   import { fmtSpeed } from '../lib/format';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
 
   const coreName = (c: string | null) => (c === 'xray' ? 'Xray' : c === 'mihomo' ? 'Mihomo' : '');
   let s = $derived(app.status);
   let st = $derived(app.settings);
+  let modeName = $derived(st ? { rule: t('Rule mode'), global: t('Global mode'), direct: t('Direct mode') }[st.core.mode] : '');
 </script>
 
 <footer class="status">
-  <span><span class="led" class:on={s.running}></span>{s.busy ? 'Working…' : s.running ? `Running · ${coreName(s.core)}${s.sidecar ? ' + Xray' : ''}` : 'Stopped'}</span>
+  <span><span class="led" class:on={s.running}></span>{s.busy ? t('Working…') : s.running ? t('Running · {core}', { core: coreName(s.core) + (s.sidecar ? ' + Xray' : '') }) : t('Stopped')}</span>
   {#if st}
-    <span>Port <span class="num">{st.core.mixed_port}</span></span>
-    <span>{[s.tun_active && 'TUN', st.system_proxy && 'System proxy'].filter(Boolean).join(' + ') || 'Proxy port only'}</span>
-    <span>{st.core.mode[0].toUpperCase() + st.core.mode.slice(1)} mode</span>
+    <span>{t('Port')} <span class="num">{st.core.mixed_port}</span></span>
+    <span>{[s.tun_active && 'TUN', st.system_proxy && t('System proxy')].filter(Boolean).join(' + ') || t('Proxy port only')}</span>
+    <span>{modeName}</span>
   {/if}
   <span class="sp"></span>
   <span class="dn">↓ <span class="num">{fmtSpeed(app.down[app.down.length - 1])}</span></span>

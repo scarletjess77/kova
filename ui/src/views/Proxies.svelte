@@ -1,17 +1,18 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { countryCode, displayName } from '../lib/format';
+  import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
   import Latency from '../components/Latency.svelte';
 
   const KIND: Record<string, string> = { Selector: 'select', URLTest: 'url-test', Fallback: 'fallback', LoadBalance: 'load-balance', Relay: 'relay' };
-  const NOTE: Record<string, string> = {
-    Selector: 'You choose which member carries traffic.',
-    URLTest: 'Re-tests every few minutes and moves to the fastest member.',
-    Fallback: 'Uses the first member that passes health checks.',
-    LoadBalance: 'Spreads connections across members.',
-  };
+  let NOTE = $derived<Record<string, string>>({
+    Selector: t('You choose which member carries traffic.'),
+    URLTest: t('Re-tests every few minutes and moves to the fastest member.'),
+    Fallback: t('Uses the first member that passes health checks.'),
+    LoadBalance: t('Spreads connections across members.'),
+  });
 
   let groupName = $state<string | null>(null);
   let q = $state('');
@@ -37,7 +38,7 @@
   function pick(name: string) {
     if (!group) return;
     if (group.type !== 'Selector') {
-      app.notify(`${group.name} chooses automatically. Pick a node in a select group to pin one.`);
+      app.notify(t('{group} chooses automatically. Pick a node in a select group to pin one.', { group: group.name }));
       return;
     }
     void app.select(group.name, name);
@@ -56,24 +57,24 @@
 </script>
 
 <div class="page-head">
-  <h1>Proxies</h1>
-  <span class="sub">{groups.length} groups · {Object.keys(app.nodes).length} nodes</span>
+  <h1>{t('Proxies')}</h1>
+  <span class="sub">{tn(groups.length, '{n} group', '{n} groups')} · {tn(Object.keys(app.nodes).length, '{n} node', '{n} nodes')}</span>
   <div class="tools">
-    <label class="search"><Icon name="search" /><input class="input" placeholder="Search nodes, countries, protocols" bind:value={q} aria-label="Search nodes" /></label>
-    <select class="input sort" bind:value={sort} aria-label="Sort">
-      <option value="profile">Profile order</option>
-      <option value="latency">Sort by latency</option>
-      <option value="name">Sort by name</option>
+    <label class="search"><Icon name="search" /><input class="input" placeholder={t('Search nodes, countries, protocols')} bind:value={q} aria-label={t('Search nodes')} /></label>
+    <select class="input sort" bind:value={sort} aria-label={t('Sort')}>
+      <option value="profile">{t('Profile order')}</option>
+      <option value="latency">{t('Sort by latency')}</option>
+      <option value="name">{t('Sort by name')}</option>
     </select>
-    <button class="btn primary" onclick={testGroup} disabled={!group || app.testing.size > 0}><Icon name="bolt" />Test latency</button>
+    <button class="btn primary" onclick={testGroup} disabled={!group || app.testing.size > 0}><Icon name="bolt" />{t('Test latency')}</button>
   </div>
 </div>
 
 {#if !groups.length}
   <div class="empty">
-    <b>No nodes yet</b>
-    <span>Add a subscription or share links in Profiles.</span>
-    <button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />Add profile</button>
+    <b>{t('No nodes yet')}</b>
+    <span>{t('Add a subscription or share links in Profiles.')}</span>
+    <button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button>
   </div>
 {:else}
   <div class="px">
@@ -82,13 +83,13 @@
         {@const end = app.resolve(g.name)}
         <button class="grp" onclick={() => (groupName = g.name)} aria-current={g.name === group?.name}>
           <span class="top"><b>{g.name}</b><span class="chip mono">{KIND[g.type] ?? g.type.toLowerCase()}</span></span>
-          <span class="now">{g.now && g.now !== end ? `${displayName(g.now)} › ` : ''}{displayName(end)}{app.delays[end] != null ? ` · ${app.delays[end]} ms` : ''}</span>
+          <span class="now">{g.now && g.now !== end ? `${displayName(g.now)} › ` : ''}{displayName(end)}{app.delays[end] != null ? ` · ${t('{n} ms', { n: app.delays[end]! })}` : ''}</span>
         </button>
       {/each}
     </div>
     <div>
       {#if group}
-        <p class="grp-note">{NOTE[group.type] ?? ''}{#if group.type !== 'Selector'} <span class="chip">Automatic</span>{/if}</p>
+        <p class="grp-note">{NOTE[group.type] ?? ''}{#if group.type !== 'Selector'} <span class="chip">{t('Automatic')}</span>{/if}</p>
         {#if members.length}
           <div class="nodes">
             {#each members as name (name)}
@@ -101,11 +102,11 @@
                   <Latency delay={app.delayOf(name)} testing={app.testing.has(app.resolve(name))} />
                 </span>
                 {#if sub}
-                  <span class="r2"><span class="chip mono">group</span><span class="tr">now {displayName(app.resolve(name))}</span></span>
+                  <span class="r2"><span class="chip mono">{t('group')}</span><span class="tr">{t('now {name}', { name: displayName(app.resolve(name)) })}</span></span>
                 {:else if info}
                   <span class="r2"><span class="chip">{info.protocol}</span><span class="tr">{info.transport}</span></span>
                   <span class="r3"><span class="dot" class:y={info.mihomo}></span>Mihomo <span class="dot" class:y={info.xray}></span>Xray
-                    {#if app.status.bridged.includes(name)}<span class="via">· via Xray bridge</span>{/if}</span>
+                    {#if app.status.bridged.includes(name)}<span class="via">· {t('via Xray bridge')}</span>{/if}</span>
                 {:else}
                   <span class="r2"><span class="tr">{app.proxies.proxies[name]?.type ?? ''}</span></span>
                 {/if}
@@ -113,7 +114,7 @@
             {/each}
           </div>
         {:else}
-          <p class="hint">No nodes match “{q}”.</p>
+          <p class="hint">{t('No nodes match “{q}”.', { q })}</p>
         {/if}
       {/if}
     </div>

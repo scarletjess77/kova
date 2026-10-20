@@ -1,12 +1,13 @@
 <script lang="ts">
   import { daysUntil } from '../lib/format';
+  import { t, tn } from '../lib/i18n.svelte';
   import { app, type View } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
 
-  const NAV: [View, string][] = [
-    ['dashboard', 'Dashboard'], ['proxies', 'Proxies'], ['profiles', 'Profiles'], ['connections', 'Connections'],
-    ['rules', 'Rules'], ['check', 'Site check'], ['logs', 'Logs'], ['settings', 'Settings'],
-  ];
+  let NAV = $derived<[View, string][]>([
+    ['dashboard', t('Dashboard')], ['proxies', t('Proxies')], ['profiles', t('Profiles')], ['connections', t('Connections')],
+    ['rules', t('Rules')], ['check', t('Site check')], ['logs', t('Logs')], ['settings', t('Settings')],
+  ]);
 
   let nodeCount = $derived(app.activeProfile?.node_count);
   let usage = $derived(app.activeProfile?.usage);
@@ -26,17 +27,17 @@
     {/each}
   </nav>
   {#if app.update}
-    <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />Kova {app.update.version} is available</button>
+    <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
   {/if}
   {#if app.activeProfile}
     <div class="sub-card">
-      <div class="eyebrow">Active profile</div>
+      <div class="eyebrow">{t('Active profile')}</div>
       <div class="t">{app.activeProfile.name}</div>
       {#if usage && usage.total}
         <div class="bar" class:warn={pct > 85}><i style="width:{pct}%"></i></div>
-        <div class="s"><span class="num">{gb(used)} / {gb(usage.total)} GB</span>{#if usage.expire}<span>{daysUntil(usage.expire)} days left</span>{/if}</div>
+        <div class="s"><span class="num">{gb(used)} / {gb(usage.total)} GB</span>{#if usage.expire}<span>{tn(daysUntil(usage.expire), '{n} day left', '{n} days left')}</span>{/if}</div>
       {:else}
-        <div class="s"><span>{app.activeProfile.source.kind === 'remote' ? 'Subscription' : 'Local'}</span><span>{app.activeProfile.node_count} nodes</span></div>
+        <div class="s"><span>{app.activeProfile.source.kind === 'remote' ? t('Subscription') : t('Local')}</span><span>{tn(app.activeProfile.node_count, '{n} node', '{n} nodes')}</span></div>
       {/if}
     </div>
   {/if}

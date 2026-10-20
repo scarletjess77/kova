@@ -158,6 +158,7 @@ export const api = {
   updateGeodata: () => invoke<GeoMarker>('update_geodata'),
   windowAction: (action: 'minimize' | 'maximize' | 'hide') => invoke<void>('window_action', { action }),
   quit: () => invoke<void>('quit'),
+  systemLanguage: () => invoke<string>('system_language'),
 };
 
 /** Tauri rejects with the serialised error string; make sure we always show text. */

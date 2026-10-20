@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Donate from './Donate.svelte';
   import Icon from './Icon.svelte';
@@ -22,17 +23,17 @@
     <div class="tb-profile" data-tauri-drag-region>/ <b>{app.activeProfile.name}</b></div>
   {/if}
   <div class="spacer" data-tauri-drag-region></div>
-  <button class="tb-btn donate" onclick={() => (donateOpen = true)} title="Donate" aria-label="Donate"><Icon name="heart" /><span>Donate</span></button>
-  <button class="tb-btn" onclick={toggleTheme} title="Switch theme" aria-label="Switch theme"><Icon name="moon" /></button>
+  <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" /><span>{t('Donate')}</span></button>
+  <button class="tb-btn" onclick={toggleTheme} title={t('Switch theme')} aria-label={t('Switch theme')}><Icon name="moon" /></button>
   <div class="winctl">
-    <button onclick={() => api.windowAction('minimize')} aria-label="Minimize"><Icon name="min" /></button>
-    <button onclick={() => api.windowAction('maximize')} aria-label="Maximize"><Icon name="max" /></button>
-    <button class="close" onclick={() => api.windowAction('hide')} aria-label="Close to tray" title="Close to tray"><Icon name="x" /></button>
+    <button onclick={() => api.windowAction('minimize')} aria-label={t('Minimize')}><Icon name="min" /></button>
+    <button onclick={() => api.windowAction('maximize')} aria-label={t('Maximize')}><Icon name="max" /></button>
+    <button class="close" onclick={() => api.windowAction('hide')} aria-label={t('Close to tray')} title={t('Close to tray')}><Icon name="x" /></button>
   </div>
 </header>
 
 {#if donateOpen}
-  <Modal title="Support Kova" onclose={() => (donateOpen = false)}>
+  <Modal title={t('Support Kova')} onclose={() => (donateOpen = false)}>
     <Donate />
   </Modal>
 {/if}

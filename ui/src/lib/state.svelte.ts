@@ -4,6 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status } from './api';
+import { i18n, resolveLang, t, tn } from './i18n.svelte';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
 export interface LogLine { id: number; time: string; source: string; level: string; message: string }
@@ -47,6 +48,8 @@ class AppState {
   toast = $state<string | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   coresVersion = $state(0);
+  /** The system's display language, used when the language setting is "system". */
+  private systemLang = navigator.language;
 
   get activeProfile(): Profile | undefined {
     return this.profiles.find((p) => p.id === this.settings?.active_profile);
@@ -58,10 +61,11 @@ class AppState {
     this.settings = snap.settings;
     this.profiles = snap.profiles;
     this.dataDir = snap.data_dir;
+    this.systemLang = await api.systemLanguage().catch(() => navigator.language);
     this.applyTheme();
     await listen<EngineEvent>('engine', (e) => this.onEvent(e.payload));
     await listen<string>('toast', (e) => this.notify(e.payload));
-    await listen<Settings>('settings-changed', (e) => { this.settings = e.payload; });
+    await listen<Settings>('settings-changed', (e) => { this.settings = e.payload; this.applyTheme(); });
     await listen('cores-changed', () => { this.coresVersion++; });
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
     this.ready = true;
@@ -150,11 +154,14 @@ class AppState {
     await job;
   }
 
+  /** Apply the theme and language settings to the page. */
   applyTheme() {
-    const t = this.settings?.theme ?? 'dark';
-    const light = t === 'light' || (t === 'system' && matchMedia('(prefers-color-scheme: light)').matches);
+    const theme = this.settings?.theme ?? 'dark';
+    const light = theme === 'light' || (theme === 'system' && matchMedia('(prefers-color-scheme: light)').matches);
     if (light) document.documentElement.setAttribute('data-theme', 'light');
     else document.documentElement.removeAttribute('data-theme');
+    i18n.lang = resolveLang(this.settings?.language, this.systemLang);
+    document.documentElement.lang = i18n.lang;
   }
 
   async toggleConnection() {
@@ -167,9 +174,9 @@ class AppState {
     this.checkingUpdate = true;
     try {
       this.update = await check();
-      if (!silent) this.notify(this.update ? `Kova ${this.update.version} is available` : 'Kova is up to date');
+      if (!silent) this.notify(this.update ? t('Kova {version} is available', { version: this.update.version }) : t('Kova is up to date'));
     } catch (e) {
-      if (!silent) this.notify(`Could not check for updates: ${errText(e)}`);
+      if (!silent) this.notify(t('Could not check for updates: {error}', { error: errText(e) }));
     }
     this.checkingUpdate = false;
   }
@@ -193,7 +200,7 @@ class AppState {
       });
       await relaunch();
     } catch (e) {
-      this.notify(`The update failed: ${errText(e)}`);
+      this.notify(t('The update failed: {error}', { error: errText(e) }));
       this.updateProgress = null;
     }
   }
@@ -225,15 +232,15 @@ class AppState {
     } catch (e) {
       if (!silent) this.notify(errText(e));
     }
-    const t = new Set(this.testing);
-    targets.forEach((n) => t.delete(n));
-    this.testing = t;
+    const still = new Set(this.testing);
+    targets.forEach((n) => still.delete(n));
+    this.testing = still;
     if (res) {
       this.delays = { ...this.delays, ...res };
       void this.refreshProxies();
       if (silent) return;
       const ok = Object.values(res).filter((v) => v != null) as number[];
-      this.notify(ok.length ? `Tested ${Object.keys(res).length} nodes · fastest ${Math.min(...ok)} ms` : 'No node answered the latency test');
+      this.notify(ok.length ? tn(Object.keys(res).length, 'Tested {n} node · fastest {ms} ms', 'Tested {n} nodes · fastest {ms} ms', { ms: Math.min(...ok) }) : t('No node answered the latency test'));
     }
   }
 

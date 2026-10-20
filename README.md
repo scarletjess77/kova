@@ -46,6 +46,8 @@ cargo test -p kova-engine --test geodata -- --ignored --nocapture       # downlo
 cargo test -p kova-service --test service_e2e -- --ignored --nocapture  # service path (run e2e first)
 ```
 
+`npm run check` type-checks the UI and checks that every interface text has a Russian translation (`ui/src/lib/lang/ru.ts`; the English text is the key).
+
 The end-to-end test downloads the real cores, starts a local Xray server with VLESS over WebSocket and XHTTP, imports both as share links, tests latency while disconnected, connects, and fetches a page through each node, including the bridged XHTTP one. The service test runs the service's pipe server in-process and sends traffic through Mihomo inside it. None of the tests touch the system proxy or enable TUN.
 
 ## TUN mode and the Kova service
@@ -103,12 +105,13 @@ Working and tested on Windows 11:
 - The Kova service for TUN mode: tested end to end in-process; not yet tested as an installed Windows service with TUN switched on.
 - Config editor that checks a profile with Mihomo before saving.
 - Core install and update from Settings; tray menu; close to tray; single instance; launch at sign-in.
+- English and Russian interface, following the Windows display language unless chosen in Settings.
 
 Not done yet:
 
 - TUN without admin rights on Linux and macOS (Windows has the Kova service).
 - Linux and macOS: system-proxy code is written but untested.
-- Interface languages other than English (Russian first), QR code import, global shortcuts, Xray JSON import.
+- Error messages from the engine are still English only; QR code import, global shortcuts, Xray JSON import.
 - Android (shared `kova-core`, VpnService, cores built as libraries).
 - Code-signed installers (Windows SmartScreen warns until the installer is signed with a certificate).
 

@@ -108,6 +108,7 @@ pub struct Settings {
     pub launch_at_login: bool,
     pub auto_update_cores: bool,
     pub theme: Theme,
+    /// Interface language: "system" (follow Windows), "en" or "ru".
     pub language: String,
     /// Node chosen for Xray-fronted profiles (`None` = Auto).
     pub xray_selection: Option<String>,
@@ -131,7 +132,7 @@ impl Default for Settings {
             launch_at_login: false,
             auto_update_cores: true,
             theme: Theme::Dark,
-            language: "en".into(),
+            language: "system".into(),
             xray_selection: None,
             selections: Default::default(),
             check_sites: Vec::new(),

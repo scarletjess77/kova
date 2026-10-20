@@ -1,5 +1,6 @@
 <script lang="ts">
   import { api, errText, type CheckSite, type Probe, type SiteResult } from '../lib/api';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
 
@@ -7,9 +8,18 @@
   api.defaultCheckSites().then((s) => (defaults = s)).catch(() => {});
 
   const hostOf = (url: string) => { try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return url; } };
-  let custom = $derived<CheckSite[]>((app.settings?.check_sites ?? []).map((url) => ({ name: hostOf(url), url, group: 'Your sites' })));
+  const OWN = 'Your sites';
+  let custom = $derived<CheckSite[]>((app.settings?.check_sites ?? []).map((url) => ({ name: hostOf(url), url, group: OWN })));
   let sites = $derived([...defaults, ...custom]);
   let groups = $derived([...new Set(sites.map((s) => s.group))]);
+
+  // The built-in list comes from the engine in English.
+  let GROUP = $derived<Record<string, string>>({
+    Baseline: t('Baseline'), Video: t('Video'), Social: t('Social'), Messengers: t('Messengers'), AI: t('AI'), Other: t('Other'), [OWN]: t('Your sites'),
+  });
+  let SITE = $derived<Record<string, string>>({
+    'Google (connectivity check)': t('Google (connectivity check)'), 'YouTube video servers': t('YouTube video servers'),
+  });
 
   let results = $state<Record<string, SiteResult>>({});
   let failed = $state<Record<string, string>>({});
@@ -56,8 +66,8 @@
     let url = newUrl.trim();
     if (!url) return;
     if (!/^https?:\/\//.test(url)) url = `https://${url}`;
-    try { new URL(url); } catch { app.notify('That doesn’t look like a web address'); return; }
-    if (sites.some((s) => s.url === url)) { app.notify('That site is already in the list'); return; }
+    try { new URL(url); } catch { app.notify(t('That doesn’t look like a web address')); return; }
+    if (sites.some((s) => s.url === url)) { app.notify(t('That site is already in the list')); return; }
     void app.saveSettings((x) => (x.check_sites = [...x.check_sites, url]));
     newUrl = '';
     void checkOne(url);
@@ -70,10 +80,24 @@
   /** The one-word answer the user is looking for. */
   function verdict(r?: SiteResult): { text: string; cls: string } | null {
     if (!r) return null;
-    if (!r.via_kova) return works(r.direct) ? { text: 'Open', cls: '' } : { text: r.direct.outcome === 'refused' ? 'Region-locked' : 'Blocked', cls: r.direct.outcome === 'refused' ? 'warn' : 'bad' };
-    if (works(r.via_kova)) return works(r.direct) ? { text: 'Open', cls: '' } : { text: 'Unblocked by Kova', cls: 'ok' };
-    if (r.via_kova.outcome === 'refused') return { text: 'Region-locked', cls: 'warn' };
-    return { text: 'Unreachable', cls: 'bad' };
+    if (!r.via_kova) return works(r.direct) ? { text: t('Reachable'), cls: '' } : { text: r.direct.outcome === 'refused' ? t('Region-locked') : t('Blocked'), cls: r.direct.outcome === 'refused' ? 'warn' : 'bad' };
+    if (works(r.via_kova)) return works(r.direct) ? { text: t('Reachable'), cls: '' } : { text: t('Unblocked by Kova'), cls: 'ok' };
+    if (r.via_kova.outcome === 'refused') return { text: t('Region-locked'), cls: 'warn' };
+    return { text: t('Unreachable'), cls: 'bad' };
+  }
+
+  /** The failure description, from the outcome where the engine's text is fixed. */
+  function detail(p: Probe): string {
+    switch (p.outcome) {
+      case 'timeout': return t('No answer within 10 seconds');
+      case 'dns': return t('The site’s name could not be resolved');
+      case 'tls': return t('The secure connection was broken, which is typical of DPI blocking');
+      case 'reset': return t('The connection was reset, which is typical of blocking');
+      case 'refused': return t('The site refused access (HTTP {status}); often a region lock', { status: p.status ?? '' });
+      case 'http-error': return t('The site answered with HTTP {status}', { status: p.status ?? '' });
+      case 'ok': return p.detail ? t('Answered with a bot check, so the site is reachable') : '';
+      default: return p.detail ?? '';
+    }
   }
 
   let checked = $derived(Object.values(results));
@@ -85,48 +109,48 @@
 </script>
 
 <div class="page-head">
-  <h1>Site check</h1>
-  <span class="sub">Can these sites be reached, with Kova and without it?</span>
+  <h1>{t('Site check')}</h1>
+  <span class="sub">{t('Can these sites be reached, with Kova and without it?')}</span>
   <div class="tools">
     <form class="add" onsubmit={(e) => { e.preventDefault(); addSite(); }}>
-      <input class="input mono" bind:value={newUrl} placeholder="example.com" aria-label="Site to add" />
-      <button class="btn" type="submit" disabled={!newUrl.trim()}><Icon name="plus" />Add</button>
+      <input class="input mono" bind:value={newUrl} placeholder="example.com" aria-label={t('Site to add')} />
+      <button class="btn" type="submit" disabled={!newUrl.trim()}><Icon name="plus" />{t('Add')}</button>
     </form>
     <button class="btn primary" class:busy={running} onclick={checkAll} disabled={running || !sites.length}>
-      <Icon name={running ? 'refresh' : 'bolt'} />{running ? 'Checking…' : 'Check all'}</button>
+      <Icon name={running ? 'refresh' : 'bolt'} />{running ? t('Checking…') : t('Check all')}</button>
   </div>
 </div>
 
 {#if !connected}
-  <p class="note"><Icon name="alert" />Kova isn’t connected, so only direct access is checked. Connect to compare.</p>
+  <p class="note"><Icon name="alert" />{t('Kova isn’t connected, so only direct access is checked. Connect to compare.')}</p>
 {:else if app.status.tun_active}
-  <p class="note"><Icon name="alert" />TUN is on, so “Without Kova” also goes through Kova and shows the same result.</p>
+  <p class="note"><Icon name="alert" />{t('TUN is on, so “Without Kova” also goes through Kova and shows the same result.')}</p>
 {/if}
 
 {#if checked.length}
   <div class="summary">
-    <span><b>{summary.reachable}</b> of {checked.length} reachable{connected ? ' through Kova' : ''}</span>
-    {#if connected}<span><b>{summary.unblocked}</b> only reachable with Kova</span>{/if}
+    <span><b>{summary.reachable}</b> {connected ? t('of {n} reachable through Kova', { n: checked.length }) : t('of {n} reachable', { n: checked.length })}</span>
+    {#if connected}<span><b>{summary.unblocked}</b> {t('only reachable with Kova')}</span>{/if}
   </div>
 {/if}
 
 {#each groups as g (g)}
-  <div class="eyebrow group">{g}</div>
+  <div class="eyebrow group">{GROUP[g] ?? g}</div>
   <div class="twrap">
     <table>
-      <thead><tr><th>Site</th><th>Through Kova</th><th>Without Kova</th><th>Result</th><th></th></tr></thead>
+      <thead><tr><th>{t('Site')}</th><th>{t('Through Kova')}</th><th>{t('Without Kova')}</th><th>{t('Result')}</th><th></th></tr></thead>
       <tbody>
         {#each sites.filter((s) => s.group === g) as s (s.url)}
           {@const r = results[s.url]}
           {@const v = verdict(r)}
           <tr>
-            <td><div class="name">{s.name}</div><div class="url mono">{hostOf(s.url)}</div></td>
+            <td><div class="name">{SITE[s.name] ?? s.name}</div><div class="url mono">{hostOf(s.url)}</div></td>
             <td>{#if pending.has(s.url)}<span class="lat testing">…</span>{:else if r}{@render probe(r.via_kova)}{:else}<span class="muted">—</span>{/if}</td>
             <td>{#if pending.has(s.url)}<span class="lat testing">…</span>{:else if r}{@render probe(r.direct)}{:else}<span class="muted">—</span>{/if}</td>
             <td>{#if v}<span class="chip {v.cls}">{v.text}</span>{:else if failed[s.url]}<span class="fail">{failed[s.url]}</span>{/if}</td>
             <td class="r"><div class="ops">
-              <button class="x" onclick={() => checkOne(s.url)} disabled={pending.has(s.url)} aria-label="Check {s.name} again"><Icon name="refresh" /></button>
-              {#if g === 'Your sites'}<button class="x" onclick={() => removeSite(s.url)} aria-label="Remove {s.name}"><Icon name="x" /></button>{/if}
+              <button class="x" onclick={() => checkOne(s.url)} disabled={pending.has(s.url)} aria-label={t('Check {name} again', { name: s.name })}><Icon name="refresh" /></button>
+              {#if g === OWN}<button class="x" onclick={() => removeSite(s.url)} aria-label={t('Remove {name}', { name: s.name })}><Icon name="x" /></button>{/if}
             </div></td>
           </tr>
         {/each}
@@ -137,13 +161,13 @@
 
 {#snippet probe(p: Probe | null)}
   {#if !p}
-    <span class="muted">not connected</span>
+    <span class="muted">{t('not connected')}</span>
   {:else if p.outcome === 'ok'}
-    <span class="lat ok">{p.ms} ms</span>
+    <span class="lat ok" title={detail(p)}>{t('{n} ms', { n: p.ms ?? 0 })}</span>
   {:else if p.outcome === 'http-error'}
-    <span class="lat warn" title={p.detail ?? ''}>HTTP {p.status}</span>
+    <span class="lat warn" title={detail(p)}>HTTP {p.status}</span>
   {:else}
-    <span class="fail" title={p.detail ?? ''}>{p.detail}</span>
+    <span class="fail" title={p.detail ?? ''}>{detail(p)}</span>
   {/if}
 {/snippet}
 

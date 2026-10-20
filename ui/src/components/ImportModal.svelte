@@ -3,6 +3,7 @@
   import { open } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
   import { api } from '../lib/api';
+  import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
@@ -27,7 +28,7 @@
   $effect(() => { if (tab === 'clip' && clip === null) void loadClipboard(); });
 
   async function pickFile() {
-    const path = await open({ multiple: false, filters: [{ name: 'Configs and link lists', extensions: ['yaml', 'yml', 'json', 'txt', 'conf'] }] });
+    const path = await open({ multiple: false, filters: [{ name: t('Configs and link lists'), extensions: ['yaml', 'yml', 'json', 'txt', 'conf'] }] });
     if (!path) return;
     const text = await app.run(() => invoke<string>('read_text_file', { path }));
     if (text != null) file = { path: String(path), text };
@@ -39,40 +40,40 @@
   async function submit() {
     if (!payload) return;
     busy = true;
-    const p = await app.run(() => api.addProfile(payload, name || (tab === 'file' ? fileName : undefined)), (p) => `Added ${p.name} · ${p.node_count} nodes`);
+    const p = await app.run(() => api.addProfile(payload, name || (tab === 'file' ? fileName : undefined)), (p) => tn(p.node_count, 'Added {name} · {n} node', 'Added {name} · {n} nodes', { name: p.name }));
     busy = false;
     if (p) onclose();
   }
 </script>
 
-<Modal title="Add profile" {onclose}>
-  <div class="seg" role="group" aria-label="Import from">
-    <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>Link</button>
-    <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>Clipboard</button>
-    <button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>File</button>
+<Modal title={t('Add profile')} {onclose}>
+  <div class="seg" role="group" aria-label={t('Import from')}>
+    <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>{t('Link')}</button>
+    <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>{t('Clipboard')}</button>
+    <button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>
   </div>
 
   {#if tab === 'link'}
     <div class="fld">
-      <label for="imp-url">Subscription URL or share links</label>
-      <textarea id="imp-url" class="input mono" rows="4" bind:value={input} placeholder={'https://…\nor vless://…  hy2://…  one per line'}></textarea>
+      <label for="imp-url">{t('Subscription URL or share links')}</label>
+      <textarea id="imp-url" class="input mono" rows="4" bind:value={input} placeholder={t('https://…\nor vless://…  hy2://…  one per line')}></textarea>
     </div>
   {:else if tab === 'clip'}
     <div class="drop">
       <Icon name="clip" />
       {#if clip === null}
-        <span>Reading the clipboard…</span>
+        <span>{t('Reading the clipboard…')}</span>
       {:else if clipIsUrl}
-        <b>A subscription URL is in your clipboard</b>
+        <b>{t('A subscription URL is in your clipboard')}</b>
         <span class="mono small">{clip.trim().slice(0, 80)}</span>
       {:else if clipLinks}
-        <b>{clipLinks} share link{clipLinks > 1 ? 's' : ''} found in your clipboard</b>
+        <b>{tn(clipLinks, '{n} share link found in your clipboard', '{n} share links found in your clipboard')}</b>
       {:else if clip.trim()}
-        <b>The clipboard has text</b><span>Kova will try to read it as a config.</span>
+        <b>{t('The clipboard has text')}</b><span>{t('Kova will try to read it as a config.')}</span>
       {:else}
-        <b>The clipboard is empty</b><span>Copy a subscription URL or share links, then check again.</span>
+        <b>{t('The clipboard is empty')}</b><span>{t('Copy a subscription URL or share links, then check again.')}</span>
       {/if}
-      <button class="btn ghost" onclick={loadClipboard}><Icon name="refresh" />Check again</button>
+      <button class="btn ghost" onclick={loadClipboard}><Icon name="refresh" />{t('Check again')}</button>
     </div>
   {:else}
     <div class="drop">
@@ -80,29 +81,29 @@
       {#if file}
         <b>{file.path.split(/[\\/]/).pop()}</b><span>{(file.text.length / 1024).toFixed(1)} KB</span>
       {:else}
-        <b>Choose a config file</b><span>Clash / Mihomo YAML, sing-box JSON, or a text file of share links</span>
+        <b>{t('Choose a config file')}</b><span>{t('Clash / Mihomo YAML, sing-box JSON, or a text file of share links')}</span>
       {/if}
-      <button class="btn" onclick={pickFile}>Browse…</button>
+      <button class="btn" onclick={pickFile}>{t('Browse…')}</button>
     </div>
   {/if}
 
   <div class="fld">
-    <label for="imp-name">Name <span class="muted">(optional)</span></label>
-    <input id="imp-name" class="input" bind:value={name} placeholder="Taken from the subscription" />
+    <label for="imp-name">{t('Name')} <span class="muted">{t('(optional)')}</span></label>
+    <input id="imp-name" class="input" bind:value={name} placeholder={t('Taken from the subscription')} />
   </div>
 
   <div>
-    <div class="eyebrow">Understands</div>
+    <div class="eyebrow">{t('Understands')}</div>
     <div class="fmt">
-      {#each ['Clash / Mihomo YAML', 'sing-box JSON', 'Base64 subscriptions', 'vless://', 'vmess://', 'trojan://', 'ss://', 'hy2://', 'tuic://', 'anytls://', 'wireguard://'] as f (f)}
+      {#each ['Clash / Mihomo YAML', 'sing-box JSON', t('Base64 subscriptions'), 'vless://', 'vmess://', 'trojan://', 'ss://', 'hy2://', 'tuic://', 'anytls://', 'wireguard://'] as f (f)}
         <span class="chip" class:mono={f.endsWith('//')}>{f}</span>
       {/each}
     </div>
   </div>
 
   {#snippet footer()}
-    <button class="btn ghost" onclick={onclose}>Cancel</button>
-    <button class="btn primary" class:busy onclick={submit} disabled={!payload || busy}>{#if busy}<Icon name="refresh" />Importing…{:else}Import{/if}</button>
+    <button class="btn ghost" onclick={onclose}>{t('Cancel')}</button>
+    <button class="btn primary" class:busy onclick={submit} disabled={!payload || busy}>{#if busy}<Icon name="refresh" />{t('Importing…')}{:else}{t('Import')}{/if}</button>
   {/snippet}
 </Modal>
 

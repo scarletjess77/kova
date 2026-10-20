@@ -1,3 +1,5 @@
+import { t, tn } from './i18n.svelte';
+
 export function fmtBytes(b: number): string {
   const u = ['B', 'KB', 'MB', 'GB', 'TB'];
   let i = 0;
@@ -16,13 +18,13 @@ export function fmtDur(ms: number): string {
 }
 
 export function fmtAgo(unixSecs: number): string {
-  if (!unixSecs) return 'never';
+  if (!unixSecs) return t('never');
   const d = Date.now() / 1000 - unixSecs;
-  if (d < 90) return 'just now';
-  if (d < 3600) return `${Math.round(d / 60)} min ago`;
-  if (d < 86400) return `${Math.round(d / 3600)} h ago`;
+  if (d < 90) return t('just now');
+  if (d < 3600) return t('{n} min ago', { n: Math.round(d / 60) });
+  if (d < 86400) return t('{n} h ago', { n: Math.round(d / 3600) });
   const days = Math.round(d / 86400);
-  return days === 1 ? 'yesterday' : `${days} days ago`;
+  return days === 1 ? t('yesterday') : tn(days, '{n} day ago', '{n} days ago');
 }
 
 export function fmtDate(unixSecs: number): string {

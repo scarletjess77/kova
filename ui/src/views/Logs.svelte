@@ -1,5 +1,6 @@
 <script lang="ts">
   import { tick } from 'svelte';
+  import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
 
@@ -22,29 +23,29 @@
 </script>
 
 <div class="page-head">
-  <h1>Logs</h1>
-  <span class="sub">{app.status.running ? 'Live from the core' : 'Not connected'}</span>
+  <h1>{t('Logs')}</h1>
+  <span class="sub">{app.status.running ? t('Live from the core') : t('Not connected')}</span>
   <div class="tools">
-    <label class="search"><Icon name="search" /><input class="input" placeholder="Filter messages" bind:value={q} aria-label="Filter logs" /></label>
-    <div class="seg" role="group" aria-label="Minimum level">
-      {#each [['debug', 'Debug'], ['info', 'Info'], ['warning', 'Warning'], ['error', 'Error']] as [v, l] (v)}
+    <label class="search"><Icon name="search" /><input class="input" placeholder={t('Filter messages')} bind:value={q} aria-label={t('Filter logs')} /></label>
+    <div class="seg" role="group" aria-label={t('Minimum level')}>
+      {#each [['debug', t('Debug')], ['info', t('Info')], ['warning', t('Warning')], ['error', t('Error')]] as [v, l] (v)}
         <button aria-pressed={min === v} onclick={() => (min = v as typeof min)}>{l}</button>
       {/each}
     </div>
-    <button class="btn" onclick={() => (app.logsPaused = !app.logsPaused)}><Icon name={app.logsPaused ? 'play' : 'pause'} />{app.logsPaused ? 'Resume' : 'Pause'}</button>
-    <button class="btn ghost" onclick={() => app.logs.splice(0)}>Clear</button>
+    <button class="btn" onclick={() => (app.logsPaused = !app.logsPaused)}><Icon name={app.logsPaused ? 'play' : 'pause'} />{app.logsPaused ? t('Resume') : t('Pause')}</button>
+    <button class="btn ghost" onclick={() => app.logs.splice(0)}>{t('Clear')}</button>
   </div>
 </div>
 
 {#if min === 'debug' && app.settings?.core.log_level !== 'debug'}
-  <p class="hint top">The core is logging at “{app.settings?.core.log_level}” level. Set it to Debug in Settings to see debug lines.</p>
+  <p class="hint top">{t('The core is logging at “{level}” level. Set it to Debug in Settings to see debug lines.', { level: app.settings?.core.log_level ?? '' })}</p>
 {/if}
 
 <div class="logbox selectable" bind:this={box} onscroll={onScroll}>
   {#each shown as l (l.id)}
     <div class="ll"><span class="ts">{l.time}</span><span class="lv {l.level}">{LABEL[l.level]}</span><span class="src">{l.source}</span><span class="msg">{l.message}</span></div>
   {:else}
-    <div class="none">{app.status.running ? 'Waiting for log lines…' : 'Logs appear here while connected.'}</div>
+    <div class="none">{app.status.running ? t('Waiting for log lines…') : t('Logs appear here while connected.')}</div>
   {/each}
 </div>
 
