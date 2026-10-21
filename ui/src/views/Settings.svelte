@@ -1,5 +1,6 @@
 <script lang="ts">
   import { disable as autostartOff, enable as autostartOn, isEnabled as autostartIsOn } from '@tauri-apps/plugin-autostart';
+  import { getVersion } from '@tauri-apps/api/app';
   import { openPath } from '@tauri-apps/plugin-opener';
   import { api, errText, type CoreKind, type CoreStatus, type GeoInfo, type GeoSource, type ServiceView, type Settings } from '../lib/api';
   import { fmtAgo, fmtBytes } from '../lib/format';
@@ -7,6 +8,9 @@
   import { app } from '../lib/state.svelte';
   import Donate from '../components/Donate.svelte';
   import Icon from '../components/Icon.svelte';
+
+  let appVersion = $state('');
+  getVersion().then((v) => (appVersion = v), () => {});
 
   let s = $derived(app.settings);
   let cores = $state<CoreStatus[]>([]);
@@ -298,9 +302,8 @@
         {/if}
       </section>
 
-      {#if !app.mobile}
       <section class="card">
-        <div class="card-h"><h2>{t('Updates')}</h2><span class="aside">Kova {svc?.app_version ?? ''}</span></div>
+        <div class="card-h"><h2>{t('Updates')}</h2><span class="aside">Kova {appVersion}</span></div>
         {#if app.update}
           <div class="upd">
             <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
@@ -309,6 +312,9 @@
             {#if app.updateProgress !== null}
               <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
               <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : t('Installing, Kova will restart')}</div>
+            {:else if app.mobile}
+              <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Download update')}</button></div>
+              <p class="hint">{t('The APK opens in your browser. Android asks you to confirm the install; your profiles and settings stay.')}</p>
             {:else}
               <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Install and restart')}</button></div>
               <p class="hint">{t('Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.')}</p>
@@ -324,7 +330,6 @@
         </div>
         <div class="actions gap"><button class="btn" class:busy={app.checkingUpdate} disabled={app.checkingUpdate || app.updateProgress !== null} onclick={() => app.checkForUpdate()}><Icon name="refresh" />{t('Check now')}</button></div>
       </section>
-      {/if}
 
       <section class="card" id="donate">
         <div class="card-h"><h2>{t('Support Kova')}</h2><span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span></div>

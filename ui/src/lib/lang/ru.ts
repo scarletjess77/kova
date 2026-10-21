@@ -508,6 +508,8 @@ export const ru: Dict = {
     'Сначала Kova отключится. Windows попросит разрешение администратора, потому что Kova установлена для всех пользователей.',
   'Check for updates on launch': 'Проверять обновления при запуске',
   'Get beta versions': 'Получать бета-версии',
+  'Download update': 'Скачать обновление',
+  'The APK opens in your browser. Android asks you to confirm the install; your profiles and settings stay.': 'APK откроется в браузере. Android попросит подтвердить установку; профили и настройки сохранятся.',
   'New features earlier, before they are fully tested. Kova updates to whichever is newer, beta or stable.':
     'Новые функции раньше, до полной проверки. Kova обновляется до самой новой версии — бета или стабильной.',
   'Releases are signed; Kova only installs updates signed with its key': 'Релизы подписаны: Kova устанавливает только обновления, подписанные её ключом',
