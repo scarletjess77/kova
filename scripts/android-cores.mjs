@@ -95,5 +95,6 @@ async function xray() {
 }
 
 mkdirSync(out, { recursive: true });
-await mihomo();
+// Xray first: Mihomo's build takes a minute, and GitHub closes idle connections meanwhile.
 await xray();
+await mihomo();
