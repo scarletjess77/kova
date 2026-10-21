@@ -154,7 +154,7 @@ class AppState {
     window.addEventListener('popstate', this.onPopState);
     this.ready = true;
     void this.refreshProxies();
-    if (this.settings?.check_updates && !this.mobile) setTimeout(() => void this.checkForUpdate(true), 5000);
+    if (this.settings?.check_updates) setTimeout(() => void this.checkForUpdate(true), 5000);
   }
 
   private onEvent(e: EngineEvent) {
@@ -285,6 +285,11 @@ class AppState {
   /** Download, install and restart (Kova disconnects first). */
   async installUpdate() {
     if (!this.update || this.updateProgress !== null) return;
+    // On Android the browser downloads the APK and the system installs it.
+    if (this.mobile) {
+      await this.run(() => api.installUpdate());
+      return;
+    }
     this.updateProgress = 0;
     const stop = await listen<number>('update-progress', (e) => (this.updateProgress = e.payload));
     try {

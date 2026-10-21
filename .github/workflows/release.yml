@@ -39,3 +39,53 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
           args: '--bundles nsis --config {"bundle":{"createUpdaterArtifacts":true}}'
+
+  android:
+    # After the Windows job, which creates the draft release the APK is added to.
+    needs: windows
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: swatinem/rust-cache@v2
+      - run: npm ci
+      - name: Android NDK
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" "platforms;android-36" > /dev/null
+          echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+      - name: Cores for Android
+        run: node scripts/android-cores.mjs
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the APK
+        env:
+          # The APK signing key: every release must use the same one to install as an update.
+          KEYSTORE_BASE64: ${{ secrets.KOVA_ANDROID_KEYSTORE }}
+          KOVA_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KOVA_ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kova.jks"
+          export KOVA_ANDROID_KEYSTORE="$RUNNER_TEMP/kova.jks"
+          npx tauri android build --apk --target aarch64
+      - name: Add it to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)
+          name="Kova_${GITHUB_REF_NAME#v}_android-arm64.apk"
+          cp "$apk" "$name"
+          gh release upload "$GITHUB_REF_NAME" "$name" --clobber

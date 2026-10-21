@@ -18,7 +18,10 @@ const root = join(import.meta.dirname, '..');
 const out = join(root, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'jniLibs', 'arm64-v8a');
 
 async function github(path) {
-  const r = await fetch(`https://api.github.com/${path}`, { headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'kova-build' } });
+  const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'kova-build' };
+  // CI runners share addresses, and with them GitHub's limit for anonymous requests.
+  if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
+  const r = await fetch(`https://api.github.com/${path}`, { headers });
   if (!r.ok) throw new Error(`GitHub answered ${r.status} for ${path}`);
   return r.json();
 }

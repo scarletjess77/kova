@@ -25,6 +25,19 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    // Releases are signed with one key, so each new APK installs over the last and keeps
+    // its data. The release workflow provides it; without it a release build is unsigned.
+    val keystore = System.getenv("KOVA_ANDROID_KEYSTORE")
+    signingConfigs {
+        if (keystore != null) {
+            create("release") {
+                storeFile = file(keystore)
+                storePassword = System.getenv("KOVA_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = "kova"
+                keyPassword = storePassword
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -39,8 +52,13 @@ android {
             }
         }
         getByName("release") {
+            if (keystore != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+            // Tauri finds the plugin's commands and the VPN service by reflection, which
+            // shrinking would break; the Kotlin part is small anyway.
             optimization {
-               enable = true
+               enable = false
             }
             proguardFiles(
                 *fileTree(".") {

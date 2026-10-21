@@ -2,7 +2,7 @@
 
 A desktop VPN client for the **Mihomo** and **Xray** cores, written in Rust. It aims to replace v2rayN, Clash Verge Rev and similar clients with one app that runs either core, or both at once.
 
-Windows is the first target; Linux and macOS share the same code, and Android is planned.
+Windows is the first target; Linux and macOS share the same code, and an early Android app (arm64) comes with every release.
 
 By **scarletjess77** · [github.com/scarletjess77/kova](https://github.com/scarletjess77/kova)
 
@@ -39,16 +39,17 @@ Set `KOVA_DATA_DIR` to keep development data away from your real profile (`dev-d
 
 ### Android (early)
 
-The same app runs on Android (arm64, Android 7+) through Tauri: the same interface, laid out for a phone, and the same engine. What differs:
+Each release has an APK (`Kova_<version>_android-arm64.apk`) next to the Windows installer. The same app runs on Android (arm64, Android 7+) through Tauri: the same interface, laid out for a phone, and the same engine. What differs:
 
 - **The VPN.** Android lets an app capture traffic only through its VpnService. The Kotlin part (`src-tauri/gen/android/app/src/main/java/app/kova/client/`) asks for permission, opens the VPN interface and hands its descriptor to Mihomo, which uses it as its TUN device. Kova's own traffic, the cores' included, is excluded from the VPN so it can reach the servers. There is no system proxy, TUN switch or Kova service on Android; the VPN covers all apps.
-- **The cores ship inside the APK** as `libmihomo.so` and `libxray.so`, because Android only runs programs that come with the app. `npm run android:cores` downloads the Android builds from the official releases and checks their SHA-256; they are updated together with the app.
+- **The cores ship inside the APK** as `libmihomo.so` and `libxray.so`, because Android only runs programs that come with the app. `npm run android:cores` downloads Xray's Android build from its official release and checks its SHA-256, and builds Mihomo from its official source with Go (the `cmfa` build Clash Meta for Android uses, which doesn't need root); they are updated together with the app.
 - **HTTPS** uses the certificates the device trusts.
+- **Updates.** Settings → Updates finds a newer APK in the releases (betas too with **Get beta versions**) and opens it in the browser; Android asks to confirm the install. Releases are all signed with the same key, so each installs over the last and keeps your profiles.
 
-Requirements: Android SDK with platform 36 and NDK r28, JDK 17 or 21, and the Rust target `aarch64-linux-android`. With `ANDROID_HOME`, `NDK_HOME` and `JAVA_HOME` set:
+Requirements: Android SDK with platform 36 and NDK r28, JDK 17 or 21, Go, and the Rust target `aarch64-linux-android`. With `ANDROID_HOME`, `NDK_HOME` and `JAVA_HOME` set:
 
 ```bash
-npm run android:build                      # release APK (sign it before installing)
+npm run android:build                      # release APK (unsigned unless KOVA_ANDROID_KEYSTORE is set)
 npm run android:cores && npx tauri android build --apk --target aarch64 --debug   # debug APK, installable as is
 ```
 
@@ -143,7 +144,7 @@ Not done yet:
 - TUN without admin rights on Linux and macOS (Windows has the Kova service).
 - Linux and macOS: system-proxy code is written but untested.
 - Error messages from the engine are still English only; QR code import, global shortcuts, Xray JSON import.
-- Android (shared `kova-core`, VpnService, cores built as libraries).
+- Android: tested on one phone so far; no per-app VPN choice yet.
 - Code-signed installers (Windows SmartScreen warns until the installer is signed with a certificate).
 
 ## Releases and in-app updates
@@ -159,7 +160,7 @@ git tag v0.2.0
 git push origin HEAD v0.2.0
 ```
 
-The **Release** workflow builds and signs the installer and creates a draft release. Publish the draft on GitHub; installed copies see the update from then on. The **CI** workflow runs the tests on Windows, Linux and macOS for every push.
+The **Release** workflow builds and signs the Windows installer and the Android APK and creates a draft release. Publish the draft on GitHub; installed copies see the update from then on. The **CI** workflow runs the tests on Windows, Linux and macOS for every push.
 
 ## Privacy note
 
