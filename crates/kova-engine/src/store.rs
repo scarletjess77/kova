@@ -122,6 +122,8 @@ pub struct Settings {
     pub check_sites: Vec<String>,
     /// Look for a new Kova version on launch.
     pub check_updates: bool,
+    /// Also update to beta versions (pre-releases). On by default in a beta build.
+    pub beta_updates: bool,
 }
 
 impl Default for Settings {
@@ -141,6 +143,7 @@ impl Default for Settings {
             selections: Default::default(),
             check_sites: Vec::new(),
             check_updates: true,
+            beta_updates: env!("CARGO_PKG_VERSION").contains('-'),
         }
     }
 }

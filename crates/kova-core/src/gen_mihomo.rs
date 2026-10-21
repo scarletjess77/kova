@@ -173,6 +173,23 @@ fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<Stri
     ]
 }
 
+/// Who each rule in the config belongs to, by the name Mihomo logs it under, for smart
+/// routing to decide what it may do about a failure. `profile_rules`: an imported
+/// profile's own rules may be corrected.
+pub fn smart_scope(opts: &RuntimeOptions, profile_rules: bool) -> crate::smart::Scope {
+    use crate::smart::{PROVIDERS, rule_key};
+    let key = |r: &Rule| rule_key(r.kind.mihomo_name(), &r.value);
+    let mut internal: std::collections::HashSet<String> = opts.tail_rules().iter().map(key).collect();
+    internal.extend(opts.bypass_processes.iter().map(|p| rule_key("ProcessName", p)));
+    internal.extend(PROVIDERS.iter().map(|p| rule_key("RuleSet", p)));
+    crate::smart::Scope {
+        user_rules: opts.custom_rules.iter().map(key).collect(),
+        preset_rules: Preset::ALL.iter().filter(|p| opts.presets.contains(p)).flat_map(|p| p.rules()).map(|r| key(&r)).collect(),
+        internal_rules: internal,
+        profile_rules,
+    }
+}
+
 /// Address of the local Xray bridge for each bridged node.
 pub type Bridges = HashMap<String, u16>;
 
@@ -274,9 +291,14 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
             merged.extend(learned);
             merged.extend(opts.tail_rules().iter().map(|r| Yaml::String(r.to_clash(&main))));
         } else {
-            // Learned sites were learned from traffic only the catch-all matched, so they
-            // go right before it: the profile's own rules keep deciding everything else.
-            let catch_all = existing.iter().position(|r| r.as_str().is_some_and(|r| r.trim_start().starts_with("MATCH,"))).unwrap_or(existing.len());
+            // Learned from traffic only the catch-all matched, learned sites go right before
+            // it, so the profile's own rules keep deciding everything else. When smart
+            // routing may also correct the profile's rules, they must come first.
+            let catch_all = if opts.smart_profile_rules {
+                0
+            } else {
+                existing.iter().position(|r| r.as_str().is_some_and(|r| r.trim_start().starts_with("MATCH,"))).unwrap_or(existing.len())
+            };
             existing.splice(catch_all..catch_all, learned);
             merged.extend(existing);
         }
@@ -410,7 +432,7 @@ mod tests {
         let p = plan(&nodes, CorePreference::Auto);
         let mut o = opts();
         o.presets = vec![Preset::ProxyBlockedRu];
-        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002 });
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, scope: Default::default() });
         let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
         let at = |r: &str| rules.iter().position(|x| x.starts_with(r)).unwrap();
@@ -443,7 +465,7 @@ rules:
   - MATCH,Sel
 ";
         let mut o = opts();
-        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002 });
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, scope: Default::default() });
         let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
         let names: Vec<&str> = doc["listeners"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["mine", "kova-probe-direct", "kova-probe-proxy"]);
@@ -454,6 +476,30 @@ rules:
         assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("MATCH,Sel"));
         assert!(at("DOMAIN,mine.example,DIRECT") < at("RULE-SET,kova-learned-direct,DIRECT"));
         assert_eq!(*rules.last().unwrap(), "MATCH,Sel");
+
+        // Allowed to correct the profile's rules: learned sites come before them.
+        o.smart_profile_rules = true;
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
+        assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("DOMAIN,mine.example,DIRECT"));
+    }
+
+    #[test]
+    fn own_rules_are_named_as_mihomo_logs_them() {
+        let mut o = opts();
+        o.presets = vec![Preset::DirectRu];
+        o.custom_rules = vec![Rule { kind: RuleKind::DomainSuffix, value: "example.org".into(), target: PROXY.into() }];
+        o.bypass_processes = vec!["xray.exe".into()];
+        let s = smart_scope(&o, false);
+        for k in ["GeoSite(category-ru)", "GeoIP(RU)"] {
+            assert!(s.preset_rules.contains(k), "{k} missing from {:?}", s.preset_rules);
+        }
+        assert!(s.user_rules.contains("DomainSuffix(example.org)"));
+        for k in ["IPCIDR(10.0.0.0/8)", "ProcessName(xray.exe)", "RuleSet(kova-learned-proxy)"] {
+            assert!(s.internal_rules.contains(k), "{k} missing from {:?}", s.internal_rules);
+        }
+        assert!(!s.user_rules.contains("GeoSite(category-games)"));
     }
 
     #[test]
