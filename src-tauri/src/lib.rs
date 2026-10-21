@@ -68,6 +68,23 @@ async fn clear_learned(engine: Eng<'_>) -> R<()> {
     engine.clear_learned().await
 }
 
+#[tauri::command]
+fn smart_suggestions(engine: Eng) -> Vec<kova_core::smart::Suggestion> {
+    engine.smart_suggestions()
+}
+
+#[tauri::command]
+async fn accept_suggestion(app: AppHandle, engine: Eng<'_>, domain: String) -> R<Settings> {
+    engine.accept_suggestion(&domain).await?;
+    refresh_tray(&app);
+    Ok(engine.settings())
+}
+
+#[tauri::command]
+fn dismiss_suggestion(engine: Eng, domain: String) {
+    engine.dismiss_suggestion(&domain);
+}
+
 // ---------------------------------------------------------------------------- updates
 
 /// The repository releases come from. The updater's own endpoint (tauri.conf.json) is
@@ -641,6 +658,9 @@ pub fn run() {
             forget_learned,
             keep_learned,
             clear_learned,
+            smart_suggestions,
+            accept_suggestion,
+            dismiss_suggestion,
             connect,
             disconnect,
             save_settings,

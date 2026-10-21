@@ -97,20 +97,71 @@ pub fn parse_opened(line: &str) -> Option<Opened> {
     Some(Opened { direct: chain == "DIRECT", rule: rule.to_string(), host: host.to_string(), port: port.parse().ok()? })
 }
 
-/// Which failures smart routing may act on, by the rule that chose the route.
+/// Where the rule that chose a route comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Origin {
+    /// One of the user's own rules.
+    User,
+    /// A routing preset.
+    Preset,
+    /// An imported Clash profile's own rules.
+    Profile,
+}
+
+/// What smart routing does about a route that fails.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Action {
+    /// Learn the site: no rule chose its route on purpose (or the user lets Kova
+    /// correct the subscription's rules).
+    Learn,
+    /// Only suggest an exception: a rule chose the route on purpose, and that rule
+    /// is the user's to change.
+    Suggest(Origin),
+}
+
+/// Which rule is whose, to decide what smart routing does about a failure.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scope {
-    /// Kova's own rules (the user's, presets, its internal ones), which it never
-    /// second-guesses.
-    pub own_rules: std::collections::HashSet<String>,
-    /// Also act on a subscription's own rules, not just the catch-all.
+    pub user_rules: std::collections::HashSet<String>,
+    pub preset_rules: std::collections::HashSet<String>,
+    /// Kova's internal rules (its own processes, the learned lists, the local
+    /// network), which are never questioned.
+    pub internal_rules: std::collections::HashSet<String>,
+    /// Learn over a subscription's own rules instead of only suggesting.
     pub profile_rules: bool,
 }
 
 impl Scope {
-    pub fn covers(&self, rule: &str) -> bool {
-        rule == CATCH_ALL || (self.profile_rules && !self.own_rules.contains(rule))
+    pub fn action(&self, rule: &str) -> Option<Action> {
+        if rule == CATCH_ALL {
+            Some(Action::Learn)
+        } else if self.user_rules.contains(rule) {
+            Some(Action::Suggest(Origin::User))
+        } else if self.preset_rules.contains(rule) {
+            Some(Action::Suggest(Origin::Preset))
+        } else if self.internal_rules.contains(rule) {
+            None
+        } else if self.profile_rules {
+            // Any other rule can only come from the imported profile.
+            Some(Action::Learn)
+        } else {
+            Some(Action::Suggest(Origin::Profile))
+        }
     }
+}
+
+/// A site that fails on the route a rule chose on purpose, and works the other way.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Suggestion {
+    pub domain: String,
+    /// The way that works.
+    pub route: Route,
+    pub reason: String,
+    /// The rule that chose the failing route, as a [`rule_key`].
+    pub rule: String,
+    pub origin: Origin,
+    pub at: i64,
 }
 
 impl Learned {
@@ -239,13 +290,22 @@ mod tests {
     }
 
     #[test]
-    fn scope_never_touches_kovas_own_rules() {
-        let own: std::collections::HashSet<String> = ["GeoSite(category-ru)".to_string()].into();
-        let catch_all_only = Scope { own_rules: own.clone(), profile_rules: false };
-        assert!(catch_all_only.covers("Match") && !catch_all_only.covers("GeoSite(category-games)"));
-        let with_profile = Scope { own_rules: own, profile_rules: true };
-        assert!(with_profile.covers("GeoSite(category-games)"));
-        assert!(!with_profile.covers("GeoSite(category-ru)"), "a preset's rule is Kova's own");
+    fn learns_only_where_no_one_chose_and_suggests_elsewhere() {
+        let set = |k: &[&str]| k.iter().map(|s| s.to_string()).collect();
+        let mut scope = Scope {
+            user_rules: set(&["GeoSite(category-games)"]),
+            preset_rules: set(&["GeoSite(category-ru)", "GeoSite(category-games)"]),
+            internal_rules: set(&["GeoSite(private)", "RuleSet(kova-learned-proxy)"]),
+            profile_rules: false,
+        };
+        assert_eq!(scope.action("Match"), Some(Action::Learn));
+        assert_eq!(scope.action("GeoSite(category-games)"), Some(Action::Suggest(Origin::User)), "the user's rule wins over a preset's");
+        assert_eq!(scope.action("GeoSite(category-ru)"), Some(Action::Suggest(Origin::Preset)));
+        assert_eq!(scope.action("GeoSite(private)"), None);
+        assert_eq!(scope.action("DomainSuffix(steamcontent.com)"), Some(Action::Suggest(Origin::Profile)));
+        scope.profile_rules = true;
+        assert_eq!(scope.action("DomainSuffix(steamcontent.com)"), Some(Action::Learn));
+        assert_eq!(scope.action("GeoSite(category-games)"), Some(Action::Suggest(Origin::User)), "the user's rules are never overridden");
     }
 
     #[test]

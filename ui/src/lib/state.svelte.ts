@@ -113,6 +113,12 @@ class AppState {
           ? t('{domain} is blocked here; it now goes through the proxy', { domain: e.domain })
           : t('{domain} refuses the proxy; it now goes direct', { domain: e.domain }));
         break;
+      case 'suggested':
+        this.learnedVersion++;
+        this.notify(e.route === 'proxy'
+          ? t('{domain} is blocked direct, but a rule sends it there. See Rules → Smart routing', { domain: e.domain })
+          : t('{domain} doesn’t open through the proxy, but a rule sends it there. See Rules → Smart routing', { domain: e.domain }));
+        break;
     }
   }
 

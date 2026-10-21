@@ -34,6 +34,8 @@ pub enum Event {
     Delays { delays: HashMap<String, Option<u32>> },
     /// Smart routing learned a site.
     Learned { domain: String, route: kova_core::smart::Route, reason: String },
+    /// Smart routing suggests an exception to a rule the user owns.
+    Suggested { domain: String, route: kova_core::smart::Route, rule: String, origin: kova_core::smart::Origin },
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -894,7 +896,7 @@ impl Engine {
             let lists_url = self.smart.lists_url().await?;
             // A subscription's own rules exist only in an imported Clash profile.
             let profile_rules = opts.smart_profile_rules && profile.format == Format::Clash;
-            let scope = kova_core::smart::Scope { own_rules: gen_mihomo::own_rule_keys(&opts), profile_rules };
+            let scope = gen_mihomo::smart_scope(&opts, profile_rules);
             opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port(), scope });
         }
         let home = run_dir.join("mihomo");
@@ -989,7 +991,7 @@ impl Engine {
 
     fn spawn_learner(&self, api: Mihomo, sm: SmartRuntime) -> JoinHandle<()> {
         use crate::smart::Hooks;
-        let (me, me2) = (self.me.clone(), self.me.clone());
+        let (me, me2, me3) = (self.me.clone(), self.me.clone(), self.me.clone());
         let hooks = Hooks {
             active: Box::new(move || me.upgrade().is_some_and(|e| {
                 let c = e.settings().core;
@@ -1003,6 +1005,12 @@ impl Engine {
                     };
                     e.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("smart routing: {} failed on its usual path ({}), {how}", l.domain, l.reason) });
                     e.emit(Event::Learned { domain: l.domain.clone(), route: l.route, reason: l.reason.clone() });
+                }
+            }),
+            suggested: Box::new(move |s| {
+                if let Some(e) = me3.upgrade() {
+                    e.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("smart routing: {} fails on the route {} chose ({}); suggesting an exception", s.domain, s.rule, s.reason) });
+                    e.emit(Event::Suggested { domain: s.domain.clone(), route: s.route, rule: s.rule.clone(), origin: s.origin });
                 }
             }),
         };
@@ -1045,6 +1053,36 @@ impl Engine {
         s.core.custom_rules.push(rule);
         self.smart.forget(domain);
         self.update_settings(s).await
+    }
+
+    pub fn smart_suggestions(&self) -> Vec<kova_core::smart::Suggestion> {
+        self.smart.suggestions()
+    }
+
+    pub fn dismiss_suggestion(&self, domain: &str) {
+        self.smart.dismiss_suggestion(domain);
+    }
+
+    /// Apply a suggestion: an exception for the site, placed right above the user's rule
+    /// it is an exception to (or first, for a preset's or the subscription's rule).
+    pub async fn accept_suggestion(&self, domain: &str) -> Result<()> {
+        let s = self.smart.take_suggestion(domain).ok_or_else(|| Error::Other(format!("there is no suggestion for {domain}")))?;
+        let target = match s.route {
+            kova_core::smart::Route::Proxy => PROXY,
+            kova_core::smart::Route::Direct => "DIRECT",
+        };
+        let rule = match kova_core::smart::parse_ip(&s.domain) {
+            Some(std::net::IpAddr::V4(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/32"), target: target.into() },
+            Some(std::net::IpAddr::V6(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/128"), target: target.into() },
+            None => Rule { kind: RuleKind::DomainSuffix, value: s.domain.clone(), target: target.into() },
+        };
+        let mut settings = self.settings();
+        let rules = &mut settings.core.custom_rules;
+        rules.retain(|r| !(r.kind == rule.kind && r.value == rule.value));
+        let key = |r: &Rule| kova_core::smart::rule_key(r.kind.mihomo_name(), &r.value);
+        let at = rules.iter().position(|r| key(r) == s.rule).unwrap_or(0);
+        rules.insert(at, rule);
+        self.update_settings(settings).await
     }
 
     /// Make the running core pick up a changed learned list.
@@ -1463,5 +1501,38 @@ mod tests {
         let (l, m) = parse_log("xray", "2026/10/20 12:00:00.123456 from 127.0.0.1:5000 accepted tcp:a.example:443 [http-in -> X]");
         assert_eq!(l, "info");
         assert!(m.starts_with("from 127.0.0.1"));
+    }
+}
+
+#[cfg(test)]
+mod suggestion_tests {
+    use kova_core::options::{PROXY, Rule, RuleKind};
+    use kova_core::smart::{Origin, Route, Suggestion};
+
+    use super::Engine;
+
+    #[tokio::test]
+    async fn an_accepted_suggestion_goes_right_above_the_users_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        let rule = |kind, value: &str, target: &str| Rule { kind, value: value.into(), target: target.into() };
+        let mut s = e.settings();
+        s.system_proxy = false;
+        s.core.custom_rules = vec![rule(RuleKind::DomainSuffix, "a.example", PROXY), rule(RuleKind::Geosite, "category-games", "DIRECT")];
+        e.update_settings(s).await.unwrap();
+        e.smart.suggest(Suggestion { domain: "modrinth.com".into(), route: Route::Proxy, reason: "reset".into(), rule: "GeoSite(category-games)".into(), origin: Origin::User, at: 0 });
+        assert_eq!(e.smart_suggestions().len(), 1);
+
+        e.accept_suggestion("modrinth.com").await.unwrap();
+        let r = e.settings().core.custom_rules;
+        let order: Vec<&str> = r.iter().map(|x| x.value.as_str()).collect();
+        assert_eq!(order, ["a.example", "modrinth.com", "category-games"]);
+        assert_eq!(r[1].target, PROXY);
+        assert!(e.smart_suggestions().is_empty());
+
+        // A dismissed site is not suggested again this session.
+        e.smart.suggest(Suggestion { domain: "x.example".into(), route: Route::Proxy, reason: "reset".into(), rule: "GeoSite(category-ru)".into(), origin: Origin::Preset, at: 0 });
+        e.dismiss_suggestion("x.example");
+        assert!(e.smart_suggestions().is_empty());
     }
 }

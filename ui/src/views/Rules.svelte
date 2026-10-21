@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { api, type Learned, type Preset, type Rule, type RuleKind } from '../lib/api';
+  import { api, type Learned, type Preset, type Rule, type RuleKind, type Suggestion } from '../lib/api';
   import { fmtAgo } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -158,7 +158,40 @@
 
   // Smart routing
   let learned = $state<Learned[]>([]);
-  const loadLearned = async () => { learned = (await app.run(() => api.learnedSites())) ?? learned; };
+  let suggestions = $state<Suggestion[]>([]);
+  const loadLearned = async () => {
+    learned = (await app.run(() => api.learnedSites())) ?? learned;
+    suggestions = (await app.run(() => api.smartSuggestions())) ?? suggestions;
+  };
+
+  // How Mihomo names a rule in its logs, to find which of the user's rules a
+  // suggestion is about.
+  const MIHOMO_NAME: Record<RuleKind, string> = {
+    domain: 'Domain', 'domain-suffix': 'DomainSuffix', 'domain-keyword': 'DomainKeyword', geosite: 'GeoSite',
+    geoip: 'GeoIP', 'ip-cidr': 'IPCIDR', 'process-name': 'ProcessName', match: 'Match',
+  };
+  const ruleKey = (r: Rule) => (r.value ? `${MIHOMO_NAME[r.kind]}(${r.value})` : MIHOMO_NAME[r.kind]);
+
+  /** Which rule sent the site the failing way, in words. */
+  function culprit(sg: Suggestion): string {
+    if (sg.origin === 'user') {
+      const i = rules.findIndex((r) => ruleKey(r) === sg.rule);
+      if (i >= 0) return t('your rule #{n} ({kind} {value})', { n: i + 1, kind: KIND_LABEL[rules[i].kind] ?? rules[i].kind, value: rules[i].value });
+      return t('one of your rules ({rule})', { rule: sg.rule });
+    }
+    return sg.origin === 'preset' ? t('a routing preset ({rule})', { rule: sg.rule }) : t('the subscription’s rule {rule}', { rule: sg.rule });
+  }
+
+  async function acceptSuggestion(sg: Suggestion) {
+    const saved = await app.run(() => api.acceptSuggestion(sg.domain), t('Exception added: {domain} now goes {way}', { domain: sg.domain, way: sg.route === 'proxy' ? t('through the proxy') : t('direct') }));
+    if (saved) app.settings = saved;
+    await loadLearned();
+  }
+
+  async function dismissSuggestion(sg: Suggestion) {
+    await app.run(() => api.dismissSuggestion(sg.domain));
+    await loadLearned();
+  }
   $effect(() => { void app.learnedVersion; void loadLearned(); });
   let REASON = $derived<Record<string, string>>({
     timeout: t('no answer'), reset: t('connection reset'), tls: t('secure connection broken'), dns: t('name not resolved'),
@@ -255,6 +288,26 @@
     {:else if s.core.smart_routing && isClash && !s.core.apply_rules_to_clash_profiles}
       <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
     {/if}
+    {#if suggestions.length}
+      <div class="eyebrow sugg-h">{t('Suggestions')}</div>
+      <div class="suggestions">
+        {#each suggestions as sg (sg.domain)}
+          <div class="sugg">
+            <div class="sugg-text">
+              <b class="mono">{sg.domain}</b>
+              <span>{sg.route === 'proxy'
+                ? t('is blocked direct ({why}), but {rule} sends it there. It opens through the proxy.', { why: REASON[sg.reason] ?? sg.reason, rule: culprit(sg) })
+                : t('doesn’t open through the proxy ({why}), but {rule} sends it there. It opens directly.', { why: REASON[sg.reason] ?? sg.reason, rule: culprit(sg) })}</span>
+            </div>
+            <div class="ops">
+              <button class="btn primary small-btn" onclick={() => acceptSuggestion(sg)}
+                title={sg.origin === 'user' ? t('Adds a rule for this site right above yours') : t('Adds a rule of your own for this site')}>{t('Add exception')}</button>
+              <button class="btn ghost small-btn" onclick={() => dismissSuggestion(sg)}>{t('Dismiss')}</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
     {#if s.core.smart_routing && isClash}
       <div class="row-sw profile-rules">
         <div><div class="t">{t('Also correct the subscription’s rules')}</div>
@@ -317,6 +370,11 @@
   .order { margin-top: 14px; }
   .smart { margin-top: 12px; }
   .profile-rules { margin: 4px 0 6px; }
+  .sugg-h { margin: 6px 0 8px; }
+  .suggestions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .sugg { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--sunk); }
+  .sugg-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; font-size: 13px; }
+  .sugg-text span { color: var(--muted); }
   .smart .card-h { gap: 8px; }
   .aside-sw { margin-left: auto; }
   .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
