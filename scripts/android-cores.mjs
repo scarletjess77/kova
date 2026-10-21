@@ -17,11 +17,25 @@ import { inflateRawSync } from 'node:zlib';
 const root = join(import.meta.dirname, '..');
 const out = join(root, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'jniLibs', 'arm64-v8a');
 
+/** fetch, tried again a few times: a connection dropped halfway shouldn't fail a release. */
+async function fetchRetrying(url, init) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const r = await fetch(url, init);
+      if (r.status < 500 || attempt === 4) return r;
+    } catch (e) {
+      if (attempt === 4) throw e;
+      console.warn(`${url}: ${e.cause?.message ?? e.message}, trying again`);
+    }
+    await new Promise((done) => setTimeout(done, attempt * 3000));
+  }
+}
+
 async function github(path) {
   const headers = { Accept: 'application/vnd.github+json', 'User-Agent': 'kova-build' };
   // CI runners share addresses, and with them GitHub's limit for anonymous requests.
   if (process.env.GITHUB_TOKEN) headers.Authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
-  const r = await fetch(`https://api.github.com/${path}`, { headers });
+  const r = await fetchRetrying(`https://api.github.com/${path}`, { headers });
   if (!r.ok) throw new Error(`GitHub answered ${r.status} for ${path}`);
   return r.json();
 }
@@ -72,7 +86,7 @@ async function xray() {
   const asset = rel.assets.find((a) => a.name === 'Xray-android-arm64-v8a.zip');
   if (!asset) throw new Error(`Xray ${rel.tag_name} has no Android arm64 build`);
   if (!asset.digest?.startsWith('sha256:')) throw new Error(`${asset.name} has no published checksum`);
-  const r = await fetch(asset.browser_download_url);
+  const r = await fetchRetrying(asset.browser_download_url);
   if (!r.ok) throw new Error(`download of ${asset.name} failed: ${r.status}`);
   const data = Buffer.from(await r.arrayBuffer());
   if (`sha256:${createHash('sha256').update(data).digest('hex')}` !== asset.digest) throw new Error(`checksum mismatch for ${asset.name}`);
