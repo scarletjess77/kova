@@ -40,11 +40,16 @@ export interface RuntimeOptions {
   xray_metrics_port: number;
   geodata: GeoSource;
   smart_routing: boolean;
+  smart_profile_rules: boolean;
 }
 
 export type Route = 'proxy' | 'direct';
 /** A site smart routing learned. `reason` is a site-check outcome such as "reset". */
 export interface Learned { domain: string; route: Route; reason: string; learned_at: number }
+/** Where a rule comes from: the user's own, a preset, or the imported subscription. */
+export type RuleOrigin = 'user' | 'preset' | 'profile';
+/** A site that fails on the route a rule chose on purpose; `rule` as Mihomo names it. */
+export interface Suggestion { domain: string; route: Route; reason: string; rule: string; origin: RuleOrigin; at: number }
 
 export interface Settings {
   core: RuntimeOptions;
@@ -61,6 +66,7 @@ export interface Settings {
   selections: Record<string, string>;
   check_sites: string[];
   check_updates: boolean;
+  beta_updates: boolean;
 }
 
 export interface Status {
@@ -76,6 +82,9 @@ export interface Status {
   tun_active: boolean;
   warning: string | null;
 }
+
+/** A newer Kova release. */
+export interface UpdateInfo { version: string; date: string | null; body: string | null }
 
 export interface UserInfo { upload: number; download: number; total: number; expire: number | null }
 
@@ -127,7 +136,8 @@ export type EngineEvent =
   | { type: 'memory'; bytes: number }
   | { type: 'profiles' }
   | { type: 'delays'; delays: Record<string, number | null> }
-  | { type: 'learned'; domain: string; route: Route; reason: string };
+  | { type: 'learned'; domain: string; route: Route; reason: string }
+  | { type: 'suggested'; domain: string; route: Route; rule: string; origin: RuleOrigin };
 
 export interface Snapshot { status: Status; settings: Settings; profiles: Profile[]; data_dir: string }
 
@@ -164,12 +174,17 @@ export const api = {
   updateGeodata: () => invoke<GeoMarker>('update_geodata'),
   windowAction: (action: 'minimize' | 'maximize' | 'hide') => invoke<void>('window_action', { action }),
   quit: () => invoke<void>('quit'),
+  checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
+  installUpdate: () => invoke<void>('install_update'),
   systemLanguage: () => invoke<string>('system_language'),
   platform: () => invoke<string>('platform'),
   learnedSites: () => invoke<Learned[]>('learned_sites'),
   forgetLearned: (domain: string) => invoke<void>('forget_learned', { domain }),
   keepLearned: (domain: string) => invoke<Settings>('keep_learned', { domain }),
   clearLearned: () => invoke<void>('clear_learned'),
+  smartSuggestions: () => invoke<Suggestion[]>('smart_suggestions'),
+  acceptSuggestion: (domain: string) => invoke<Settings>('accept_suggestion', { domain }),
+  dismissSuggestion: (domain: string) => invoke<void>('dismiss_suggestion', { domain }),
 };
 
 /** Tauri rejects with the serialised error string; make sure we always show text. */

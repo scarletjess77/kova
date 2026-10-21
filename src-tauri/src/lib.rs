@@ -6,6 +6,7 @@ mod android;
 #[cfg(desktop)]
 mod desktop;
 mod i18n;
+mod updates;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -102,6 +103,23 @@ async fn keep_learned(app: AppHandle, engine: Eng<'_>, domain: String) -> R<Sett
 #[tauri::command]
 async fn clear_learned(engine: Eng<'_>) -> R<()> {
     engine.clear_learned().await
+}
+
+#[tauri::command]
+fn smart_suggestions(engine: Eng) -> Vec<kova_core::smart::Suggestion> {
+    engine.smart_suggestions()
+}
+
+#[tauri::command]
+async fn accept_suggestion(app: AppHandle, engine: Eng<'_>, domain: String) -> R<Settings> {
+    engine.accept_suggestion(&domain).await?;
+    refresh_ui(&app);
+    Ok(engine.settings())
+}
+
+#[tauri::command]
+fn dismiss_suggestion(engine: Eng, domain: String) {
+    engine.dismiss_suggestion(&domain);
 }
 
 #[tauri::command]
@@ -487,6 +505,7 @@ pub fn run() {
             app.manage(engine.clone());
             #[cfg(desktop)]
             desktop::setup(app, &engine)?;
+            app.manage(updates::PendingUpdate::default());
             let handle = app.handle().clone();
             forward_events(handle.clone(), engine.clone());
             tauri::async_runtime::spawn(background(handle, engine));
@@ -496,10 +515,15 @@ pub fn run() {
             get_state,
             system_language,
             platform,
+            updates::check_update,
+            updates::install_update,
             learned_sites,
             forget_learned,
             keep_learned,
             clear_learned,
+            smart_suggestions,
+            accept_suggestion,
+            dismiss_suggestion,
             connect,
             disconnect,
             save_settings,

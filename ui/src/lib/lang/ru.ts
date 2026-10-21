@@ -333,6 +333,24 @@ export const ru: Dict = {
   '{domain} moved to your rules': '{domain} перенесён в ваши правила',
   'Learned sites cleared': 'Список изученных сайтов очищен',
   'Smart routing': 'Умная маршрутизация',
+  '{domain} is blocked direct, but a rule sends it there. See Rules → Smart routing': '{domain} заблокирован напрямую, но правило отправляет его туда. См. Правила → Умная маршрутизация',
+  '{domain} doesn’t open through the proxy, but a rule sends it there. See Rules → Smart routing': '{domain} не открывается через прокси, но правило отправляет его туда. См. Правила → Умная маршрутизация',
+  'your rule #{n} ({kind} {value})': 'ваше правило №{n} ({kind} {value})',
+  'one of your rules ({rule})': 'одно из ваших правил ({rule})',
+  'a routing preset ({rule})': 'готовый набор ({rule})',
+  'the subscription’s rule {rule}': 'правило подписки {rule}',
+  'Exception added: {domain} now goes {way}': 'Исключение добавлено: {domain} теперь идёт {way}',
+  'direct': 'напрямую',
+  'Suggestions': 'Предложения',
+  'is blocked direct ({why}), but {rule} sends it there. It opens through the proxy.': 'заблокирован напрямую ({why}), но {rule} отправляет его туда. Через прокси он открывается.',
+  'doesn’t open through the proxy ({why}), but {rule} sends it there. It opens directly.': 'не открывается через прокси ({why}), но {rule} отправляет его туда. Напрямую он открывается.',
+  'Adds a rule for this site right above yours': 'Добавляет правило для этого сайта прямо над вашим',
+  'Adds a rule of your own for this site': 'Добавляет ваше собственное правило для этого сайта',
+  'Add exception': 'Добавить исключение',
+  'Dismiss': 'Скрыть',
+  'Also correct the subscription’s rules': 'Исправлять и правила подписки',
+  'By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.':
+    'Обычно изучаются только сайты, для которых ни одно правило не выбрало путь. С этим параметром Kova исправляет и сайты, которые правила самой подписки отправляют не туда, — например, список игр, отправленный напрямую, где он заблокирован. Ваши правила и наборы не меняются никогда.',
   'Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.':
     'Kova замечает сайты, которые не открываются обычным путём, проверяет их напрямую и через прокси и направляет туда, где они работают: заблокированные — через прокси, а не пускающие через прокси — напрямую. В режиме TUN изучаются и приложения, которые подключаются по IP-адресу. Изученные сайты хранятся 30 дней.',
   'In TUN mode Kova needs site names: turn on Sniff domains or Fake-IP in Settings, otherwise it can only learn IP addresses.':
@@ -489,6 +507,9 @@ export const ru: Dict = {
   'Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.':
     'Сначала Kova отключится. Windows попросит разрешение администратора, потому что Kova установлена для всех пользователей.',
   'Check for updates on launch': 'Проверять обновления при запуске',
+  'Get beta versions': 'Получать бета-версии',
+  'New features earlier, before they are fully tested. Kova updates to whichever is newer, beta or stable.':
+    'Новые функции раньше, до полной проверки. Kova обновляется до самой новой версии — бета или стабильной.',
   'Releases are signed; Kova only installs updates signed with its key': 'Релизы подписаны: Kova устанавливает только обновления, подписанные её ключом',
   'Check now': 'Проверить сейчас',
   'by {author}': 'автор: {author}',

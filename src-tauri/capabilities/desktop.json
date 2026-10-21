@@ -1,14 +1,12 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "desktop",
-  "description": "Desktop-only parts: launch at sign-in and in-app updates",
+  "description": "Desktop-only parts: launch at sign-in",
   "platforms": ["windows", "linux", "macOS"],
   "windows": ["main"],
   "permissions": [
     "autostart:allow-enable",
     "autostart:allow-disable",
-    "autostart:allow-is-enabled",
-    "updater:default",
-    "process:allow-restart"
+    "autostart:allow-is-enabled"
   ]
 }

@@ -257,7 +257,7 @@ impl Controller {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "downloads cores and runs real processes"]
 async fn smart_routing_in_real_mihomo() {
-    use kova_core::smart::{PROVIDER_PROXY, PROVIDER_PROXY_IP, parse_dial_failure};
+    use kova_core::smart::{PROVIDER_PROXY, PROVIDER_PROXY_IP, parse_dial_failure, parse_opened};
     use kova_engine::smart::reaches;
 
     let cores_cache = ensure_cores().await;
@@ -337,6 +337,21 @@ async fn smart_routing_in_real_mihomo() {
     assert_eq!(chains, ["DIRECT"]);
     assert_eq!(engine.status().since, since, "the core was restarted");
 
+    // Every opened connection is logged with the rule that chose its route; spotting
+    // resets right after the greeting depends on reading these lines.
+    let mut opened = None;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+    while opened.is_none() && tokio::time::Instant::now() < deadline {
+        if let Ok(Ok(kova_engine::Event::Log { source, message, .. })) = tokio::time::timeout(Duration::from_millis(500), events.recv()).await {
+            if source == "mihomo" {
+                opened = message.find("[TCP] ").and_then(|i| parse_opened(&message[i..])).filter(|o| o.host == "localhost" && o.direct);
+            }
+        }
+    }
+    let o = opened.expect("Mihomo's line for an opened connection was not recognised");
+    assert_eq!(o.port, slow);
+    assert_ne!(o.rule, "RuleSet(kova-learned-proxy)", "the forgotten site still matched the learned list");
+
     // The probe ports ignore the rules: one always uses the proxy, one always goes direct.
     let (_, chains) = ctl.route_of(&url, ctl.listener_port("kova-probe-proxy")).await;
     assert!(chains.contains(&"Local WS".to_string()), "{chains:?}");
@@ -371,7 +386,7 @@ async fn smart_routing_in_real_mihomo() {
         }
     }
     let f = parsed.expect("Mihomo's dial warning was not recognised");
-    assert!(f.catch_all && !f.direct && f.host == "example.com", "{f:?}");
+    assert!(f.rule == "Match" && !f.direct && f.host == "example.com", "{f:?}");
     tokio::time::sleep(Duration::from_secs(8)).await;
     assert!(engine.learned_sites().is_empty(), "learned from a dead proxy: {:?}", engine.learned_sites());
 
