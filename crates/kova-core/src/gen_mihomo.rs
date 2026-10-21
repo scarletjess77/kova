@@ -163,14 +163,21 @@ fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<Stri
     ]
 }
 
-/// Kova's own rules (bypass, the user's, presets, learned lists, LAN and catch-all), as
-/// Mihomo names them in its logs. Smart routing never second-guesses these.
-pub fn own_rule_keys(opts: &RuntimeOptions) -> std::collections::HashSet<String> {
+/// Who each rule in the config belongs to, by the name Mihomo logs it under, for smart
+/// routing to decide what it may do about a failure. `profile_rules`: an imported
+/// profile's own rules may be corrected.
+pub fn smart_scope(opts: &RuntimeOptions, profile_rules: bool) -> crate::smart::Scope {
     use crate::smart::{PROVIDERS, rule_key};
-    let mut keys: std::collections::HashSet<String> = opts.rules().iter().chain(opts.tail_rules().iter()).map(|r| rule_key(r.kind.mihomo_name(), &r.value)).collect();
-    keys.extend(opts.bypass_processes.iter().map(|p| rule_key("ProcessName", p)));
-    keys.extend(PROVIDERS.iter().map(|p| rule_key("RuleSet", p)));
-    keys
+    let key = |r: &Rule| rule_key(r.kind.mihomo_name(), &r.value);
+    let mut internal: std::collections::HashSet<String> = opts.tail_rules().iter().map(key).collect();
+    internal.extend(opts.bypass_processes.iter().map(|p| rule_key("ProcessName", p)));
+    internal.extend(PROVIDERS.iter().map(|p| rule_key("RuleSet", p)));
+    crate::smart::Scope {
+        user_rules: opts.custom_rules.iter().map(key).collect(),
+        preset_rules: Preset::ALL.iter().filter(|p| opts.presets.contains(p)).flat_map(|p| p.rules()).map(|r| key(&r)).collect(),
+        internal_rules: internal,
+        profile_rules,
+    }
 }
 
 /// Address of the local Xray bridge for each bridged node.
@@ -474,11 +481,15 @@ rules:
         o.presets = vec![Preset::DirectRu];
         o.custom_rules = vec![Rule { kind: RuleKind::DomainSuffix, value: "example.org".into(), target: PROXY.into() }];
         o.bypass_processes = vec!["xray.exe".into()];
-        let keys = own_rule_keys(&o);
-        for k in ["GeoSite(category-ru)", "GeoIP(RU)", "DomainSuffix(example.org)", "IPCIDR(10.0.0.0/8)", "Match", "ProcessName(xray.exe)", "RuleSet(kova-learned-proxy)"] {
-            assert!(keys.contains(k), "{k} missing from {keys:?}");
+        let s = smart_scope(&o, false);
+        for k in ["GeoSite(category-ru)", "GeoIP(RU)"] {
+            assert!(s.preset_rules.contains(k), "{k} missing from {:?}", s.preset_rules);
         }
-        assert!(!keys.contains("GeoSite(category-games)"));
+        assert!(s.user_rules.contains("DomainSuffix(example.org)"));
+        for k in ["IPCIDR(10.0.0.0/8)", "ProcessName(xray.exe)", "RuleSet(kova-learned-proxy)"] {
+            assert!(s.internal_rules.contains(k), "{k} missing from {:?}", s.internal_rules);
+        }
+        assert!(!s.user_rules.contains("GeoSite(category-games)"));
     }
 
     #[test]
