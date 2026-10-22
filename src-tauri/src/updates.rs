@@ -22,9 +22,12 @@ pub struct UpdateInfo {
 
 /// One published release and the asset of it this platform installs.
 #[cfg_attr(desktop, allow(dead_code))]
+#[derive(Clone)]
 struct Release {
     version: semver::Version,
     asset: String,
+    /// The asset's SHA-256 as GitHub publishes it (`sha256:…`), when it does.
+    digest: Option<String>,
     date: Option<String>,
     body: Option<String>,
 }
@@ -44,6 +47,7 @@ async fn newest_release(beta: bool, wanted: impl Fn(&str) -> bool) -> R<Option<R
             Some(Release {
                 version,
                 asset: asset["browser_download_url"].as_str()?.to_string(),
+                digest: asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).map(str::to_string),
                 date: r["published_at"].as_str().map(str::to_string),
                 body: r["body"].as_str().map(str::to_string),
             })
@@ -114,23 +118,48 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
 /// The APK the last check found.
 #[cfg(mobile)]
 #[derive(Default)]
-pub struct PendingUpdate(std::sync::Mutex<Option<String>>);
+pub struct PendingUpdate(std::sync::Mutex<Option<Release>>);
 
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     let current = semver::Version::parse(&app.package_info().version.to_string()).map_err(|e| Error::Other(e.to_string()))?;
     let found = newest_release(engine.settings().beta_updates, |name| name.ends_with(".apk")).await?.filter(|r| r.version > current);
-    *app.state::<PendingUpdate>().0.lock().unwrap() = found.as_ref().map(|r| r.asset.clone());
-    Ok(found.map(|r| UpdateInfo { version: r.version.to_string(), date: r.date, body: r.body }))
+    let info = found.as_ref().map(|r| UpdateInfo { version: r.version.to_string(), date: r.date.clone(), body: r.body.clone() });
+    *app.state::<PendingUpdate>().0.lock().unwrap() = found;
+    Ok(info)
 }
 
-/// Hand the APK's link to the browser; Android's installer takes it from there and keeps
-/// Kova's data, since every release is signed with the same key.
+/// Download the APK, reporting progress (0..1) as `update-progress`, check it against
+/// the digest GitHub publishes, and hand it to Android's installer, which asks the user
+/// to confirm. Android installs it over Kova, keeping its data, only when it is signed
+/// with the same key as the installed one.
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> R<()> {
-    use tauri_plugin_opener::OpenerExt;
-    let url = app.state::<PendingUpdate>().0.lock().unwrap().clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
-    app.opener().open_url(url, None::<&str>).map_err(|e| Error::Other(e.to_string()))
+    use tauri::Emitter;
+    let r = app.state::<PendingUpdate>().0.lock().unwrap().clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
+    let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
+    let mut resp = c.get(&r.asset).send().await?.error_for_status()?;
+    let total = resp.content_length().unwrap_or(0);
+    let mut data = Vec::with_capacity(total as usize);
+    while let Some(chunk) = resp.chunk().await? {
+        data.extend_from_slice(&chunk);
+        if total > 0 {
+            let _ = app.emit("update-progress", data.len() as f64 / total as f64);
+        }
+    }
+    if let Some(expected) = &r.digest {
+        let actual = kova_engine::fetch::sha256_hex(&data);
+        if &actual != expected {
+            return Err(Error::Other(format!("Kova {} failed its checksum check (expected {expected}, got {actual})", r.version)));
+        }
+    }
+    let dir = app.path().app_cache_dir().map_err(|e| Error::Other(e.to_string()))?.join("updates");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir)?;
+    let path = dir.join(format!("Kova-{}.apk", r.version));
+    std::fs::write(&path, &data)?;
+    let _ = app.emit("update-progress", 1.0);
+    crate::android::install_apk(&app, &path).await
 }

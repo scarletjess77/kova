@@ -25,6 +25,7 @@
         <Icon name={id === 'check' ? 'pulse' : id} />{label}
         {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
         {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
+        {#if id === 'rules' && app.suggestionCount}<span class="badge new" title={t('Suggestions waiting')}>{app.suggestionCount}</span>{/if}
       </button>
     {/each}
   </nav>
@@ -52,6 +53,7 @@
   @media (hover: hover) { .nav button:hover { background: var(--sunk); color: var(--fg); } }
   .nav button[aria-current='page'] { background: var(--accent-soft); color: var(--fg); }
   .badge { margin-left: auto; font: 500 11px var(--f-mono); color: var(--faint); }
+  .badge.new { color: var(--accent-fg); background: var(--accent); border-radius: 9px; padding: 0 6px; line-height: 17px; }
   .update { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--accent-soft); color: var(--fg); font-size: 12.5px; font-weight: 500; text-align: left; }
   .update :global(.i) { width: 15px; height: 15px; }
   .update + .sub-card { margin-top: 0; }

@@ -40,6 +40,7 @@ const RU: &[(&str, &str)] = &[
     ("{} {} installed", "{} {} установлен"),
     ("Could not install {}: {}", "Не удалось установить {}: {}"),
     ("Could not connect: {}", "Не удалось подключиться: {}"),
+    ("{} stopped answering; switched to {}", "{} перестал отвечать; переключено на {}"),
 ];
 
 /// `en` in `lang`, with each `{}` replaced by the next of `args`.

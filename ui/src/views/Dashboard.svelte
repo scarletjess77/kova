@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
   import { api, errText, type ExitInfo, type Mode } from '../lib/api';
   import { countryCode, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
@@ -78,6 +79,7 @@
   onDestroy(() => { clearInterval(tick); clearInterval(poll); });
 
   const setMode = (m: Mode) => app.saveSettings((x) => (x.core.mode = m));
+  let details = $state(false);
 </script>
 
 <div class="page-head">
@@ -94,7 +96,11 @@
         <div class="eyebrow">{t('Status')}</div>
         <div class="state" class:off={!s.running && !s.busy}>{s.busy ? (s.running ? t('Switching…') : t('Connecting…')) : s.running ? (capturing ? t('Protected') : t('Proxy only')) : t('Disconnected')}</div>
         {#if !profile}
-          <p class="muted">{t('Add a subscription or share links to start.')}</p>
+          <ol class="start">
+            <li><b>{t('Add your servers')}</b><span>{app.mobile ? t('A subscription link, share links, or a QR code from your provider.') : t('A subscription link, share links, or a config file from your provider.')}</span></li>
+            <li><b>{t('Press the power button')}</b><span>{t('Kova picks the core each server needs.')}</span></li>
+            <li><b>{app.mobile ? t('Allow the VPN') : t('Choose what goes through Kova')}</b><span>{app.mobile ? t('Android asks once. Settings → VPN chooses which apps use it.') : t('System proxy covers browsers and most apps; TUN mode covers everything, games included.')}</span></li>
+          </ol>
           <div><button class="btn primary" onclick={() => { app.go('profiles'); app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button></div>
         {:else if chain.length}
           <div class="route">
@@ -110,14 +116,15 @@
             {#if s.running && s.core}
               <span class="chip acc"><Icon name="bolt" />{s.core === 'xray' ? 'Xray' : s.sidecar ? t('Mihomo + Xray bridge') : 'Mihomo'}</span>
               <span>{t('Connected for')} <span class="num">{fmtDur(now - (s.since ?? 0) * 1000)}</span></span>
+              {#if app.mobile}<span class="speed num">↓ {fmtSpeed(app.down[app.down.length - 1])} · ↑ {fmtSpeed(app.up[app.up.length - 1])}</span>{/if}
             {:else if s.error}
-              <span class="chip bad"><Icon name="alert" />{s.error}</span>
+              <span class="chip bad"><Icon name="alert" />{friendly(s.error)}</span>
             {:else}
               <span>{t('Your traffic goes out directly')}</span>
             {/if}
           </div>
           {#if s.running && s.warning}
-            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{s.warning}</span></div>
+            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{friendly(s.warning)}</span></div>
           {/if}
           {#if s.running && !capturing && settings}
             <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{t('Apps aren’t routed yet. Turn on System proxy or TUN, or point an app at port {port}.', { port: settings.core.mixed_port })}</span></div>
@@ -154,6 +161,7 @@
     {/if}
   </section>
 
+  {#if !app.mobile || details}
   <section class="card exit">
     <div class="card-h"><h2>{t('Exit point')}</h2><span class="aside">{s.running ? t('through the proxy') : t('without the proxy')}</span></div>
     <div>
@@ -183,6 +191,7 @@
     <TrafficChart down={app.down} up={app.up} />
     <div class="traffic-foot"><span>{t('This session')} ↓ <b>{fmtBytes(app.downTotal)}</b></span><span>↑ <b>{fmtBytes(app.upTotal)}</b></span></div>
   </section>
+  {/if}
 
   <section class="card">
     <div class="card-h"><h2>{t('Quick switch')}</h2>{#if mainGroup}<span class="aside">{t('{name} group', { name: mainGroup.name })}</span>{/if}</div>
@@ -203,15 +212,26 @@
     {/if}
   </section>
 
+  {#if app.mobile}
+    <!-- On a phone the essentials come first; the rest is a tap away. -->
+    <button class="btn ghost details-btn" aria-expanded={details} onclick={() => (details = !details)}>{details ? t('Fewer details') : t('Exit point, traffic and more')}</button>
+  {/if}
+  {#if !app.mobile || details}
   <section class="tiles">
     <div class="card tile"><span class="eyebrow">{t('Connections')}</span><span class="v">{connCount}</span><span class="d">{t('open right now')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Downloaded')}</span><span class="v">{fmtBytes(app.downTotal)}</span><span class="d">{t('this session')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Uploaded')}</span><span class="v">{fmtBytes(app.upTotal)}</span><span class="d">{t('this session')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Core memory')}</span><span class="v">{app.memory ? fmtBytes(app.memory) : '—'}</span><span class="d">{s.running ? (s.core === 'xray' ? t('not reported by Xray') : 'Mihomo') : t('not running')}</span></div>
   </section>
+  {/if}
 </div>
 
 <style>
+  .details-btn { justify-self: center; grid-column: 1 / -1; }
+  .speed { color: var(--fg); }
+  .start { margin: 4px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+  .start li::marker { color: var(--faint); font: 600 12px var(--f-mono); }
+  .start b { display: block; color: var(--fg); font-weight: 600; }
   .dash { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; }
   .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } }
@@ -229,7 +249,6 @@
   .power.busy::before { content: ''; position: absolute; inset: -7px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: spin .8s linear infinite; }
   .state { font: 700 26px/1.1 var(--f-display); letter-spacing: -.01em; }
   .state.off { color: var(--muted); }
-  .hero-text p { margin: 0; }
   .route { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13.5px; }
   .route .sep { color: var(--faint); }
   .route .end { font-weight: 600; }

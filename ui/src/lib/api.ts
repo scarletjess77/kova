@@ -2,6 +2,7 @@
 // Types mirror the serde output of kova-core / kova-engine.
 
 import { invoke } from '@tauri-apps/api/core';
+import { friendly } from './errors';
 
 export type CoreKind = 'mihomo' | 'xray';
 export type CorePreference = 'auto' | 'mihomo' | 'xray';
@@ -43,13 +44,14 @@ export interface RuntimeOptions {
   geodata: GeoSource;
   smart_routing: boolean;
   smart_profile_rules: boolean;
+  smart_learn_direct: boolean;
 }
 
 export type Route = 'proxy' | 'direct';
 /** A site smart routing learned. `reason` is a site-check outcome such as "reset". */
 export interface Learned { domain: string; route: Route; reason: string; learned_at: number }
 /** Where a rule comes from: the user's own, a preset, or the imported subscription. */
-export type RuleOrigin = 'user' | 'preset' | 'profile';
+export type RuleOrigin = 'user' | 'preset' | 'profile' | 'site-check';
 /** A site that fails on the route a rule chose on purpose; `rule` as Mihomo names it. */
 export interface Suggestion { domain: string; route: Route; reason: string; rule: string; origin: RuleOrigin; at: number }
 
@@ -71,6 +73,8 @@ export interface Settings {
   beta_updates: boolean;
   /** Android: which apps go through the VPN. */
   vpn_apps: { mode: VpnAppsMode; apps: string[] };
+  /** Move to the fastest working node when the chosen one stops answering. */
+  auto_switch: boolean;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
@@ -198,8 +202,7 @@ export const api = {
 };
 
 /** Tauri rejects with the serialised error string; make sure we always show text. */
+/** An error from the engine, in plain words in the interface's language. */
 export function errText(e: unknown): string {
-  if (typeof e === 'string') return e;
-  if (e instanceof Error) return e.message;
-  return String(e);
+  return friendly(typeof e === 'string' ? e : e instanceof Error ? e.message : String(e));
 }

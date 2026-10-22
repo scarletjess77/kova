@@ -401,3 +401,72 @@ async fn smart_routing_in_real_mihomo() {
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
+
+/// A chosen node that stops answering is swapped for one that works, after two failed
+/// checks in a row, and the chosen node stays when it answers.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn switches_away_from_a_dead_node() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom" }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray))
+        .args(["run", "-c", server_cfg.to_str().unwrap()])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.controller_port = free_port();
+    s.core.presets.clear();
+    engine.update_settings(s).await.unwrap();
+    let dead = free_port();
+    let links = format!(
+        "vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Live\n\
+         vless://{uuid}@127.0.0.1:{dead}?encryption=none&security=none&type=ws&path=%2Fws#Dead\n"
+    );
+    engine.add_profile(&links, Some("Switch".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+
+    engine.select(PROXY, "Live").await.unwrap();
+    assert_eq!(engine.check_node().await, None, "a working node was replaced");
+    engine.select(PROXY, "Dead").await.unwrap();
+    assert_eq!(engine.check_node().await, None, "one failed check is not enough");
+    assert_eq!(engine.check_node().await, Some(("Dead".to_string(), "Live".to_string())));
+    assert_eq!(engine.current_node().await.as_deref(), Some("Live"));
+
+    let mut s = engine.settings();
+    s.auto_switch = false;
+    engine.update_settings(s).await.unwrap();
+    engine.select(PROXY, "Dead").await.unwrap();
+    for _ in 0..3 {
+        assert_eq!(engine.check_node().await, None, "switched with the option off");
+    }
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}

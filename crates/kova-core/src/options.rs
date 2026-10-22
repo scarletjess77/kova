@@ -301,6 +301,10 @@ pub struct RuntimeOptions {
     /// traffic that only the catch-all matched. Learned sites then come before the
     /// profile's rules.
     pub smart_profile_rules: bool,
+    /// Let smart routing check sites that fail through the proxy directly, and send
+    /// those that work direct. Off by default: the direct check and the route after it
+    /// show the user's own address to the site.
+    pub smart_learn_direct: bool,
     /// Where this run's smart routing lives. Set per run when it is on.
     #[serde(skip)]
     pub smart: Option<SmartRuntime>,
@@ -351,6 +355,7 @@ impl Default for RuntimeOptions {
             tun_exclude: Vec::new(),
             smart_routing: false,
             smart_profile_rules: false,
+            smart_learn_direct: false,
             smart: None,
             tun_fd: None,
         }
