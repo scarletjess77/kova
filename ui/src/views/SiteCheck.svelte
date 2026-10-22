@@ -1,4 +1,6 @@
 <script lang="ts">
+  import CheckList from '../components/CheckList.svelte';
+  import type { Check } from '../lib/api';
   import { api, errText, type CheckSite, type Probe, type SiteResult } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -106,6 +108,23 @@
     unblocked: checked.filter((r) => r.via_kova && works(r.via_kova) && !works(r.direct)).length,
   });
   let connected = $derived(app.status.running);
+
+  let privacy = $state<Check[] | null>(null);
+  let privacyBusy = $state(false);
+  async function checkPrivacy() {
+    privacyBusy = true;
+    privacy = (await app.run(() => api.privacyCheck())) ?? privacy;
+    privacyBusy = false;
+  }
+
+  let speed = $state<{ through_kova: number | null; direct: number | null } | null>(null);
+  let speedBusy = $state(false);
+  async function testSpeed() {
+    speedBusy = true;
+    speed = (await app.run(() => api.speedTest())) ?? speed;
+    speedBusy = false;
+  }
+  const mbps = (v: number | null) => (v == null ? '—' : t('{n} Mbit/s', { n: v >= 100 ? Math.round(v) : v.toFixed(1) }));
 </script>
 
 <div class="page-head">
@@ -126,6 +145,31 @@
 {:else if app.status.tun_active}
   <p class="note"><Icon name="alert" />{t('TUN is on, so “Without Kova” also goes through Kova and shows the same result.')}</p>
 {/if}
+
+<div class="tests">
+  <section class="card">
+    <div class="card-h"><h2>{t('Privacy check')}</h2>
+      <button class="btn aside-btn" class:busy={privacyBusy} disabled={privacyBusy} onclick={checkPrivacy}><Icon name="shield" />{privacy ? t('Check again') : t('Check')}</button></div>
+    {#if privacy}
+      <CheckList checks={privacy} onfixed={() => setTimeout(checkPrivacy, 1500)} />
+    {:else}
+      <p class="muted small">{t('What sites can see: your address with Kova and without it, how site names are looked up, and what may go around Kova.')}</p>
+    {/if}
+  </section>
+  <section class="card">
+    <div class="card-h"><h2>{t('Speed test')}</h2>
+      <button class="btn aside-btn" class:busy={speedBusy} disabled={speedBusy} onclick={testSpeed}><Icon name="down" />{speedBusy ? t('Measuring…') : speed ? t('Test again') : t('Test')}</button></div>
+    {#if speed}
+      <dl class="speeds">
+        <dt>{t('Through Kova')}</dt><dd class="num">{connected ? mbps(speed.through_kova) : '—'}</dd>
+        <dt>{t('Without Kova')}</dt><dd class="num">{mbps(speed.direct)}</dd>
+      </dl>
+      {#if app.status.tun_active}<p class="muted small">{t('TUN is on, so “Without Kova” also goes through Kova.')}</p>{/if}
+    {:else}
+      <p class="muted small">{t('Downloads a test file from Cloudflare for a few seconds, through Kova and without it.')}</p>
+    {/if}
+  </section>
+</div>
 
 {#if checked.length}
   <div class="summary">
@@ -172,6 +216,12 @@
 {/snippet}
 
 <style>
+  .tests { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; align-items: start; }
+  .aside-btn { margin-left: auto; }
+  .small { font-size: 12.5px; margin: 0; }
+  .speeds { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0 0 6px; }
+  .speeds dt { color: var(--muted); }
+  .speeds dd { margin: 0; font-weight: 600; }
   .add { display: flex; gap: 8px; }
   .add .input { width: 200px; }
   .note { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12.5px; margin: -6px 0 14px; }
