@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/kova-core", "crates/kova-engine", "crates/kova-service", "src-tauri"]
 
 [workspace.package]
-version = "0.1.6"
+version = "0.1.7"
 authors = ["scarletjess77"]
 repository = "https://github.com/scarletjess77/kova"
 edition = "2024"
