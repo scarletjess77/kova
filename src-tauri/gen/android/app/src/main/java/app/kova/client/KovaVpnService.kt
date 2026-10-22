@@ -30,7 +30,6 @@ class KovaVpnService : VpnService() {
         private var instance: KovaVpnService? = null
         private var pending: ((Int?, String?) -> Unit)? = null
         private var mtu = 9000
-        private var ipv6 = true
         private var mode = "all"
         private var apps: List<String> = emptyList()
         private var label = ""
@@ -39,7 +38,6 @@ class KovaVpnService : VpnService() {
 
         fun open(context: Context, args: TunnelArgs, done: (Int?, String?) -> Unit) {
             mtu = args.mtu
-            ipv6 = args.ipv6
             mode = args.mode
             apps = args.apps.toList()
             label = args.label
@@ -87,7 +85,7 @@ class KovaVpnService : VpnService() {
             // Kova isn't running. Opening it connects; Android may not allow opening it
             // from here, so the notification says to.
             try {
-                startActivity(Intent(this, MainActivity::class.java).setAction(MainActivity.ACTION_CONNECT).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                startActivity(MainActivity.connectIntent(this).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             } catch (_: Exception) {
             }
         }
@@ -102,10 +100,10 @@ class KovaVpnService : VpnService() {
                 .addAddress("172.19.0.1", 30)
                 .addRoute("0.0.0.0", 0)
                 .addDnsServer("172.19.0.2")
-            if (ipv6) {
-                b.addAddress("fdfe:dcba:9876::1", 126)
-                b.addRoute("::", 0)
-            }
+            // IPv6 always goes into the VPN, also with IPv6 off in Kova: a VPN that
+            // doesn't take it leaves the phone's IPv6 traffic going around it.
+            b.addAddress("fdfe:dcba:9876::1", 126)
+            b.addRoute("::", 0)
             // Android takes either a list of apps to include or a list to leave out. Apps
             // uninstalled since they were chosen are skipped.
             if (mode == "only") {
@@ -174,8 +172,7 @@ class KovaVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(NotificationChannel(CHANNEL, "VPN", NotificationManager.IMPORTANCE_LOW))
         }
-        val launch = Intent(this, MainActivity::class.java)
-        if (waiting) launch.action = MainActivity.ACTION_CONNECT
+        val launch = if (waiting) MainActivity.connectIntent(this) else Intent(this, MainActivity::class.java)
         val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
         val text = when {
             waiting -> getString(R.string.vpn_waiting)

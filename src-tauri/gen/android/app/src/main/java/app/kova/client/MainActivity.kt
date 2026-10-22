@@ -1,5 +1,6 @@
 package app.kova.client
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -10,8 +11,12 @@ import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
   companion object {
-    /** Opened to connect: from the Quick Settings tile, or for always-on VPN. */
-    const val ACTION_CONNECT = "app.kova.client.CONNECT"
+    /**
+     * Open Kova and connect: from the Quick Settings tile, or for always-on VPN. It goes
+     * through `.Connect`, an entry other apps can't open, so only Kova can ask for it.
+     */
+    fun connectIntent(context: Context): Intent = Intent().setClassName(context, "app.kova.client.Connect")
+    private const val HANDLED = "app.kova.client.HANDLED"
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -35,8 +40,9 @@ class MainActivity : TauriActivity() {
   }
 
   private fun connectIfAsked(intent: Intent?) {
-    if (intent?.action != ACTION_CONNECT) return
-    intent.action = null
+    // Once only: the same intent comes back when Android recreates the window.
+    if (intent?.component?.className != "app.kova.client.Connect" || intent.getBooleanExtra(HANDLED, false)) return
+    intent.putExtra(HANDLED, true)
     // Waits for Kova to be ready when it is only just starting.
     Actions.send(Actions.CONNECT, keep = true)
   }

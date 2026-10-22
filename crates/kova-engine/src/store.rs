@@ -174,8 +174,12 @@ impl Default for Settings {
 impl Settings {
     pub fn load(paths: &Paths) -> Self {
         let mut s: Settings = read_json(&paths.settings());
-        if s.core.secret.is_empty() {
-            s.core.secret = uuid::Uuid::new_v4().simple().to_string();
+        if s.core.secret.is_empty() || s.core.local_password.is_empty() {
+            for v in [&mut s.core.secret, &mut s.core.local_password] {
+                if v.is_empty() {
+                    *v = uuid::Uuid::new_v4().simple().to_string();
+                }
+            }
             let _ = s.save(paths);
         }
         s

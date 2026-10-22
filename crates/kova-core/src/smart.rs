@@ -206,7 +206,7 @@ pub fn rule_target(host: &str) -> Option<String> {
 /// stays itself. `None` for IP addresses and names that are not public.
 pub fn rule_domain(host: &str) -> Option<String> {
     let host = host.trim().trim_end_matches('.').to_ascii_lowercase();
-    if parse_ip(&host).is_some() || !host.contains('.') {
+    if parse_ip(&host).is_some() || !host.contains('.') || !is_dns_name(&host) {
         return None;
     }
     let d = psl::domain(host.as_bytes())?;
@@ -214,6 +214,14 @@ pub fn rule_domain(host: &str) -> Option<String> {
         return None;
     }
     std::str::from_utf8(d.as_bytes()).ok().map(String::from)
+}
+
+/// A plain DNS name: dot-separated labels of letters, digits, `-` and `_` (punycode for
+/// other scripts). Names come from what apps asked for, and one with a comma or a line
+/// break would end up as a broken rule or as extra lines in a learned list.
+fn is_dns_name(host: &str) -> bool {
+    host.len() <= 253
+        && host.split('.').all(|l| !l.is_empty() && l.len() <= 63 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'))
 }
 
 /// Whether `host` is `domain` or one of its subdomains, or is that IP address.
@@ -287,6 +295,17 @@ mod tests {
         assert!(!p.direct && p.rule == CATCH_ALL);
         assert!(parse_opened("[TCP] 127.0.0.1:1 --> ads.example:443 match GeoSite(category-ads-all) using REJECT").is_none());
         assert!(parse_opened("[TCP] dial DIRECT (match Match/) a --> b.com:443 error: x").is_none());
+    }
+
+    #[test]
+    fn only_plain_names_become_rules() {
+        assert_eq!(rule_domain("cdn.Example.COM.").as_deref(), Some("example.com"));
+        assert_eq!(rule_domain("xn--80ak6aa92e.com").as_deref(), Some("xn--80ak6aa92e.com"));
+        for bad in ["x
++.com", "a,DIRECT.com", "a b.com", "a..com", ".com", "", &format!("{}.com", "a".repeat(64))] {
+            assert_eq!(rule_domain(bad), None, "{bad:?}");
+            assert_eq!(rule_target(bad), None, "{bad:?}");
+        }
     }
 
     #[test]

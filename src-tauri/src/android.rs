@@ -48,7 +48,6 @@ struct Active {
 #[derive(Serialize)]
 struct TunnelArgs {
     mtu: u32,
-    ipv6: bool,
     /// "all", "only" or "except", for `apps`.
     mode: &'static str,
     apps: Vec<String>,
@@ -83,7 +82,7 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
         VpnAppsMode::Except => "except",
     };
     let label = engine.profiles().into_iter().find(|p| Some(&p.id) == s.active_profile.as_ref()).map(|p| p.name).unwrap_or_default();
-    let args = TunnelArgs { mtu: s.core.tun.mtu.into(), ipv6: s.core.ipv6, mode, apps: s.vpn_apps.apps.clone(), label };
+    let args = TunnelArgs { mtu: s.core.tun.mtu.into(), mode, apps: s.vpn_apps.apps.clone(), label };
     let t: Tunnel = call(app, "establish", args).await?;
     // An interface still held from a connection that ended on its own is closed first.
     if let Some(old) = engine.take_tun_fd() {
