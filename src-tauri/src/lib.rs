@@ -464,6 +464,22 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
             let _ = app.emit("toast", tr(l, "Could not connect: {}", &[&e.to_string()]));
         }
     }
+    // A chosen node that stops answering is swapped for a working one.
+    tauri::async_runtime::spawn({
+        let (app, engine) = (app.clone(), engine.clone());
+        async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                if !engine.status().running {
+                    continue;
+                }
+                if let Some((from, to)) = engine.check_node().await {
+                    let l = i18n::lang(&engine.settings());
+                    let _ = app.emit("toast", tr(l, "{} stopped answering; switched to {}", &[&from, &to]));
+                }
+            }
+        }
+    });
     // Subscription and routing-data auto-update.
     loop {
         for id in engine.profiles_due() {
@@ -499,6 +515,30 @@ fn forward_events(app: AppHandle, engine: Arc<Engine>) {
     });
 }
 
+/// A new install starts with the routing presets for where its user likely is, by the
+/// system language: Russian, Chinese and Iranian sites direct where they are local.
+fn first_run_presets(engine: &Arc<Engine>) {
+    use kova_core::options::Preset;
+    let lang = i18n::system_language().to_ascii_lowercase();
+    let local = if lang.starts_with("ru") {
+        Some(Preset::DirectRu)
+    } else if lang.starts_with("zh") {
+        Some(Preset::DirectCn)
+    } else if lang.starts_with("fa") {
+        Some(Preset::DirectIr)
+    } else {
+        None
+    };
+    let mut s = engine.settings();
+    s.core.presets = local.into_iter().chain([Preset::BlockAds]).collect();
+    let engine = engine.clone();
+    tauri::async_runtime::spawn(async move {
+        if let Err(e) = engine.update_settings(s).await {
+            tracing::warn!("could not set the first presets: {e}");
+        }
+    });
+}
+
 // ---------------------------------------------------------------------------- entry
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -526,8 +566,12 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            let dir = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
+            let dir: std::path::PathBuf = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
+            let first_run = !kova_engine::store::Paths::new(&dir).map(|p| p.settings().exists()).unwrap_or(true);
             let engine = Engine::new(dir).map_err(|e| e.to_string())?;
+            if first_run {
+                first_run_presets(&engine);
+            }
             app.manage(engine.clone());
             #[cfg(desktop)]
             desktop::setup(app, &engine)?;

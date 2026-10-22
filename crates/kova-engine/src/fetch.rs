@@ -11,6 +11,12 @@ use crate::Error;
 pub const DEFAULT_SUB_UA: &str = concat!("clash.meta/1.19 mihomo Kova/", env!("CARGO_PKG_VERSION"));
 pub const APP_UA: &str = concat!("Kova/", env!("CARGO_PKG_VERSION"));
 
+/// SHA-256 of `data` as lowercase hex, as GitHub publishes release digests.
+pub fn sha256_hex(data: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    hex::encode(Sha256::digest(data))
+}
+
 /// Start every HTTP client here. On Android the certificate check reqwest uses by
 /// default needs a Java component Kova doesn't ship, so the device's own trusted
 /// certificates are handed over instead.

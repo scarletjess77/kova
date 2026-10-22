@@ -33,6 +33,9 @@ class KovaVpnService : VpnService() {
         private var mode = "all"
         private var apps: List<String> = emptyList()
         private var label = ""
+        /** The node in use and the current speeds, from the Rust side while connected. */
+        private var node = ""
+        private var speeds = ""
         private const val CHANNEL = "vpn"
         private const val NOTIFICATION_ID = 1
 
@@ -52,6 +55,19 @@ class KovaVpnService : VpnService() {
         fun close() {
             active = false
             instance?.shutdown()
+        }
+
+        /** Show the node in use and the speeds in the notification. */
+        fun setDetails(node: String, speeds: String) {
+            this.node = node
+            this.speeds = speeds
+            instance?.takeIf { active }?.refreshNotification()
+        }
+
+        /** Redraw what shows Kova's state outside its window: the tile and the widget. */
+        fun stateChanged(context: Context) {
+            KovaTileService.refresh(context)
+            KovaWidget.refresh(context)
         }
 
         /**
@@ -137,8 +153,10 @@ class KovaVpnService : VpnService() {
                 return
             }
             active = true
+            node = ""
+            speeds = ""
             showNotification(waiting = false)
-            KovaTileService.refresh(this)
+            stateChanged(this)
             // From here the descriptor belongs to the Rust side, which closes it.
             done(tunnel.detachFd(), null)
         } catch (e: Exception) {
@@ -157,39 +175,52 @@ class KovaVpnService : VpnService() {
             active = false
             instance = null
         }
-        KovaTileService.refresh(this)
+        stateChanged(this)
         super.onDestroy()
     }
 
     private fun shutdown() {
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
         stopSelf()
-        KovaTileService.refresh(this)
+        stateChanged(this)
     }
 
-    private fun showNotification(waiting: Boolean) {
+    private fun refreshNotification() {
+        try {
+            getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(waiting = false))
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun buildNotification(waiting: Boolean): android.app.Notification {
         val manager = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) {
             manager.createNotificationChannel(NotificationChannel(CHANNEL, "VPN", NotificationManager.IMPORTANCE_LOW))
         }
         val launch = if (waiting) MainActivity.connectIntent(this) else Intent(this, MainActivity::class.java)
         val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val text = when {
+        val state = when {
             waiting -> getString(R.string.vpn_waiting)
             label.isNotEmpty() -> getString(R.string.vpn_on_profile, label)
             else -> getString(R.string.vpn_on)
         }
         val builder = NotificationCompat.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("Kova")
-            .setContentText(text)
+            .setContentTitle(if (!waiting && node.isNotEmpty()) "Kova · $node" else "Kova")
+            .setContentText(if (!waiting && speeds.isNotEmpty()) "$state · $speeds" else state)
             .setContentIntent(open)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
         if (!waiting) {
             val stop = PendingIntent.getService(this, 1, Intent(this, KovaVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE)
             builder.addAction(0, getString(R.string.disconnect), stop)
         }
-        val notification = builder.build()
+        return builder.build()
+    }
+
+    private fun showNotification(waiting: Boolean) {
+        val notification = buildNotification(waiting)
         // A foreground service keeps the VPN running while Kova is in the background.
         // Should Android refuse, the VPN still works, only with less protection.
         try {

@@ -2,9 +2,9 @@
 
 A desktop VPN client for the **Mihomo** and **Xray** cores, written in Rust. It aims to replace v2rayN, Clash Verge Rev and similar clients with one app that runs either core, or both at once.
 
-Windows is the first target; Linux and macOS share the same code, and an early Android app (arm64) comes with every release.
+Every release has Windows, Android (arm64), Linux (AppImage, .deb) and macOS (universal .dmg) builds. Windows and Android are the most tested; Linux and macOS are new.
 
-By **scarletjess77** · [github.com/scarletjess77/kova](https://github.com/scarletjess77/kova)
+By **scarletjess77** · [github.com/scarletjess77/kova](https://github.com/scarletjess77/kova) · website: [scarletjess77.github.io/kova](https://scarletjess77.github.io/kova/) (from `docs/`)
 
 ## What makes it different
 
@@ -142,8 +142,8 @@ Working and tested on Windows 11:
 Not done yet:
 
 - TUN without admin rights on Linux and macOS (Windows has the Kova service).
-- Linux and macOS: system-proxy code is written but untested.
-- Error messages from the engine are still English only; QR code import, global shortcuts, Xray JSON import.
+- Linux and macOS: builds are new and lightly tested.
+- Global shortcuts, Xray JSON import.
 - Android: tested on one phone so far; no per-app VPN choice yet.
 - Code-signed installers (Windows SmartScreen warns until the installer is signed with a certificate).
 

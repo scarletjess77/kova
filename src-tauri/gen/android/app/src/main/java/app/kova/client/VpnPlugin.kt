@@ -26,6 +26,17 @@ import app.tauri.plugin.Plugin
 import java.io.ByteArrayOutputStream
 
 @InvokeArg
+class DetailsArgs {
+    var node: String = ""
+    var speeds: String = ""
+}
+
+@InvokeArg
+class ApkArgs {
+    var path: String = ""
+}
+
+@InvokeArg
 class TunnelArgs {
     var mtu: Int = 9000
     /** "all", "only" or "except", for [apps]. */
@@ -87,9 +98,18 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve()
     }
 
+    /** Whether the VPN is up, and whether the screen is on (to work less while it is off). */
     @Command
     fun status(invoke: Invoke) {
-        invoke.resolve(JSObject().put("active", KovaVpnService.active))
+        val power = activity.getSystemService(android.os.PowerManager::class.java)
+        invoke.resolve(JSObject().put("active", KovaVpnService.active).put("screenOn", power?.isInteractive ?: true))
+    }
+
+    @Command
+    fun details(invoke: Invoke) {
+        val args = invoke.parseArgs(DetailsArgs::class.java)
+        KovaVpnService.setDetails(args.node, args.speeds)
+        invoke.resolve()
     }
 
     /** Answered with the next request from the tile, the notification or always-on. */
@@ -105,6 +125,28 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
             invoke.resolve()
         } catch (e: Exception) {
             invoke.reject(e.message ?: "Could not open the VPN settings")
+        }
+    }
+
+    /** Open Android's installer for a downloaded update. */
+    @Command
+    fun installApk(invoke: Invoke) {
+        val args = invoke.parseArgs(ApkArgs::class.java)
+        try {
+            if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
+                // Android lets an app install others only once the user allows it.
+                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + activity.packageName)))
+                invoke.reject("Allow Kova to install apps, then press Download update again")
+                return
+            }
+            val uri = androidx.core.content.FileProvider.getUriForFile(activity, activity.packageName + ".fileprovider", java.io.File(args.path))
+            val view = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, "application/vnd.android.package-archive")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            activity.startActivity(view)
+            invoke.resolve()
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "Could not open the installer")
         }
     }
 

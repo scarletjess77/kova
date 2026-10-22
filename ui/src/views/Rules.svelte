@@ -4,6 +4,7 @@
   import { fmtAgo } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
+  import AppRules from '../components/AppRules.svelte';
   import Icon from '../components/Icon.svelte';
 
   let PRESETS = $derived<{ id: Preset; title: string; desc: string; needs?: 'runetfreedom' }[]>([
@@ -27,6 +28,7 @@
   let kind = $state<RuleKind>('domain-suffix');
   let value = $state('');
   let target = $state('Proxy');
+  let routingApps = $state(false);
 
   let s = $derived(app.settings);
   let rules = $derived(s?.core.custom_rules ?? []);
@@ -162,6 +164,7 @@
   const loadLearned = async () => {
     learned = (await app.run(() => api.learnedSites())) ?? learned;
     suggestions = (await app.run(() => api.smartSuggestions())) ?? suggestions;
+    app.suggestionCount = suggestions.length;
   };
 
   // How Mihomo names a rule in its logs, to find which of the user's rules a
@@ -179,6 +182,7 @@
       if (i >= 0) return t('your rule #{n} ({kind} {value})', { n: i + 1, kind: KIND_LABEL[rules[i].kind] ?? rules[i].kind, value: rules[i].value });
       return t('one of your rules ({rule})', { rule: sg.rule });
     }
+    if (sg.origin === 'site-check') return t('Kova’s rules');
     return sg.origin === 'preset' ? t('a routing preset ({rule})', { rule: sg.rule }) : t('the subscription’s rule {rule}', { rule: sg.rule });
   }
 
@@ -233,7 +237,8 @@
   </div>
 
   <section class="card">
-    <div class="card-h"><h2>{t('Your rules')}</h2><span class="aside">{t('checked before presets')}</span></div>
+    <div class="card-h"><h2>{t('Your rules')}</h2><span class="aside">{t('checked before presets')}</span>
+      {#if !app.mobile}<button class="btn ghost" onclick={() => (routingApps = true)}><Icon name="monitor" />{t('Route an app…')}</button>{/if}</div>
     <form class="add" onsubmit={(e) => { e.preventDefault(); add(); }}>
       <select class="input" bind:value={kind} aria-label={t('Match type')}>
         {#each KINDS as [k, l] (k)}<option value={k}>{l}</option>{/each}
@@ -280,13 +285,29 @@
     <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">beta</span>
       <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
         onclick={() => app.saveSettings((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
-    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>
+    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>
     {#if s.core.smart_routing && s.core.mode !== 'rule'}
       <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
     {:else if s.core.smart_routing && s.core.tun.enabled && !s.core.sniff && !s.core.dns.fake_ip}
       <p class="hint warn-text">{t('In TUN mode Kova needs site names: turn on Sniff domains or Fake-IP in Settings, otherwise it can only learn IP addresses.')}</p>
     {:else if s.core.smart_routing && isClash && !s.core.apply_rules_to_clash_profiles}
       <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
+    {/if}
+    {#if s.core.smart_routing && isClash}
+      <div class="row-sw profile-rules">
+        <div><div class="t">{t('Also correct the subscription’s rules')}</div>
+          <div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div></div>
+        <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
+          onclick={() => app.saveSettings((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
+      </div>
+    {/if}
+    {#if s.core.smart_routing}
+      <div class="row-sw profile-rules">
+        <div><div class="t">{t('Send sites that refuse the proxy direct')}</div>
+          <div class="d">{t('Off by default. To find out, Kova has to open such a site directly, and once sent direct the site sees your own address. With this off, Kova only moves blocked sites to the proxy.')}</div></div>
+        <button class="switch" role="switch" aria-label={t('Send sites that refuse the proxy direct')} aria-checked={s.core.smart_learn_direct}
+          onclick={() => app.saveSettings((x) => (x.core.smart_learn_direct = !x.core.smart_learn_direct))}></button>
+      </div>
     {/if}
     {#if suggestions.length}
       <div class="eyebrow sugg-h">{t('Suggestions')}</div>
@@ -306,14 +327,6 @@
             </div>
           </div>
         {/each}
-      </div>
-    {/if}
-    {#if s.core.smart_routing && isClash}
-      <div class="row-sw profile-rules">
-        <div><div class="t">{t('Also correct the subscription’s rules')}</div>
-          <div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div></div>
-        <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
-          onclick={() => app.saveSettings((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
       </div>
     {/if}
     {#if learned.length}
@@ -344,6 +357,9 @@
 
   <p class="hint order">{t('Order: your rules → presets → local network goes direct → everything else uses')} <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. {t('Global and Direct modes skip rules entirely.')}</p>
 {/if}
+
+
+{#if routingApps}<AppRules onclose={() => (routingApps = false)} />{/if}
 
 <style>
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin: 8px 0 16px; }

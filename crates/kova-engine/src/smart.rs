@@ -182,6 +182,8 @@ pub async fn refresh(api: &Mihomo) {
 pub struct Hooks {
     /// Learning happens only while this holds (Rule mode, smart routing on).
     pub active: Box<dyn Fn() -> bool + Send + Sync>,
+    /// The phone's screen is off: look at connections less often, to save battery.
+    pub quiet: Box<dyn Fn() -> bool + Send + Sync>,
     pub learned: Box<dyn Fn(&Learned) + Send + Sync>,
     pub suggested: Box<dyn Fn(&Suggestion) + Send + Sync>,
 }
@@ -230,6 +232,11 @@ async fn watch_logs(api: Mihomo, tx: mpsc::Sender<Suspect>, scope: Arc<smart::Sc
                 // Only routes no rule chose on purpose: the user's rules and presets
                 // are never second-guessed, a subscription's only when allowed.
                 if let Some(f) = smart::parse_dial_failure(line) {
+                    // A site failing through the proxy is checked directly only when the
+                    // user allows it: that shows their own address to the site.
+                    if !f.direct && !scope.proxy_failures {
+                        return !tx.is_closed();
+                    }
                     if let Some(action) = scope.action(&f.rule) {
                         let failed = if f.direct { Route::Direct } else { Route::Proxy };
                         let _ = tx.try_send(Suspect { host: f.host, port: f.port, failed, dial_failed: true, rule: f.rule, action });
@@ -264,7 +271,7 @@ async fn watch_connections(api: Mihomo, tx: mpsc::Sender<Suspect>, hooks: Arc<Ho
     let mut reported: HashSet<String> = HashSet::new();
     let mut answered: HashMap<String, Instant> = HashMap::new();
     loop {
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(if (hooks.quiet)() { 10 } else { 2 })).await;
         if tx.is_closed() {
             return;
         }

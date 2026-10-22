@@ -51,9 +51,11 @@ fn base(opts: &RuntimeOptions) -> Value {
     });
     // Android: every app on the phone can reach the proxy port, and through it learn the
     // server's address or skip the per-app VPN choice. Only Kova knows the login.
-    if opts.tun_fd.is_some() && !opts.local_password.is_empty() {
+    // Desktop: other devices on the network need it once LAN sharing is on; programs on
+    // this computer don't, as the system proxy can't send a login.
+    if !opts.local_password.is_empty() && (opts.tun_fd.is_some() || opts.allow_lan) {
         v["authentication"] = json!([format!("{LOCAL_USER}:{}", opts.local_password)]);
-        v["skip-auth-prefixes"] = json!([]);
+        v["skip-auth-prefixes"] = if opts.tun_fd.is_some() { json!([]) } else { json!(["127.0.0.0/8", "::1/128"]) };
     }
     v
 }
@@ -199,6 +201,7 @@ pub fn smart_scope(opts: &RuntimeOptions, profile_rules: bool) -> crate::smart::
         preset_rules: Preset::ALL.iter().filter(|p| opts.presets.contains(p)).flat_map(|p| p.rules()).map(|r| key(&r)).collect(),
         internal_rules: internal,
         profile_rules,
+        proxy_failures: opts.smart_learn_direct,
     }
 }
 
@@ -546,6 +549,11 @@ rules:
         o.tun_fd = None;
         let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
         assert!(doc.get("authentication").is_none(), "the desktop system proxy can't send a login");
+        // Shared with the network: other devices need the login, this computer doesn't.
+        o.allow_lan = true;
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert_eq!(doc["authentication"], json!(["kova:pw"]));
+        assert_eq!(doc["skip-auth-prefixes"], json!(["127.0.0.0/8", "::1/128"]));
         let saved: RuntimeOptions = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
         assert_eq!(saved.tun_fd, None, "a descriptor is never stored");
     }
