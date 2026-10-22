@@ -44,7 +44,7 @@ fn base(opts: &RuntimeOptions) -> Value {
         "external-controller": format!("127.0.0.1:{}", opts.controller_port),
         "secret": opts.secret,
         "geodata-mode": true,
-        "geo-auto-update": true,
+        "geo-auto-update": !opts.without_geodata,
         "geo-update-interval": 24,
         "geox-url": geox_url(opts),
         "profile": { "store-selected": true, "store-fake-ip": true },
@@ -77,7 +77,7 @@ fn dns(opts: &RuntimeOptions) -> Value {
     let d = &opts.dns;
     let mut policy = serde_json::Map::new();
     let geosites: Vec<&str> = opts.presets.iter().flat_map(|p| p.direct_geosites().iter().copied()).collect();
-    if !geosites.is_empty() {
+    if !geosites.is_empty() && !opts.without_geodata {
         policy.insert(format!("geosite:{}", geosites.join(",")), json!(d.direct_nameservers));
     }
     let mut v = json!({
@@ -307,7 +307,9 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
         };
         let mut merged: Vec<Yaml> = ours.into_iter().map(Yaml::String).collect();
         let learned = learned.into_iter().map(Yaml::String);
-        if opts.apply_rules_to_clash_profiles && blocked_only(opts) {
+        // Without the routing data nothing tells what is blocked: the profile's own rules
+        // decide until it is there.
+        if opts.apply_rules_to_clash_profiles && blocked_only(opts) && !opts.without_geodata {
             // "Only blocked sites through the proxy": everything after our rules goes
             // direct, so the profile's own catch-all must not run.
             merged.extend(learned);
@@ -326,7 +328,34 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
         }
         doc.insert(Yaml::String("rules".into()), Yaml::Sequence(merged));
     }
+    if opts.without_geodata {
+        without_geodata(&mut doc);
+    }
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
+}
+
+/// Take out of an imported profile everything that would make Mihomo load the routing
+/// data: GEOSITE and GEOIP rules (also inside AND/OR/NOT ones), `geosite:` DNS policies
+/// and the GeoIP fallback filter. What those rules decided then falls to the profile's
+/// catch-all until the data is there.
+fn without_geodata(doc: &mut Mapping) {
+    let needs_geo = |s: &str| {
+        let u = s.to_ascii_uppercase();
+        u.contains("GEOSITE,") || u.contains("GEOIP,")
+    };
+    if let Some(Yaml::Sequence(rules)) = doc.get_mut("rules") {
+        rules.retain(|r| !r.as_str().is_some_and(needs_geo));
+    }
+    if let Some(Yaml::Mapping(dns)) = doc.get_mut("dns") {
+        if let Some(Yaml::Mapping(policy)) = dns.get_mut("nameserver-policy") {
+            policy.retain(|k, _| !k.as_str().is_some_and(|k| k.to_ascii_lowercase().contains("geosite:") || k.to_ascii_lowercase().contains("geoip:")));
+        }
+        if let Some(Yaml::Mapping(filter)) = dns.get_mut("fallback-filter") {
+            filter.insert(Yaml::String("geoip".into()), Yaml::Bool(false));
+            filter.remove("geosite");
+        }
+    }
+    doc.insert(Yaml::String("geo-auto-update".into()), Yaml::Bool(false));
 }
 
 /// Keys a config run with system rights must not have: they serve files from disk or
@@ -395,6 +424,37 @@ mod tests {
 
     fn opts() -> RuntimeOptions {
         RuntimeOptions { secret: "s3cret".into(), ..Default::default() }
+    }
+
+    /// Without the routing data nothing in the config may make Mihomo load it, or Mihomo
+    /// would try to download it and refuse to start where that fails.
+    #[test]
+    fn without_routing_data_nothing_needs_it() {
+        let raw = "proxies:\n  - {name: A, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A]}\n\
+dns:\n  enable: true\n  nameserver-policy:\n    'geosite:cn': [223.5.5.5]\n    'example.com': [1.1.1.1]\n  fallback-filter: {geoip: true, geoip-code: CN}\n\
+rules:\n  - GEOSITE,category-games,DIRECT\n  - AND,((GEOIP,RU),(NETWORK,UDP)),DIRECT\n  - DOMAIN,mine.example,DIRECT\n  - MATCH,Sel\n";
+        let mut o = opts();
+        o.presets = vec![Preset::ProxyBlockedRu, Preset::DirectRu, Preset::BlockAds];
+        o.custom_rules = vec![Rule { kind: RuleKind::Geosite, value: "steam".into(), target: "DIRECT".into() }];
+        o.apply_rules_to_clash_profiles = true;
+        o.without_geodata = true;
+        let text = merge_clash(raw, &o).unwrap();
+        let upper = text.to_ascii_uppercase();
+        assert!(!upper.contains("GEOSITE,") && !upper.contains("GEOIP,"), "{text}");
+        let doc: Value = serde_yaml_ng::from_str(&text).unwrap();
+        let policies: Vec<&String> = doc["dns"]["nameserver-policy"].as_object().unwrap().keys().collect();
+        assert_eq!(policies, ["example.com"]);
+        assert_eq!(doc["dns"]["fallback-filter"]["geoip"], false);
+        assert_eq!(doc["geo-auto-update"], false);
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        assert!(rules.contains(&"DOMAIN,mine.example,DIRECT") && rules.contains(&"MATCH,Sel"), "{rules:?}");
+        // "Only blocked sites" can't tell what is blocked without the data: everything
+        // goes through the proxy meanwhile.
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &plan(&nodes, CorePreference::Auto), &Bridges::new(), &o)).unwrap();
+        assert_eq!(doc["rules"].as_array().unwrap().last().unwrap(), "MATCH,Proxy");
+        assert!(doc["rules"].as_array().unwrap().iter().all(|r| !r.as_str().unwrap().starts_with("GEO")), "{:?}", doc["rules"]);
+        assert_eq!(doc["geo-auto-update"], false);
     }
 
     #[test]

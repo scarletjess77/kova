@@ -151,6 +151,7 @@ export type EngineEvent =
   | { type: 'profiles' }
   | { type: 'delays'; delays: Record<string, number | null> }
   | { type: 'learned'; domain: string; route: Route; reason: string }
+  | { type: 'notice'; text: string }
   | { type: 'suggested'; domain: string; route: Route; rule: string; origin: RuleOrigin };
 
 export interface Snapshot { status: Status; settings: Settings; profiles: Profile[]; data_dir: string }

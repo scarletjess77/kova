@@ -521,6 +521,8 @@ export const ru: Dict = {
   'Choose at least one app': 'Выберите хотя бы одно приложение',
   'Save and reconnect': 'Сохранить и переподключить',
   'Save': 'Сохранить',
+  'Connected without the routing data, which couldn’t be downloaded directly; getting it through the server': 'Подключено без данных маршрутизации: напрямую их скачать не удалось, загружаем через сервер',
+  'Routing data downloaded through the server; every rule works now': 'Данные маршрутизации загружены через сервер; теперь работают все правила',
   'Found it: see the step marked below.': 'Нашлось: смотрите отмеченный шаг ниже.',
   'Everything checks out. If a particular site still doesn’t open, try it in Site check.': 'Всё в порядке. Если какой-то сайт всё равно не открывается, проверьте его в «Проверке сайтов».',
   'What’s wrong?': 'Что не так?',
