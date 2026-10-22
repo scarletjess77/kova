@@ -3,4 +3,8 @@
     <string name="vpn_on_profile">Подключено · %1$s</string>
     <string name="vpn_waiting">Откройте Kova, чтобы подключиться</string>
     <string name="disconnect">Отключить</string>
+    <string name="widget_on">Подключено</string>
+    <string name="widget_off">Отключено</string>
+    <string name="widget_connect">Нажмите, чтобы подключиться</string>
+    <string name="widget_description">Подключение и отключение с главного экрана</string>
 </resources>

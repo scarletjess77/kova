@@ -174,6 +174,10 @@ pub struct Engine {
     /// Android: the VPN interface the system opened for Kova. Mihomo reads and writes
     /// it directly; it stays open across core restarts and is closed on disconnect.
     tun_fd: std::sync::Mutex<Option<i32>>,
+    /// Checks in a row the chosen node failed; see [`Engine::check_node`].
+    node_failures: std::sync::atomic::AtomicU32,
+    /// The screen is off (Android): background checks run less often.
+    quiet: std::sync::atomic::AtomicBool,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -278,6 +282,8 @@ impl Engine {
             geodata_lock: Mutex::new(()),
             smart,
             tun_fd: std::sync::Mutex::new(None),
+            node_failures: Default::default(),
+            quiet: Default::default(),
             events,
             me: me.clone(),
         }))
@@ -1042,8 +1048,9 @@ impl Engine {
 
     fn spawn_learner(&self, api: Mihomo, sm: SmartRuntime) -> JoinHandle<()> {
         use crate::smart::Hooks;
-        let (me, me2, me3) = (self.me.clone(), self.me.clone(), self.me.clone());
+        let (me, me2, me3, me4) = (self.me.clone(), self.me.clone(), self.me.clone(), self.me.clone());
         let hooks = Hooks {
+            quiet: Box::new(move || me4.upgrade().is_some_and(|e| e.quiet.load(std::sync::atomic::Ordering::Relaxed))),
             active: Box::new(move || me.upgrade().is_some_and(|e| {
                 let c = e.settings().core;
                 c.smart_routing && c.mode == Mode::Rule
@@ -1456,9 +1463,92 @@ impl Engine {
         Ok(map)
     }
 
-    /// Check one site through Kova (when connected) and directly.
+    /// Android: the screen went off or on.
+    pub fn set_quiet(&self, quiet: bool) {
+        self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The node traffic goes through now: the main group's choice, followed through
+    /// groups that choose themselves (Auto, Fallback).
+    pub async fn current_node(&self) -> Option<String> {
+        let (api, main) = {
+            let run = self.run.lock().await;
+            let r = run.as_ref()?;
+            (r.api.clone()?, r.main_group.clone())
+        };
+        let snap = api.proxies().await.ok()?;
+        let mut name = main;
+        for _ in 0..6 {
+            match snap.groups.iter().find(|g| g.name == name) {
+                Some(g) if !g.now.is_empty() => name = g.now.clone(),
+                _ => return Some(name),
+            }
+        }
+        Some(name)
+    }
+
+    /// Called every minute or so while connected: when the node chosen in the main group
+    /// has failed two checks in a row, pick the fastest working node of that group and
+    /// say which. Groups that pick a node themselves (Auto, Fallback) are left alone, and
+    /// so is everything when no node answers, as then the network itself is down.
+    pub async fn check_node(&self) -> Option<(String, String)> {
+        use std::sync::atomic::Ordering;
+        if !self.settings().auto_switch || self.settings().core.mode == Mode::Direct {
+            return None;
+        }
+        let (api, main) = {
+            let run = self.run.lock().await;
+            let r = run.as_ref()?;
+            (r.api.clone()?, r.main_group.clone())
+        };
+        let snap = api.proxies().await.ok()?;
+        let group = snap.groups.iter().find(|g| g.name == main && g.kind == "Selector")?;
+        let is_node = |n: &str| snap.proxies.get(n).is_some_and(|p| !snap.groups.iter().any(|g| g.name == n) && !["Direct", "Reject", "RejectDrop", "Pass", "Compatible", "Dns"].contains(&p.kind.as_str()));
+        let chosen = group.now.clone();
+        if !is_node(&chosen) {
+            return None;
+        }
+        if api.delay(&chosen, TEST_URL, 5000).await.ok().flatten().is_some() {
+            self.node_failures.store(0, Ordering::SeqCst);
+            return None;
+        }
+        if self.node_failures.fetch_add(1, Ordering::SeqCst) + 1 < 2 {
+            return None;
+        }
+        self.node_failures.store(0, Ordering::SeqCst);
+        let candidates: Vec<String> = group.all.iter().filter(|n| **n != chosen && is_node(n)).cloned().collect();
+        let tested: Vec<(String, Option<u32>)> = futures_util::stream::iter(candidates)
+            .map(|n| {
+                let api = api.clone();
+                async move {
+                    let d = api.delay(&n, TEST_URL, 5000).await.ok().flatten();
+                    (n, d)
+                }
+            })
+            .buffer_unordered(16)
+            .collect()
+            .await;
+        let (best, _) = tested.into_iter().filter_map(|(n, d)| d.map(|d| (n, d))).min_by_key(|(_, d)| *d)?;
+        self.select(&main, &best).await.ok()?;
+        Some((chosen, best))
+    }
+
+    /// Check one site through Kova (when connected) and directly. A site that opens only
+    /// directly becomes a smart-routing suggestion to send it direct.
     pub async fn check_site(&self, url: &str) -> crate::sitecheck::SiteResult {
-        crate::sitecheck::check(url, self.proxy_url().as_deref()).await
+        use crate::sitecheck::Outcome;
+        let r = crate::sitecheck::check(url, self.proxy_url().as_deref()).await;
+        let works = |o: &Outcome| matches!(o, Outcome::Ok | Outcome::HttpError);
+        if let Some(via) = &r.via_kova {
+            let host = reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(str::to_string));
+            if let (false, true, Some(domain)) = (works(&via.outcome), works(&r.direct.outcome), host.as_deref().and_then(kova_core::smart::rule_target)) {
+                let reason = serde_json::to_value(&via.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_default();
+                let s = kova_core::smart::Suggestion { domain, route: kova_core::smart::Route::Direct, reason, rule: String::new(), origin: kova_core::smart::Origin::SiteCheck, at: crate::store::now() };
+                self.smart.suggest(s.clone());
+                self.emit(Event::Suggested { domain: s.domain, route: s.route, rule: s.rule, origin: s.origin });
+            }
+        }
+        r
     }
 
     // ------------------------------------------------------------------ connections

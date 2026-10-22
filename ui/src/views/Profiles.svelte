@@ -5,10 +5,12 @@
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import EditorModal from '../components/EditorModal.svelte';
+  import ShareModal from '../components/ShareModal.svelte';
   import Icon from '../components/Icon.svelte';
 
   let selectedId = $state<string | null>(null);
   let editing = $state<Profile | null>(null);
+  let sharing = $state<Profile | null>(null);
   let confirmDelete = $state(false);
   let updating = $state<Set<string>>(new Set());
 
@@ -131,6 +133,7 @@
               <button class="btn" class:busy={updating.has(sel.id)} onclick={() => update(sel!.id)} disabled={updating.has(sel.id)}><Icon name="refresh" />{t('Update now')}</button>
               <button class="btn" onclick={() => sel?.source.kind === 'remote' && app.run(() => navigator.clipboard.writeText(sel.source.kind === 'remote' ? sel.source.url : ''), t('Subscription URL copied'))}><Icon name="copy" />{t('Copy URL')}</button>
             {/if}
+            <button class="btn" onclick={() => (sharing = sel!)}><Icon name="qr" />{t('Share')}</button>
             <button class="btn" onclick={() => (editing = sel!)}><Icon name="edit" />{t('Edit config')}</button>
             {#if sel.support_url}<button class="btn ghost" onclick={() => app.run(() => openUrl(sel!.support_url!))}><Icon name="external" />{t('Provider')}</button>{/if}
             {#if confirmDelete}
@@ -146,6 +149,7 @@
 {/if}
 
 {#if editing}<EditorModal profile={editing} onclose={() => (editing = null)} />{/if}
+{#if sharing}<ShareModal profile={sharing} onclose={() => (sharing = null)} />{/if}
 
 <style>
   .pf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }

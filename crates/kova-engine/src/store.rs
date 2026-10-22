@@ -126,6 +126,8 @@ pub struct Settings {
     pub beta_updates: bool,
     /// Android: which apps go through the VPN.
     pub vpn_apps: VpnApps,
+    /// Move to the fastest working node when the chosen one stops answering.
+    pub auto_switch: bool,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -167,6 +169,7 @@ impl Default for Settings {
             check_updates: true,
             beta_updates: env!("CARGO_PKG_VERSION").contains('-'),
             vpn_apps: VpnApps::default(),
+            auto_switch: true,
         }
     }
 }

@@ -7,14 +7,18 @@
 // and reads the system's package list whenever TUN starts, which an app may not do.
 // That needs Go; Go checks every library against Mihomo's go.sum.
 //
+// The versions are pinned in android-cores.json, so a new core reaches the APK only as a
+// reviewed change to that file. Mihomo's tag must also point at the pinned commit.
+//
 // Usage: node scripts/android-cores.mjs
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
 const root = join(import.meta.dirname, '..');
+const PINNED = JSON.parse(readFileSync(join(import.meta.dirname, 'android-cores.json'), 'utf8'));
 const out = join(root, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'jniLibs', 'arm64-v8a');
 
 /** fetch, tried again a few times: a connection dropped halfway shouldn't fail a release. */
@@ -62,7 +66,7 @@ function fromZip(zip, name) {
 }
 
 async function mihomo() {
-  const { tag_name: tag } = await github('repos/MetaCubeX/mihomo/releases/latest');
+  const { tag, commit } = PINNED.mihomo;
   const src = join(root, 'target', 'android-src', `mihomo-${tag}`);
   if (!existsSync(src)) {
     // Into a temporary folder first: an interrupted clone must not be mistaken for a
@@ -70,6 +74,8 @@ async function mihomo() {
     const partial = `${src}.partial`;
     rmSync(partial, { recursive: true, force: true });
     execFileSync('git', ['clone', '--quiet', '--depth', '1', '--branch', tag, 'https://github.com/MetaCubeX/mihomo.git', partial], { stdio: 'inherit' });
+    const head = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: partial, encoding: 'utf8' }).trim();
+    if (head !== commit) throw new Error(`Mihomo ${tag} is at ${head}, not the pinned ${commit}; the tag was moved`);
     renameSync(partial, src);
   }
   const ldflags = `-X "github.com/metacubex/mihomo/constant.Version=${tag}" -w -s`;
@@ -82,7 +88,7 @@ async function mihomo() {
 }
 
 async function xray() {
-  const rel = await github('repos/XTLS/Xray-core/releases/latest');
+  const rel = await github(`repos/XTLS/Xray-core/releases/tags/${PINNED.xray.tag}`);
   const asset = rel.assets.find((a) => a.name === 'Xray-android-arm64-v8a.zip');
   if (!asset) throw new Error(`Xray ${rel.tag_name} has no Android arm64 build`);
   if (!asset.digest?.startsWith('sha256:')) throw new Error(`${asset.name} has no published checksum`);

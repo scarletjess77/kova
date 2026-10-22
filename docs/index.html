@@ -1,0 +1,1048 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="icon" href="icon.png">
+<title>Kova</title>
+<meta name="description" content="Kova is a free, open-source VPN client for the Mihomo and Xray cores, for Windows, Android, Linux and macOS.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap">
+<style>
+/* Layout: product first. A left-aligned headline over a working Kova window, then quiet
+   sections on one 1160px column, with Mihomo's own log lines as the recurring texture.
+   Kova's design system: graphite neutrals, near-white emphasis, colour only for state. */
+:root {
+  --bg: #09090a; --win: #101012; --panel: #17171a; --sunk: #0c0c0e; --line: #242428; --line-2: #323238;
+  --fg: #ededef; --muted: #9b9ba3; --faint: #6c6c75;
+  --accent: #f2f2f4; --accent-fg: #111113; --accent-soft: #232327; --upload: #76767f;
+  --ok: #74c79a; --ok-soft: #16241c; --warn: #d9b061; --warn-soft: #2a2416; --bad: #e5756c; --bad-soft: #2c1817;
+  --glow: rgb(255 255 255 / .05); --head-bg: rgb(9 9 10 / .82);
+  --shadow: 0 1px 2px rgb(0 0 0 / .5), 0 40px 90px rgb(0 0 0 / .6);
+  --qr-bg: #ffffff; --qr-fg: #111113;
+  --f-display: 'Unbounded', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Onest', 'Segoe UI', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
+  --r: 10px;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #f4f4f6; --win: #fbfbfc; --panel: #ffffff; --sunk: #f0f0f2; --line: #e1e1e5; --line-2: #c8c8ce;
+    --fg: #141416; --muted: #5d5d65; --faint: #85858d;
+    --accent: #17171a; --accent-fg: #ffffff; --accent-soft: #e9e9ec; --upload: #9a9aa2;
+    --ok: #2c7a4e; --ok-soft: #e0efe6; --warn: #8c620e; --warn-soft: #f4ebd3; --bad: #b23a32; --bad-soft: #f6e0de;
+    --glow: rgb(20 20 24 / .045); --head-bg: rgb(244 244 246 / .84);
+    --shadow: 0 1px 2px rgb(20 20 24 / .06), 0 30px 70px rgb(20 20 24 / .14);
+    color-scheme: light;
+  }
+}
+:root[data-theme="light"] {
+  --bg: #f4f4f6; --win: #fbfbfc; --panel: #ffffff; --sunk: #f0f0f2; --line: #e1e1e5; --line-2: #c8c8ce;
+  --fg: #141416; --muted: #5d5d65; --faint: #85858d;
+  --accent: #17171a; --accent-fg: #ffffff; --accent-soft: #e9e9ec; --upload: #9a9aa2;
+  --ok: #2c7a4e; --ok-soft: #e0efe6; --warn: #8c620e; --warn-soft: #f4ebd3; --bad: #b23a32; --bad-soft: #f6e0de;
+  --glow: rgb(20 20 24 / .045); --head-bg: rgb(244 244 246 / .84);
+  --shadow: 0 1px 2px rgb(20 20 24 / .06), 0 30px 70px rgb(20 20 24 / .14);
+  color-scheme: light;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; }
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+html { scroll-behavior: smooth; }
+body { background: var(--bg); color: var(--fg); font: 16px/1.6 var(--f-ui); -webkit-font-smoothing: antialiased; }
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
+a { color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+p { text-wrap: pretty; }
+.mono { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
+.i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.wrap { max-width: 1208px; margin-inline: auto; padding-left: max(24px, env(safe-area-inset-left, 0px)); padding-right: max(24px, env(safe-area-inset-right, 0px)); }
+@media (max-width: 520px) { .wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); } }
+.eyebrow { font: 600 11.5px/1.3 var(--f-ui); letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+
+/* ---------- controls ---------- */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; height: 46px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--line-2); background: var(--panel); color: var(--fg); font: 600 15px var(--f-ui); text-decoration: none; white-space: nowrap; cursor: pointer; transition: border-color .15s, filter .15s, background .15s; }
+.btn:hover { border-color: var(--faint); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.primary:hover { filter: brightness(.9); }
+.btn.small { height: 34px; padding: 0 13px; font-size: 13.5px; border-radius: 8px; }
+.btn .meta { font: 500 12px var(--f-mono); opacity: .62; }
+.btn .i { width: 17px; height: 17px; }
+.seg { display: inline-flex; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: none; padding: 4px 11px; border-radius: 6px; font: 500 13px var(--f-ui); color: var(--muted); white-space: nowrap; cursor: pointer; }
+.seg button:hover { color: var(--fg); }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .14); }
+.switch { position: relative; width: 36px; height: 20px; border-radius: 20px; border: 0; background: var(--line-2); flex: none; padding: 0; cursor: pointer; transition: background .15s; }
+.switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); box-shadow: 0 1px 2px rgb(0 0 0 / .25); transition: transform .15s, background .15s; }
+.switch[aria-checked="true"] { background: var(--accent); }
+.switch[aria-checked="true"]::after { transform: translateX(16px); background: var(--accent-fg); }
+.chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--sunk); border: 1px solid var(--line); font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+.chip.acc { background: var(--accent-soft); border-color: transparent; color: var(--fg); }
+.chip .i { width: 12px; height: 12px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border-radius: 999px; font: 600 11.5px var(--f-ui); letter-spacing: .02em; border: 1px solid var(--line-2); color: var(--muted); white-space: nowrap; }
+.pill::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pill.ok { color: var(--ok); background: var(--ok-soft); border-color: transparent; }
+.pill.warn { color: var(--warn); background: var(--warn-soft); border-color: transparent; }
+
+/* ---------- header ---------- */
+.top { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 9; background: var(--head-bg); -webkit-backdrop-filter: saturate(1.2) blur(14px); backdrop-filter: saturate(1.2) blur(14px); border-bottom: 1px solid var(--line); }
+.top-in { display: flex; align-items: center; gap: 20px; height: 62px; }
+.brand { display: inline-flex; align-items: center; gap: 10px; font: 600 17px var(--f-display); letter-spacing: -.02em; text-decoration: none; }
+.brand svg { width: 26px; height: 26px; }
+.nav { display: flex; gap: 2px; margin-left: 8px; }
+.nav a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 500; padding: 6px 11px; border-radius: 8px; }
+.nav a:hover { color: var(--fg); background: var(--accent-soft); }
+.top-r { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.top-r .seg button { padding: 3px 9px; font: 600 12px var(--f-mono); }
+@media (max-width: 820px) { .nav { display: none; } }
+@media (max-width: 420px) { .top .gh { display: none; } }
+
+/* ---------- hero ---------- */
+.hero { position: relative; overflow: clip; padding-block: clamp(44px, 7vw, 92px) clamp(64px, 9vw, 112px); }
+.hero::before { content: ""; position: absolute; left: 50%; top: 34%; width: 1500px; height: 1000px; transform: translateX(-50%); background: radial-gradient(closest-side, var(--glow), transparent); pointer-events: none; }
+.hero .wrap { position: relative; }
+.hero h1 { font: 600 clamp(26px, 6.5vw, 66px)/1.04 var(--f-display); letter-spacing: -.04em; margin: 18px 0 0; max-width: 17em; text-wrap: balance; }
+.hero-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 28px 56px; align-items: end; margin-top: 28px; }
+.lede { font-size: clamp(16px, 1.55vw, 18.5px); line-height: 1.6; color: var(--muted); max-width: 56ch; margin: 0; }
+.ctas { display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
+.btn-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.fine { font-size: 13px; color: var(--faint); margin: 0; }
+@media (max-width: 860px) {
+  .hero-row { grid-template-columns: minmax(0, 1fr); }
+  .ctas { align-items: flex-start; }
+}
+@media (max-width: 480px) { .btn-row, .btn-row .btn { width: 100%; } }
+
+.stage { margin-top: clamp(40px, 6vw, 68px); }
+.stage-tag { display: flex; justify-content: flex-end; align-items: center; gap: 8px; margin-bottom: 12px; font: 500 12px var(--f-mono); color: var(--faint); }
+.stage-tag i { width: 6px; height: 6px; border-radius: 50%; background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+
+/* ---------- the Kova window (demo) ---------- */
+.window { container: win / inline-size; background: var(--win); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; font-size: 14px; line-height: 1.45; text-align: left; }
+.w-title { height: 40px; display: flex; align-items: center; gap: 9px; padding-left: 14px; border-bottom: 1px solid var(--line); font-weight: 600; font-size: 13px; }
+.w-title > svg { width: 17px; height: 17px; }
+.w-ctl { margin-left: auto; display: flex; color: var(--muted); }
+.w-ctl span { width: 44px; height: 40px; display: grid; place-items: center; }
+.w-ctl .i { width: 15px; height: 15px; }
+.w-body { display: grid; grid-template-columns: 206px minmax(0, 1fr); }
+.w-side { border-right: 1px solid var(--line); padding: 12px 10px; display: flex; flex-direction: column; gap: 14px; }
+.w-nav { display: flex; flex-direction: column; gap: 2px; }
+.w-nav span { display: flex; align-items: center; gap: 11px; padding: 7px 10px; border-radius: 8px; color: var(--muted); font-weight: 500; font-size: 13.5px; white-space: nowrap; }
+.w-nav span.on { background: var(--accent-soft); color: var(--fg); }
+.w-nav .badge { margin-left: auto; font: 500 11px var(--f-mono); color: var(--faint); }
+.w-sub { margin-top: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 7px; }
+.w-sub b { font-size: 13px; }
+.w-sub .s { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+.bar { height: 4px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 21%; background: var(--accent); border-radius: 4px; }
+.w-main { padding: 20px 22px 22px; min-width: 0; }
+.w-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+.w-head b { font: 600 19px/1.2 var(--f-ui); letter-spacing: -.01em; }
+.w-head span { color: var(--muted); font-size: 13px; }
+.w-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); gap: 14px; }
+.w-card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+.w-hero { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 22px 28px; align-items: center; justify-content: space-between; padding: 20px; }
+.w-status { display: flex; gap: 22px; align-items: center; flex: 1 1 360px; min-width: 0; }
+.power { width: 92px; height: 92px; border-radius: 50%; border: 1.5px solid var(--line-2); background: var(--sunk); color: var(--muted); display: grid; place-items: center; flex: none; position: relative; cursor: pointer; transition: background .2s, color .2s, border-color .2s; }
+.power .i { width: 34px; height: 34px; stroke-width: 2; }
+.power:hover { border-color: var(--accent); color: var(--fg); }
+.power.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.power.on::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: .3; }
+.power.busy::before { content: ""; position: absolute; inset: -7px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.w-text { min-width: 0; }
+.state { font: 700 25px/1.1 var(--f-display); letter-spacing: -.01em; margin: 5px 0 9px; }
+.state.off { color: var(--muted); }
+.route { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 13px; color: var(--muted); }
+.route .sep { color: var(--faint); }
+.route .end { color: var(--fg); font-weight: 600; }
+.cc { font: 600 10.5px var(--f-mono); padding: 2px 5px; border-radius: 4px; background: var(--accent-soft); color: var(--fg); }
+.w-meta { display: flex; gap: 8px 12px; align-items: center; flex-wrap: wrap; margin-top: 11px; font-size: 12.5px; color: var(--muted); }
+.w-ctrls { display: flex; flex-direction: column; gap: 14px; flex: 0 1 310px; min-width: 0; }
+.fld { display: flex; flex-direction: column; gap: 7px; }
+.lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+.togs { display: flex; flex-direction: column; gap: 6px; }
+.tog { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--sunk); }
+.tog .i { color: var(--muted); width: 17px; height: 17px; }
+.tog > span { display: flex; flex-direction: column; font-size: 13px; font-weight: 500; min-width: 0; flex: 1; }
+.tog small { color: var(--faint); font-size: 11.5px; font-weight: 400; }
+.card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.card-h b { font-size: 13.5px; font-weight: 600; }
+.card-h .aside { margin-left: auto; color: var(--muted); font-size: 12px; }
+.ip { font: 500 22px/1.2 var(--f-mono); letter-spacing: -.01em; margin: 5px 0 14px; }
+.kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 7px 16px; margin: 0; font-size: 13px; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lat { display: inline-flex; align-items: center; gap: 6px; font-family: var(--f-mono); font-size: 12.5px; }
+.lat i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+.legend { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--muted); flex-wrap: wrap; justify-content: flex-end; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.legend i { width: 8px; height: 8px; border-radius: 2px; }
+.legend b { color: var(--fg); font: 500 12px var(--f-mono); }
+.chart { display: block; width: 100%; height: 118px; }
+.chart .grid { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.chart .dn { fill: none; stroke: var(--accent); stroke-width: 1.6; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.chart .dn-a { fill: var(--accent); opacity: .08; }
+.chart .up { fill: none; stroke: var(--upload); stroke-width: 1.4; vector-effect: non-scaling-stroke; stroke-linejoin: round; }
+.t-foot { display: flex; gap: 16px; margin-top: 10px; font-size: 12px; color: var(--muted); }
+.t-foot b { color: var(--fg); font: 500 12px var(--f-mono); }
+.w-bar { height: 30px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 18px; padding: 0 14px; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+.w-bar .num { font-family: var(--f-mono); }
+.led { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); margin-right: 8px; vertical-align: 1px; }
+.led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+.w-bar .sp { flex: 1; }
+@container win (max-width: 860px) {
+  .w-body { grid-template-columns: minmax(0, 1fr); }
+  .w-side { display: none; }
+}
+@container win (max-width: 640px) {
+  .w-main { padding: 16px 14px; }
+  .w-grid { grid-template-columns: minmax(0, 1fr); }
+  .w-hero { padding: 16px; }
+  .w-status { gap: 16px; flex-basis: 100%; }
+  .power { width: 68px; height: 68px; }
+  .power .i { width: 26px; height: 26px; }
+  .state { font-size: 21px; }
+  .w-ctrls { flex-basis: 100%; }
+  .w-bar .opt { display: none; }
+}
+
+/* ---------- sections ---------- */
+.sec { border-top: 1px solid var(--line); padding-block: clamp(64px, 9vw, 112px); scroll-margin-top: 62px; }
+.sec-head { display: flex; flex-direction: column; gap: 16px; max-width: 760px; }
+.sec h2 { font: 600 clamp(23px, 3.5vw, 40px)/1.14 var(--f-display); letter-spacing: -.035em; margin: 0; text-wrap: balance; }
+.sec-head p { color: var(--muted); font-size: 17px; margin: 0; max-width: 62ch; }
+.sec-head p b { color: var(--fg); font-weight: 500; }
+.note { font-size: 14px; color: var(--muted); margin: 0; }
+.note b { color: var(--fg); font-weight: 500; }
+
+/* two cores: the flow */
+.flow { display: grid; grid-template-columns: minmax(0, 1fr) 44px minmax(0, 1fr) 48px minmax(0, 1.35fr); align-items: center; margin-top: 52px; }
+.node { position: relative; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--panel); padding: 16px 18px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.node b { font-size: 15px; font-weight: 600; }
+.node small { font-size: 13.5px; color: var(--muted); line-height: 1.5; }
+.node.core { border-color: var(--fg); padding-block: 22px; }
+.node.core b { font: 600 20px var(--f-display); letter-spacing: -.02em; }
+.node.bridge { border-style: dashed; }
+.tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 2px; }
+.tags span { font: 500 11.5px var(--f-mono); color: var(--muted); padding: 2px 7px; border: 1px solid var(--line); border-radius: 5px; background: var(--sunk); }
+.link { position: relative; height: 1px; background: var(--line-2); }
+.link::after { content: ""; position: absolute; right: 0; top: -4px; border: 4.5px solid transparent; border-left: 6px solid var(--faint); border-right: 0; }
+.link.fan { width: 50%; }
+.link.fan::after { display: none; }
+.outs { position: relative; display: grid; grid-auto-rows: 1fr; gap: 12px; }
+.outs::before { content: ""; position: absolute; left: -24px; top: calc((100% - 24px) / 6); bottom: calc((100% - 24px) / 6); width: 1px; background: var(--line-2); }
+.outs > .node::before { content: ""; position: absolute; left: -25px; top: 50%; width: 24px; height: 1px; background: var(--line-2); }
+.outs > .node::after { content: ""; position: absolute; left: -7px; top: calc(50% - 4px); border: 4.5px solid transparent; border-left: 6px solid var(--faint); border-right: 0; }
+.flow-note { margin-top: 22px; }
+@media (max-width: 900px) {
+  .flow { grid-template-columns: minmax(0, 1fr); }
+  .link, .link.fan { width: 1px; height: 26px; justify-self: center; }
+  .link::after { right: auto; top: auto; bottom: 0; left: -4px; border: 4.5px solid transparent; border-top: 6px solid var(--faint); border-bottom: 0; }
+  .link.fan::after { display: block; }
+  .outs { grid-auto-rows: auto; }
+  .outs::before, .outs > .node::before, .outs > .node::after { display: none; }
+}
+
+/* smart routing */
+.smart-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.08fr); gap: 56px; align-items: start; }
+.smart-copy { display: flex; flex-direction: column; gap: 34px; min-width: 0; }
+.tag-beta { align-self: flex-start; }
+.steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 22px; }
+.steps li { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 16px; }
+.steps .n { width: 32px; height: 32px; border-radius: 50%; border: 1px solid var(--line-2); display: grid; place-items: center; font: 600 13px var(--f-mono); color: var(--fg); }
+.steps b { display: block; font-size: 16px; font-weight: 600; margin: 3px 0 4px; }
+.steps p { margin: 0; color: var(--muted); font-size: 15px; }
+.panel { background: var(--win); border: 1px solid var(--line-2); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden; min-width: 0; }
+.panel-h { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+.panel-h .mono { font-size: 12px; color: var(--muted); margin-left: auto; }
+.log { background: var(--sunk); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--line); font: 12.5px/1.55 var(--f-mono); }
+.ln { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 10px; }
+.ln .src { color: var(--faint); }
+.ln code { font: inherit; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ln .hl { color: var(--fg); background: var(--accent-soft); border-radius: 3px; padding: 0 3px; }
+.ln .dim { color: var(--muted); }
+.checks { display: grid; grid-template-columns: 1fr 1fr; border-bottom: 1px solid var(--line); }
+.ck { padding: 14px 16px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.ck + .ck { border-left: 1px solid var(--line); }
+.ck .res { display: inline-flex; align-items: center; gap: 6px; font: 500 13px var(--f-mono); }
+.ck .res .i { width: 15px; height: 15px; stroke-width: 2.2; }
+.ck.bad .res { color: var(--bad); }
+.ck.ok .res { color: var(--ok); }
+.panel-b { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.sugg { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 9px; background: var(--sunk); }
+.sugg-text { flex: 1 1 260px; min-width: 0; font-size: 13.5px; display: flex; flex-direction: column; gap: 3px; }
+.sugg-text span { color: var(--muted); }
+.sugg-ops { display: flex; gap: 6px; }
+.sugg-ops .btn { height: 32px; font-size: 13px; padding: 0 12px; border-radius: 8px; }
+.sugg-ops .ghost { background: none; border-color: transparent; color: var(--muted); }
+.sugg-ops .ghost:hover { color: var(--fg); background: var(--accent-soft); }
+.done { display: flex; align-items: center; gap: 8px; font-size: 13.5px; padding: 12px 14px; border-radius: 9px; background: var(--ok-soft); color: var(--ok); flex-wrap: wrap; }
+.done .i { width: 16px; height: 16px; stroke-width: 2.2; }
+.done button { margin-left: auto; background: none; border: 0; color: inherit; font: 500 13px var(--f-ui); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; padding: 0; }
+.rl { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 9px; overflow: hidden; }
+.rl li { display: grid; grid-template-columns: 26px minmax(0, auto) minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 9px 12px; font-size: 13px; background: var(--panel); }
+.rl li + li { border-top: 1px solid var(--line); }
+.rl .no { font: 500 11.5px var(--f-mono); color: var(--faint); }
+.rl .k { color: var(--muted); white-space: nowrap; }
+.rl .v { font: 500 12.5px var(--f-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rl .to { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--accent-soft); white-space: nowrap; }
+.rl .to.direct { background: none; border: 1px solid var(--line-2); color: var(--muted); }
+.rl li.mark { background: var(--sunk); }
+.rl li.new { animation: rise .45s ease both; }
+@keyframes rise { from { opacity: 0; transform: translateY(-6px); } }
+@media (max-width: 960px) { .smart-grid { grid-template-columns: minmax(0, 1fr); gap: 44px; } }
+@media (max-width: 520px) {
+  .checks { grid-template-columns: minmax(0, 1fr); }
+  .ck + .ck { border-left: 0; border-top: 1px solid var(--line); }
+  .ln { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .rl li { grid-template-columns: 22px minmax(0, 1fr) auto; }
+  .rl .k { display: none; }
+}
+
+/* import */
+.import-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; }
+.formats { display: flex; flex-direction: column; gap: 26px; min-width: 0; }
+.fgroup { display: flex; flex-direction: column; gap: 12px; }
+.schemes { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.schemes li { font: 500 14px var(--f-mono); padding: 7px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); }
+.schemes li small { font: 500 11.5px var(--f-ui); color: var(--faint); margin-left: 6px; }
+@media (max-width: 860px) { .import-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+
+/* routing */
+.routing-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; margin-top: 52px; align-items: start; }
+.box { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); min-width: 0; }
+.box-h { display: flex; align-items: center; gap: 10px; padding: 14px 18px; border-bottom: 1px solid var(--line); }
+.box-h b { font-size: 14px; font-weight: 600; }
+.box-h .aside { margin-left: auto; font-size: 12.5px; color: var(--muted); }
+.presets { list-style: none; margin: 0; padding: 0; }
+.presets li { display: flex; gap: 14px; align-items: center; padding: 14px 18px; }
+.presets li + li { border-top: 1px solid var(--line); }
+.presets li > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.presets b { font-size: 14.5px; font-weight: 600; }
+.presets small { font-size: 13px; color: var(--muted); }
+.presets .switch { cursor: default; }
+.tbl-wrap { overflow-x: auto; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tbl th { text-align: left; font: 600 11px var(--f-ui); letter-spacing: .08em; text-transform: uppercase; color: var(--faint); padding: 12px 18px 8px; }
+.tbl td { padding: 12px 18px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl td:first-child { font-weight: 600; white-space: nowrap; }
+.tbl td small { display: block; color: var(--muted); font-size: 12.5px; }
+.tbl .mono { font-size: 12px; color: var(--muted); }
+.tbl td:last-child { white-space: nowrap; color: var(--muted); }
+.side-notes { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.side-notes .note { padding-inline: 4px; }
+@media (max-width: 900px) { .routing-grid { grid-template-columns: minmax(0, 1fr); } }
+
+/* safety */
+.safe-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 40px 36px; margin-top: 52px; }
+.safe { border-top: 1px solid var(--line-2); padding-top: 20px; display: flex; flex-direction: column; gap: 8px; }
+.safe .i { width: 22px; height: 22px; color: var(--fg); margin-bottom: 6px; stroke-width: 1.6; }
+.safe b { font-size: 16px; font-weight: 600; }
+.safe p { margin: 0; color: var(--muted); font-size: 15px; }
+@media (max-width: 900px) { .safe-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 560px) { .safe-grid { grid-template-columns: minmax(0, 1fr); gap: 28px; } }
+
+/* download */
+.dl-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 48px; }
+.rel.mine { border-color: var(--fg); }
+.rel { border: 1px solid var(--line-2); border-radius: 14px; background: var(--panel); padding: 24px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+.rel.main { border-color: var(--fg); }
+.rel-h { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.rel-h b { font: 600 22px var(--f-display); letter-spacing: -.03em; }
+.rel p { margin: 0; color: var(--muted); font-size: 15px; flex: 1; }
+.rel .btn { align-self: flex-start; }
+.rel small { font-size: 12.5px; color: var(--faint); }
+.dl-notes { display: flex; flex-direction: column; gap: 10px; margin-top: 24px; max-width: 760px; }
+
+/* open source + support */
+.open-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 56px; align-items: start; }
+.stack { display: flex; flex-wrap: wrap; gap: 8px; }
+.stack span { font: 500 13px var(--f-mono); padding: 5px 11px; border: 1px solid var(--line-2); border-radius: 7px; color: var(--muted); }
+.donate { border: 1px solid var(--line-2); border-radius: 14px; background: var(--panel); padding: 24px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 22px; align-items: start; }
+.donate h3 { font: 600 18px var(--f-display); letter-spacing: -.02em; margin: 0 0 8px; }
+.donate p { margin: 0; color: var(--muted); font-size: 15px; }
+.addr { margin-top: 16px; font: 500 13px/1.5 var(--f-mono); padding: 10px 12px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); overflow-wrap: anywhere; user-select: all; }
+.donate .btn-row { margin-top: 12px; }
+.qr { width: 148px; height: 148px; padding: 8px; border-radius: 10px; background: var(--qr-bg); }
+.qr svg { display: block; width: 100%; height: 100%; }
+@media (max-width: 900px) { .open-grid { grid-template-columns: minmax(0, 1fr); gap: 40px; } }
+@media (max-width: 520px) { .donate { grid-template-columns: minmax(0, 1fr); } .qr { order: -1; } }
+
+/* footer */
+.foot { border-top: 1px solid var(--line); padding-block: 32px 40px; }
+.foot-in { display: flex; align-items: center; gap: 12px 24px; flex-wrap: wrap; font-size: 13.5px; color: var(--muted); }
+.foot-in .brand { font-size: 15px; color: var(--fg); }
+.foot-in .brand svg { width: 22px; height: 22px; }
+.foot-in nav { margin-left: auto; display: flex; gap: 18px; flex-wrap: wrap; }
+.foot-in nav a { text-decoration: none; }
+.foot-in nav a:hover { color: var(--fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="logo" viewBox="0 0 1024 1024"><rect x="64" y="64" width="896" height="896" rx="232" style="fill:var(--fg)"/><path d="M392 280v464M664 280L424 512l240 232" style="fill:none;stroke:var(--bg);stroke-width:104;stroke-linecap:round;stroke-linejoin:round"/></symbol>
+  <symbol id="i-dashboard" viewBox="0 0 24 24"><path d="M3 13h8V3H3zM13 21h8V11h-8zM3 21h8v-5H3zM13 3v5h8V3z"/></symbol>
+  <symbol id="i-proxies" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18zM3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9M12 3C9.5 5.6 8.2 8.6 8.2 12s1.3 6.4 3.8 9"/></symbol>
+  <symbol id="i-profiles" viewBox="0 0 24 24"><path d="M12 3l9 5-9 5-9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5"/></symbol>
+  <symbol id="i-connections" viewBox="0 0 24 24"><path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/></symbol>
+  <symbol id="i-rules" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol>
+  <symbol id="i-pulse" viewBox="0 0 24 24"><path d="M3 12h4l3-8 4 16 3-8h4"/></symbol>
+  <symbol id="i-logs" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM8 10l3 2-3 2M13 15h4"/></symbol>
+  <symbol id="i-settings" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v8M6.3 7.3a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></symbol>
+  <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/></symbol>
+  <symbol id="i-monitor" viewBox="0 0 24 24"><path d="M3 4h18v12H3zM8 20h8M12 16v4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12l5 5 9-10"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><path d="M8 8h12v12H8zM4 16V4h12"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></symbol>
+  <symbol id="i-external" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></symbol>
+  <symbol id="i-min" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-max" viewBox="0 0 24 24"><path d="M6 6h12v12H6z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></symbol>
+  <symbol id="i-key" viewBox="0 0 24 24"><path d="M14.5 3a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM10 14l-7 7M6 18l2 2M8 16l2 2"/></symbol>
+</svg>
+
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="#top" aria-label="Kova"><svg aria-hidden="true"><use href="#logo"/></svg>Kova</a>
+    <nav class="nav" aria-label="Sections">
+      <a href="#cores" data-t="nav.cores">Two cores</a>
+      <a href="#smart" data-t="nav.smart">Smart routing</a>
+      <a href="#import" data-t="nav.import">Import</a>
+      <a href="#safety" data-t="nav.safety">Safety</a>
+    </nav>
+    <div class="top-r">
+      <div class="seg" role="group" aria-label="Language">
+        <button type="button" id="lang-en" data-lang="en" aria-pressed="true">EN</button>
+        <button type="button" id="lang-ru" data-lang="ru" aria-pressed="false">RU</button>
+      </div>
+      <a class="btn small gh" href="https://github.com/scarletjess77/kova" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn small primary" href="#download" data-t="nav.download">Download</a>
+    </div>
+  </div>
+</header>
+
+<main id="top">
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow" data-t="hero.eyebrow">Free, open-source VPN client for Windows, Android, Linux and macOS</div>
+    <h1 data-t="hero.title">Mihomo and Xray in one client</h1>
+    <div class="hero-row">
+      <p class="lede" data-t="hero.lede">Kova is a desktop VPN client written in Rust. Import any subscription and connect with one click. Every node runs on the core that supports it, with rules, TUN and live traffic in one window.</p>
+      <div class="ctas">
+        <div class="btn-row">
+          <a class="btn primary" id="hero-dl" href="#download"><svg class="i"><use href="#i-down"/></svg><span id="hero-cta">Download</span><span class="meta" id="hero-ver"></span></a>
+          <a class="btn" href="https://github.com/scarletjess77/kova" target="_blank" rel="noopener" data-t="hero.source">Source code</a>
+        </div>
+        <p class="fine" data-t="hero.fine">No ads, no tracking, no account. Updates are signed.</p>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="stage-tag"><i></i><span data-t="demo.tag">Live demo: press the power button</span></div>
+      <div class="window" role="group" aria-label="Kova window, interactive demo">
+        <div class="w-title">
+          <svg aria-hidden="true"><use href="#logo"/></svg>Kova
+          <div class="w-ctl" aria-hidden="true"><span><svg class="i"><use href="#i-min"/></svg></span><span><svg class="i"><use href="#i-max"/></svg></span><span><svg class="i"><use href="#i-x"/></svg></span></div>
+        </div>
+        <div class="w-body">
+          <div class="w-side" aria-hidden="true">
+            <div class="w-nav">
+              <span class="on"><svg class="i"><use href="#i-dashboard"/></svg><span data-t="w.dashboard">Dashboard</span></span>
+              <span><svg class="i"><use href="#i-proxies"/></svg><span data-t="w.proxies">Proxies</span><span class="badge">24</span></span>
+              <span><svg class="i"><use href="#i-profiles"/></svg><span data-t="w.profiles">Profiles</span><span class="badge">2</span></span>
+              <span><svg class="i"><use href="#i-connections"/></svg><span data-t="w.connections">Connections</span></span>
+              <span><svg class="i"><use href="#i-rules"/></svg><span data-t="w.rules">Rules</span></span>
+              <span><svg class="i"><use href="#i-pulse"/></svg><span data-t="w.check">Site check</span></span>
+              <span><svg class="i"><use href="#i-logs"/></svg><span data-t="w.logs">Logs</span></span>
+              <span><svg class="i"><use href="#i-settings"/></svg><span data-t="w.settings">Settings</span></span>
+            </div>
+            <div class="w-sub">
+              <span class="eyebrow" data-t="w.active">Active profile</span>
+              <b data-t="w.home">Home</b>
+              <div class="bar"><i></i></div>
+              <div class="s"><span class="mono">41.2 / 200 GB</span><span data-t="w.days">18 days left</span></div>
+            </div>
+          </div>
+          <div class="w-main">
+            <div class="w-head"><b data-t="w.dashboard">Dashboard</b><span data-t="w.headsub">Home · 24 nodes</span></div>
+            <div class="w-grid">
+              <section class="w-card w-hero">
+                <div class="w-status">
+                  <button type="button" class="power on" id="power" aria-pressed="true" aria-label="Disconnect"><svg class="i"><use href="#i-power"/></svg></button>
+                  <div class="w-text">
+                    <div class="eyebrow" data-t="w.status">Status</div>
+                    <div class="state" id="state">Protected</div>
+                    <div class="route" id="route"><span>Proxy</span><span class="sep">›</span><span>Auto</span><span class="sep">›</span><span class="cc">NL</span><span class="end">Amsterdam 02</span><span class="chip">vless · xhttp</span></div>
+                    <div class="w-meta" id="wmeta"></div>
+                  </div>
+                </div>
+                <div class="w-ctrls">
+                  <div class="fld"><span class="lbl" data-t="w.mode">Routing mode</span>
+                    <div class="seg" role="group" aria-label="Routing mode" id="mode">
+                      <button type="button" data-mode="rule" aria-pressed="true" data-t="w.rule">Rule</button>
+                      <button type="button" data-mode="global" aria-pressed="false" data-t="w.global">Global</button>
+                      <button type="button" data-mode="direct" aria-pressed="false" data-t="w.direct">Direct</button>
+                    </div>
+                  </div>
+                  <div class="fld"><span class="lbl" data-t="w.capture">Capture traffic</span>
+                    <div class="togs">
+                      <div class="tog"><svg class="i"><use href="#i-monitor"/></svg><span><span data-t="w.sysproxy">System proxy</span><small data-t="w.sysproxy.d">Apps that follow the system proxy</small></span><button type="button" class="switch" role="switch" id="sw-proxy" aria-checked="true" aria-label="System proxy"></button></div>
+                      <div class="tog"><svg class="i"><use href="#i-shield"/></svg><span><span data-t="w.tun">TUN mode</span><small data-t="w.tun.d">All apps, games and UDP</small></span><button type="button" class="switch" role="switch" id="sw-tun" aria-checked="false" aria-label="TUN mode"></button></div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+              <section class="w-card">
+                <div class="card-h"><b data-t="w.exit">Exit point</b><span class="aside" id="exit-via">through the proxy</span></div>
+                <div class="eyebrow" data-t="w.ip">Public IP</div>
+                <div class="ip" id="exit-ip">203.0.113.42</div>
+                <dl class="kv">
+                  <dt data-t="w.loc">Location</dt><dd id="exit-loc">Amsterdam, Netherlands</dd>
+                  <dt data-t="w.net">Network</dt><dd id="exit-net" class="mono">AS64500</dd>
+                  <dt data-t="w.lat">Latency</dt><dd id="exit-lat"><span class="lat"><i></i>48 ms</span></dd>
+                </dl>
+              </section>
+              <section class="w-card">
+                <div class="card-h"><b data-t="w.traffic">Traffic</b>
+                  <div class="legend">
+                    <span><i style="background:var(--accent)"></i><span data-t="w.dl">Download</span> <b id="sp-dn">2.4 MB/s</b></span>
+                    <span><i style="background:var(--upload)"></i><span data-t="w.ul">Upload</span> <b id="sp-up">182 KB/s</b></span>
+                  </div>
+                </div>
+                <svg class="chart" viewBox="0 0 300 100" preserveAspectRatio="none" aria-hidden="true">
+                  <line class="grid" x1="0" y1="25" x2="300" y2="25"/><line class="grid" x1="0" y1="50" x2="300" y2="50"/><line class="grid" x1="0" y1="75" x2="300" y2="75"/>
+                  <path class="dn-a" id="ch-dn-a" d=""/><path class="dn" id="ch-dn" d=""/><path class="up" id="ch-up" d=""/>
+                </svg>
+                <div class="t-foot"><span><span data-t="w.session">This session</span> ↓ <b id="tot-dn">1.82 GB</b></span><span>↑ <b id="tot-up">96 MB</b></span></div>
+              </section>
+            </div>
+          </div>
+        </div>
+        <div class="w-bar" id="wbar"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="cores">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow" data-t="cores.eyebrow">Two cores</div>
+      <h2 data-t="cores.title">Mihomo in front, Xray when a node needs it</h2>
+      <p data-t="cores.p">Mihomo handles the rules, proxy groups, TUN and connection tracking. Nodes that only Xray can run, such as <b>VLESS over XHTTP</b>, go through a local Xray bridge that Kova starts by itself. You don’t set anything up, and you can still pin a profile to one core.</p>
+    </div>
+    <div class="flow">
+      <div class="node"><b data-t="flow.apps">Your apps and games</b><small data-t="flow.apps.d">Through the system proxy on 127.0.0.1:7890, or everything with TUN</small></div>
+      <div class="link" aria-hidden="true"></div>
+      <div class="node core"><b>Mihomo</b><small data-t="flow.core.d">Rules · groups · TUN · connections</small></div>
+      <div class="link fan" aria-hidden="true"></div>
+      <div class="outs">
+        <div class="node"><b data-t="flow.native">Nodes Mihomo runs itself</b><div class="tags"><span>hysteria2</span><span>tuic</span><span>trojan</span><span>vless reality</span><span>ss</span><span>wireguard</span><span>anytls</span></div></div>
+        <div class="node bridge"><b data-t="flow.bridge">Xray bridge</b><small data-t="flow.bridge.d">VLESS over XHTTP and other nodes only Xray runs. Started when the profile needs it.</small></div>
+        <div class="node"><b data-t="flow.direct">Direct</b><small data-t="flow.direct.d">Sites your rules keep off the proxy</small></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="smart">
+  <div class="wrap smart-grid">
+    <div class="smart-copy">
+      <div class="sec-head">
+        <span class="pill warn tag-beta" data-t="smart.beta">Beta</span>
+        <h2 data-t="smart.title">Kova learns which way each site opens</h2>
+        <p data-t="smart.p">No more adding domains by hand when a site stops loading. Kova notices the failure, tries the site both ways and sends it the way that works: blocked sites through the proxy, sites that refuse the proxy direct.</p>
+      </div>
+      <ol class="steps">
+        <li><span class="n">1</span><div><b data-t="smart.s1">Notices</b><p data-t="smart.s1.p">A site fails on its usual path: a connection error, a reset right after the TLS greeting, or no answer within 6 seconds.</p></div></li>
+        <li><span class="n">2</span><div><b data-t="smart.s2">Checks both ways</b><p data-t="smart.s2.p">Kova opens the site directly and through the proxy on separate test ports, without touching your traffic.</p></div></li>
+        <li><span class="n">3</span><div><b data-t="smart.s3">Routes it, or asks you</b><p data-t="smart.s3.p">If no rule chose the path, Kova remembers the site for 30 days. If one of your rules did, it suggests an exception and leaves your rules as they are.</p></div></li>
+      </ol>
+      <p class="note" data-t="smart.note">Works with the system proxy and with TUN, where Kova also learns apps that connect by IP address. Turn it on in <b>Rules → Smart routing</b>. Sites that refuse the proxy are sent direct only if you allow it, since that shows them your own address.</p>
+    </div>
+
+    <div class="panel" id="sugg-demo">
+      <div class="panel-h"><span class="eyebrow" data-t="panel.h">One failed site</span><span class="mono">modrinth.com</span></div>
+      <div class="log">
+        <div class="ln"><span class="src">mihomo</span><code>[TCP] 127.0.0.1:62890(firefox.exe) --&gt; modrinth.com:443 match <span class="hl">GeoSite(category-games)</span> using DIRECT</code></div>
+        <div class="ln"><span class="src">kova</span><code class="dim" data-t="panel.reset">reset 0.4 s after the TLS greeting</code></div>
+      </div>
+      <div class="checks">
+        <div class="ck bad"><span class="eyebrow" data-t="panel.direct">Direct</span><span class="res"><svg class="i"><use href="#i-x"/></svg><span data-t="panel.reset2">connection reset</span></span></div>
+        <div class="ck ok"><span class="eyebrow" data-t="panel.proxy">Through the proxy</span><span class="res"><svg class="i"><use href="#i-check"/></svg><span data-t="panel.opens">opens · 312 ms</span></span></div>
+      </div>
+      <div class="panel-b">
+        <div class="eyebrow" data-t="panel.sugg">Suggestions</div>
+        <div id="sugg-slot"></div>
+        <ol class="rl" id="rl" aria-label="Rules"></ol>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="import">
+  <div class="wrap import-grid">
+    <div class="sec-head">
+      <div class="eyebrow" data-t="imp.eyebrow">Import</div>
+      <h2 data-t="imp.title">Every common format, nothing lost</h2>
+      <p data-t="imp.p">Clash and Mihomo profiles are kept word for word, so their groups and rules survive. Share links, base64 subscriptions and sing-box JSON are converted. Subscriptions show the traffic used and days left, and update on their own.</p>
+      <p class="note" data-t="imp.note">Paste from the clipboard, open a file, or add a subscription address.</p>
+    </div>
+    <div class="formats">
+      <div class="fgroup">
+        <div class="eyebrow" data-t="imp.links">Share links</div>
+        <ul class="schemes"><li>vless://</li><li>vmess://</li><li>trojan://</li><li>ss://</li><li>hysteria2://</li><li>hy2://</li><li>tuic://</li><li>wireguard://</li><li>anytls://</li><li>socks://</li></ul>
+      </div>
+      <div class="fgroup">
+        <div class="eyebrow" data-t="imp.subs">Profiles and subscriptions</div>
+        <ul class="schemes"><li>Clash / Mihomo YAML<small data-t="imp.verbatim">as written</small></li><li>base64</li><li>sing-box JSON</li></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="routing">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow" data-t="rt.eyebrow">Rules</div>
+      <h2 data-t="rt.title">Ready-made routing for Russia, China and Iran</h2>
+      <p data-t="rt.p">Turn on a preset, or write your own rules and drag them into order. They also apply in front of any Clash profile you import.</p>
+    </div>
+    <div class="routing-grid">
+      <div class="box">
+        <div class="box-h"><b data-t="rt.presets">Presets</b><span class="aside" data-t="rt.presets.a">Rules → Presets</span></div>
+        <ul class="presets">
+          <li><span><b data-t="p1">Only blocked sites through the proxy</b><small data-t="p1.d">Sites blocked in Russia use the proxy; everything else goes direct.</small></span><span class="switch" role="img" aria-label="On" style="background:var(--accent)"></span></li>
+          <li><span><b data-t="p2">Direct for Russian sites</b><small data-t="p2.d">.ru, .рф, .su, Russian services and IP ranges skip the proxy.</small></span><span class="switch" role="img" aria-label="On" style="background:var(--accent)"></span></li>
+          <li><span><b data-t="p3">Block ads and trackers</b><small data-t="p3.d">Rejects the category-ads-all list.</small></span><span class="switch" role="img" aria-label="Off"></span></li>
+          <li><span><b data-t="p4">Direct for Chinese sites</b><small data-t="p4.d">geosite:cn and Chinese IP ranges go direct.</small></span><span class="switch" role="img" aria-label="Off"></span></li>
+          <li><span><b data-t="p5">Direct for Iranian sites</b><small data-t="p5.d">.ir domains and Iranian IP ranges go direct.</small></span><span class="switch" role="img" aria-label="Off"></span></li>
+        </ul>
+      </div>
+      <div class="side-notes">
+        <div class="box">
+          <div class="box-h"><b data-t="rt.data">Routing data</b><span class="aside">geoip.dat · geosite.dat</span></div>
+          <div class="tbl-wrap">
+            <table class="tbl">
+              <thead><tr><th data-t="rt.th1">Source</th><th data-t="rt.th2">What’s in it</th><th data-t="rt.th3">Updated</th></tr></thead>
+              <tbody>
+                <tr><td data-t="rt.std">Standard</td><td><span data-t="rt.std.d">Every country and the v2fly site categories</span><small class="mono">MetaCubeX/meta-rules-dat</small></td><td data-t="rt.weekly">weekly</td></tr>
+                <tr><td data-t="rt.ru">Russia</td><td><span data-t="rt.ru.d">The standard set plus ru-blocked, refilter and more</span><small class="mono">runetfreedom/russia-v2ray-rules-dat</small></td><td data-t="rt.12h">every 12 hours</td></tr>
+                <tr><td data-t="rt.custom">Custom</td><td><span data-t="rt.custom.d">Any two links to your own files</span></td><td data-t="rt.weekly">weekly</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <p class="note" data-t="rt.note">Downloads are checked against the SHA-256 digests GitHub publishes. <b>Site check</b> shows how a list of sites opens with Kova and without it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="safety">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow" data-t="sf.eyebrow">Safe by default</div>
+      <h2 data-t="sf.title">Leaves your PC the way it found it</h2>
+    </div>
+    <div class="safe-grid">
+      <div class="safe"><svg class="i"><use href="#i-check"/></svg><b data-t="sf1">Verified cores</b><p data-t="sf1.p">Mihomo and Xray come from their official GitHub releases. Kova checks each SHA-256 before installing.</p></div>
+      <div class="safe"><svg class="i"><use href="#i-refresh"/></svg><b data-t="sf2">Proxy settings restored</b><p data-t="sf2.p">On disconnect, on quit, and on the next launch after a crash.</p></div>
+      <div class="safe"><svg class="i"><use href="#i-x"/></svg><b data-t="sf3">No leftover processes</b><p data-t="sf3.p">Cores run inside a Windows Job Object, so they close together with the app.</p></div>
+      <div class="safe"><svg class="i"><use href="#i-key"/></svg><b data-t="sf4">Locked local ports</b><p data-t="sf4.p">The core’s controller and Kova’s own ports need a secret made for your install. On Android so does the proxy port, so other apps can’t use it.</p></div>
+      <div class="safe"><svg class="i"><use href="#i-shield"/></svg><b data-t="sf5">TUN without running as admin</b><p data-t="sf5.p">A small Windows service only starts and stops Mihomo. The rest of Kova runs as you.</p></div>
+      <div class="safe"><svg class="i"><use href="#i-down"/></svg><b data-t="sf6">Signed updates</b><p data-t="sf6.p">Kova checks for updates on launch and installs one only if it is signed with the project’s key.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="download">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="eyebrow" data-t="dl.eyebrow">Download</div>
+      <h2 data-t="dl.title">Get Kova</h2>
+    </div>
+    <div class="dl-grid" id="dl-grid">
+      <article class="rel" data-os="windows"><div class="rel-h"><b>Windows</b><span class="pill ok" data-t="pl.ready">Available</span></div>
+        <p data-t="dl.win.p">Installer for Windows 10 and 11, x64. Kova updates itself from inside the app.</p>
+        <a class="btn primary" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
+      <article class="rel" data-os="android"><div class="rel-h"><b>Android</b><span class="pill ok" data-t="pl.ready">Available</span></div>
+        <p data-t="dl.and.p">APK for Android 7 and later, arm64. Per-app VPN, QR import, a Quick Settings tile and a widget.</p>
+        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
+      <article class="rel" data-os="linux"><div class="rel-h"><b>Linux</b><span class="pill warn" data-t="pl.new">New</span></div>
+        <p data-t="dl.lin.p">AppImage and .deb, x64. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
+        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
+      <article class="rel" data-os="macos"><div class="rel-h"><b>macOS</b><span class="pill warn" data-t="pl.new">New</span></div>
+        <p data-t="dl.mac.p">Universal .dmg for Apple silicon and Intel. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
+        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
+    </div>
+    <div class="dl-notes">
+      <p class="note" data-t="dl.n1">The installer isn’t code-signed yet, so Windows SmartScreen may warn you. Choose <b>More info → Run anyway</b>.</p>
+      <p class="note" data-t="dl.n2">It asks for admin rights once, to set up the Kova service for TUN mode. On first launch Kova downloads the cores it needs.</p>
+      <p class="note" data-t="dl.n3">Android asks to allow installing apps from your browser the first time. Later updates install from inside Kova.</p>
+      <p class="note" data-t="dl.n4">The Mac app isn’t notarized yet: the first time, right-click Kova in Applications and choose <b>Open</b>.</p>
+      <p class="note"><a href="https://github.com/scarletjess77/kova/releases" target="_blank" rel="noopener" data-t="dl.all">All releases and changelogs on GitHub</a></p>
+    </div>
+  </div>
+</section>
+
+<section class="sec" id="open">
+  <div class="wrap open-grid">
+    <div class="sec-head">
+      <div class="eyebrow" data-t="os.eyebrow">Open source</div>
+      <h2 data-t="os.title">Free, with nothing to sign up for</h2>
+      <p data-t="os.p">Kova is free software under the GPL-3.0. It has no ads, no tracking and no account. On its own it talks only to GitHub (updates, cores and routing data), to ipwho.is for the exit-point card, and to your subscription’s address.</p>
+      <div class="stack"><span>Rust</span><span>Tauri 2</span><span>Svelte 5</span><span>GPL-3.0</span></div>
+      <p class="note"><a href="https://github.com/scarletjess77/kova" target="_blank" rel="noopener">github.com/scarletjess77/kova</a></p>
+    </div>
+    <div class="donate">
+      <div>
+        <h3 data-t="os.support">Support Kova</h3>
+        <p data-t="os.support.p">If Kova helps you, you can support its development with TON.</p>
+        <div class="addr" id="addr">UQCfiJW3GM9sEfYS2fsk-q9WNbKXXn3m0KU17Dx5XTCs3fv0</div>
+        <div class="btn-row">
+          <button type="button" class="btn small" id="copy-addr"><svg class="i"><use href="#i-copy"/></svg><span id="copy-label">Copy address</span></button>
+          <a class="btn small" href="https://app.tonkeeper.com/transfer/UQCfiJW3GM9sEfYS2fsk-q9WNbKXXn3m0KU17Dx5XTCs3fv0" target="_blank" rel="noopener"><svg class="i"><use href="#i-external"/></svg><span data-t="os.tonkeeper">Open in Tonkeeper</span></a>
+        </div>
+      </div>
+      <div class="qr" id="qr" role="img" aria-label="QR code with the TON address" hidden></div>
+    </div>
+  </div>
+</section>
+</main>
+
+<footer class="foot">
+  <div class="wrap foot-in">
+    <a class="brand" href="#top"><svg aria-hidden="true"><use href="#logo"/></svg>Kova</a>
+    <span>© 2026 scarletjess77 · GPL-3.0</span>
+    <nav aria-label="Links">
+      <a href="https://github.com/scarletjess77/kova" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/scarletjess77/kova/releases" target="_blank" rel="noopener" data-t="ft.releases">Releases</a>
+      <a href="https://github.com/scarletjess77/kova/issues" target="_blank" rel="noopener" data-t="ft.issues">Report a problem</a>
+    </nav>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const ADDR = 'UQCfiJW3GM9sEfYS2fsk-q9WNbKXXn3m0KU17Dx5XTCs3fv0';
+
+  // Russian texts for every [data-t] element; the English ones are in the page.
+  const RU = {
+    'nav.cores': 'Два ядра', 'nav.smart': 'Умная маршрутизация', 'nav.import': 'Импорт', 'nav.safety': 'Безопасность', 'nav.download': 'Скачать',
+    'hero.eyebrow': 'Бесплатный VPN-клиент с открытым кодом для Windows, Android, Linux и macOS',
+    'hero.title': 'Mihomo и Xray в одном клиенте',
+    'hero.lede': 'Kova — VPN-клиент для компьютера, написанный на Rust. Импортируйте любую подписку и подключайтесь в один клик. Каждый узел работает на ядре, которое его поддерживает, а правила, TUN и трафик собраны в одном окне.',
+    'hero.source': 'Исходный код',
+    'hero.fine': 'Без рекламы, слежки и регистрации. Обновления подписаны.',
+    'demo.tag': 'Живое демо: нажмите кнопку питания',
+    'w.dashboard': 'Главная', 'w.proxies': 'Прокси', 'w.profiles': 'Профили', 'w.connections': 'Соединения', 'w.rules': 'Правила',
+    'w.check': 'Проверка сайтов', 'w.logs': 'Журнал', 'w.settings': 'Настройки', 'w.active': 'Активный профиль', 'w.home': 'Домашний',
+    'w.days': 'осталось 18 дней', 'w.headsub': 'Домашний · 24 узла', 'w.status': 'Состояние', 'w.mode': 'Режим маршрутизации',
+    'w.rule': 'Правило', 'w.global': 'Глобально', 'w.direct': 'Напрямую', 'w.capture': 'Перехват трафика', 'w.sysproxy': 'Системный прокси',
+    'w.sysproxy.d': 'Приложения, которые используют системный прокси', 'w.tun': 'Режим TUN', 'w.tun.d': 'Все приложения, игры и UDP',
+    'w.exit': 'Точка выхода', 'w.ip': 'Внешний IP', 'w.loc': 'Местоположение', 'w.net': 'Сеть', 'w.lat': 'Задержка',
+    'w.traffic': 'Трафик', 'w.dl': 'Загрузка', 'w.ul': 'Отдача', 'w.session': 'За сеанс',
+    'cores.eyebrow': 'Два ядра',
+    'cores.title': 'Впереди Mihomo, а Xray — когда он нужен узлу',
+    'cores.p': 'Mihomo отвечает за правила, группы прокси, TUN и учёт соединений. Узлы, которые умеет запускать только Xray, например <b>VLESS поверх XHTTP</b>, идут через локальный мост Xray, который Kova запускает сама. Настраивать ничего не нужно, а профиль при желании можно закрепить за одним ядром.',
+    'flow.apps': 'Ваши приложения и игры', 'flow.apps.d': 'Через системный прокси на 127.0.0.1:7890 или всё сразу через TUN',
+    'flow.core.d': 'Правила · группы · TUN · соединения', 'flow.native': 'Узлы, которые Mihomo запускает сам',
+    'flow.bridge': 'Мост Xray', 'flow.bridge.d': 'VLESS поверх XHTTP и другие узлы, которые умеет только Xray. Запускается, когда он нужен профилю.',
+    'flow.direct': 'Напрямую', 'flow.direct.d': 'Сайты, которые ваши правила пускают мимо прокси',
+    'smart.beta': 'Бета', 'smart.title': 'Kova узнаёт, каким путём открывается каждый сайт',
+    'smart.p': 'Больше не нужно вписывать домены вручную, когда сайт перестал открываться. Kova замечает сбой, проверяет сайт обоими путями и отправляет его туда, где он работает: заблокированные сайты — через прокси, а сайты, которые не пускают прокси, — напрямую.',
+    'smart.s1': 'Замечает', 'smart.s1.p': 'Сайт не открывается обычным путём: ошибка соединения, сброс сразу после TLS-приветствия или нет ответа 6 секунд.',
+    'smart.s2': 'Проверяет оба пути', 'smart.s2.p': 'Kova открывает сайт напрямую и через прокси на отдельных тестовых портах, не трогая ваш трафик.',
+    'smart.s3': 'Направляет или спрашивает', 'smart.s3.p': 'Если путь не выбирало ни одно правило, Kova запоминает сайт на 30 дней. Если путь выбрало ваше правило, она предложит исключение и оставит ваши правила как есть.',
+    'smart.note': 'Работает и с системным прокси, и с TUN, где Kova запоминает ещё и приложения, которые подключаются по IP-адресу. Включите её в <b>Правила → Умная маршрутизация</b>. Сайты, которые не пускают прокси, отправляются напрямую, только если вы это разрешите: так они видят ваш настоящий адрес.',
+    'panel.h': 'Один сайт не открылся', 'panel.reset': 'сброс через 0,4 с после TLS-приветствия', 'panel.direct': 'Напрямую', 'panel.reset2': 'соединение сброшено',
+    'panel.proxy': 'Через прокси', 'panel.opens': 'открывается · 312 мс', 'panel.sugg': 'Предложения',
+    'imp.eyebrow': 'Импорт', 'imp.title': 'Все популярные форматы, без потерь',
+    'imp.p': 'Профили Clash и Mihomo сохраняются слово в слово, вместе с группами и правилами. Ссылки, подписки base64 и JSON sing-box конвертируются. Подписки показывают израсходованный трафик и оставшиеся дни и обновляются сами.',
+    'imp.note': 'Вставьте из буфера обмена, откройте файл или добавьте адрес подписки.',
+    'imp.links': 'Ссылки', 'imp.subs': 'Профили и подписки', 'imp.verbatim': 'как есть',
+    'rt.eyebrow': 'Правила', 'rt.title': 'Готовая маршрутизация для России, Китая и Ирана',
+    'rt.p': 'Включите готовый набор или напишите свои правила и расставьте их перетаскиванием. Они работают и поверх любого импортированного профиля Clash.',
+    'rt.presets': 'Готовые наборы', 'rt.presets.a': 'Правила → Готовые наборы',
+    'p1': 'Только заблокированные сайты через прокси', 'p1.d': 'Сайты, заблокированные в России, идут через прокси, остальное — напрямую.',
+    'p2': 'Российские сайты напрямую', 'p2.d': '.ru, .рф, .su, российские сервисы и IP-адреса идут мимо прокси.',
+    'p3': 'Блокировать рекламу и трекеры', 'p3.d': 'Блокирует список category-ads-all.',
+    'p4': 'Китайские сайты напрямую', 'p4.d': 'geosite:cn и китайские IP-адреса идут напрямую.',
+    'p5': 'Иранские сайты напрямую', 'p5.d': 'Домены .ir и иранские IP-адреса идут напрямую.',
+    'rt.data': 'Данные маршрутизации', 'rt.th1': 'Источник', 'rt.th2': 'Что внутри', 'rt.th3': 'Обновление',
+    'rt.std': 'Стандартные', 'rt.std.d': 'Все страны и категории сайтов v2fly', 'rt.weekly': 'раз в неделю',
+    'rt.ru': 'Россия', 'rt.ru.d': 'Стандартный набор плюс ru-blocked, refilter и другие', 'rt.12h': 'каждые 12 часов',
+    'rt.custom': 'Свои', 'rt.custom.d': 'Две любые ссылки на ваши файлы',
+    'rt.note': 'Загрузки сверяются с SHA-256, которые публикует GitHub. <b>Проверка сайтов</b> показывает, как открываются сайты из списка с Kova и без неё.',
+    'sf.eyebrow': 'Безопасно по умолчанию', 'sf.title': 'Оставляет компьютер таким, каким он был',
+    'sf1': 'Проверенные ядра', 'sf1.p': 'Mihomo и Xray скачиваются из официальных релизов на GitHub. Kova сверяет SHA-256 перед установкой.',
+    'sf2': 'Прокси восстанавливается', 'sf2.p': 'При отключении, при выходе и при следующем запуске после сбоя.',
+    'sf3': 'Без брошенных процессов', 'sf3.p': 'Ядра работают внутри Windows Job Object и закрываются вместе с приложением.',
+    'sf4': 'Закрытые локальные порты', 'sf4.p': 'Управление ядром и собственные порты Kova требуют секрет, созданный для вашей установки. На Android — и порт прокси, чтобы им не пользовались другие приложения.',
+    'sf5': 'TUN без прав администратора', 'sf5.p': 'Небольшая служба Windows только запускает и останавливает Mihomo. Остальная Kova работает от вашего имени.',
+    'sf6': 'Подписанные обновления', 'sf6.p': 'Kova проверяет обновления при запуске и устанавливает их, только если они подписаны ключом проекта.',
+    'dl.eyebrow': 'Скачать', 'dl.title': 'Установите Kova',
+    'dl.btn': 'Скачать',
+    'dl.win.p': 'Установщик для Windows 10 и 11, x64. Дальше Kova обновляется сама, прямо из приложения.',
+    'dl.and.p': 'APK для Android 7 и новее, arm64. Выбор приложений для VPN, импорт по QR-коду, плитка в быстрых настройках и виджет.',
+    'dl.lin.p': 'AppImage и .deb, x64. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
+    'dl.mac.p': 'Универсальный .dmg для Apple silicon и Intel. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
+    'pl.ready': 'Доступно',
+    'pl.new': 'Новое',
+    'dl.n1': 'Установщик пока не подписан сертификатом, поэтому SmartScreen может показать предупреждение. Нажмите <b>Подробнее → Выполнить в любом случае</b>.',
+    'dl.n2': 'Он один раз попросит права администратора, чтобы установить службу Kova для режима TUN. При первом запуске Kova скачает нужные ядра.',
+    'dl.all': 'Все выпуски и списки изменений на GitHub',
+    'dl.n3': 'При первой установке Android попросит разрешить установку приложений из браузера. Дальше обновления ставятся прямо из Kova.',
+    'dl.n4': 'Приложение для Mac пока не заверено Apple: в первый раз нажмите на Kova в «Программах» правой кнопкой и выберите <b>Открыть</b>.',
+    'os.eyebrow': 'Открытый код', 'os.title': 'Бесплатно и без регистрации',
+    'os.p': 'Kova — свободная программа под лицензией GPL-3.0. Без рекламы, слежки и учётных записей. Сама по себе она обращается только к GitHub (обновления, ядра и данные маршрутизации), к ipwho.is для карточки точки выхода и к адресу вашей подписки.',
+    'os.support': 'Поддержать Kova', 'os.support.p': 'Если Kova вам помогает, можно поддержать разработку в TON.', 'os.tonkeeper': 'Открыть в Tonkeeper',
+    'ft.releases': 'Выпуски', 'ft.issues': 'Сообщить о проблеме',
+  };
+
+  // Texts the demo writes itself.
+  const D = {
+    en: {
+      protected: 'Protected', proxyOnly: 'Proxy only', off: 'Disconnected', connecting: 'Connecting…',
+      bridge: 'Mihomo + Xray bridge', connectedFor: 'Connected for', direct: 'Your traffic goes out directly',
+      via: 'through the proxy', noVia: 'without the proxy', loc: 'Amsterdam, Netherlands',
+      running: 'Running · Mihomo + Xray', stopped: 'Stopped', port: 'Port', sys: 'System proxy', portOnly: 'Proxy port only',
+      modes: { rule: 'Rule mode', global: 'Global mode', direct: 'Direct mode' },
+      mb: 'MB/s', kb: 'KB/s', gb: 'GB', mbT: 'MB', ms: 'ms',
+      connect: 'Connect', disconnect: 'Disconnect',
+      sugg: '<b class="mono">modrinth.com</b><span>is blocked direct (connection reset), but your rule #6 (Geosite list category-games) sends it there. It opens through the proxy.</span>',
+      add: 'Add exception', dismiss: 'Dismiss',
+      added: 'Exception added: modrinth.com now goes through the proxy', dismissed: 'Suggestion hidden until Kova restarts', again: 'Show again',
+      suffix: 'Domain and subdomains', geosite: 'Geosite list', proxy: 'Proxy', directR: 'Direct',
+      copy: 'Copy address', copied: 'Copied', select: 'Selected, press Ctrl+C',
+    },
+    ru: {
+      protected: 'Защищено', proxyOnly: 'Только прокси', off: 'Отключено', connecting: 'Подключение…',
+      bridge: 'Mihomo + мост Xray', connectedFor: 'Подключено', direct: 'Трафик идёт напрямую',
+      via: 'через прокси', noVia: 'без прокси', loc: 'Амстердам, Нидерланды',
+      running: 'Работает · Mihomo + Xray', stopped: 'Остановлено', port: 'Порт', sys: 'Системный прокси', portOnly: 'Только порт прокси',
+      modes: { rule: 'Режим: по правилам', global: 'Режим: глобальный', direct: 'Режим: напрямую' },
+      mb: 'МБ/с', kb: 'КБ/с', gb: 'ГБ', mbT: 'МБ', ms: 'мс',
+      connect: 'Подключить', disconnect: 'Отключить',
+      sugg: '<b class="mono">modrinth.com</b><span>заблокирован напрямую (соединение сброшено), но ваше правило №6 (Список geosite category-games) отправляет его туда. Через прокси он открывается.</span>',
+      add: 'Добавить исключение', dismiss: 'Скрыть',
+      added: 'Исключение добавлено: modrinth.com теперь идёт через прокси', dismissed: 'Предложение скрыто до перезапуска Kova', again: 'Показать снова',
+      suffix: 'Домен и поддомены', geosite: 'Список geosite', proxy: 'Прокси', directR: 'Напрямую',
+      copy: 'Копировать адрес', copied: 'Скопировано', select: 'Выделено, нажмите Ctrl+C',
+    },
+  };
+
+  let lang = 'en';
+  const L = () => D[lang];
+  const num = (v, digits) => {
+    const s = v.toFixed(digits);
+    return lang === 'ru' ? s.replace('.', ',') : s;
+  };
+
+  // ---------- the demo window ----------
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const demo = { on: true, busy: false, mode: 'rule', proxy: true, tun: false, since: Date.now() - 4364e3 };
+  const N = 48;
+  const down = [], up = [];
+  let dnLevel = 2.4e6, totDn = 1.82 * 1024 ** 3, totUp = 96 * 1024 ** 2;
+  for (let i = 0; i < N; i++) sample();
+
+  function sample() {
+    if (demo.on) {
+      dnLevel = Math.max(4e5, Math.min(4.6e6, dnLevel + (Math.random() - 0.5) * 9e5));
+      const burst = Math.random() < 0.08 ? 1.5e6 : 0;
+      down.push(dnLevel * (0.75 + Math.random() * 0.5) + burst);
+      up.push(1.2e5 + Math.random() * 1.2e5 + burst * 0.05);
+    } else {
+      down.push((down[down.length - 1] || 0) * 0.35);
+      up.push((up[up.length - 1] || 0) * 0.35);
+    }
+    if (down.length > N) { down.shift(); up.shift(); }
+    totDn += down[down.length - 1]; totUp += up[up.length - 1];
+  }
+
+  const speed = (v) => v >= 1024 * 1024 ? num(v / 1024 / 1024, 1) + ' ' + L().mb : Math.round(v / 1024) + ' ' + L().kb;
+  const bytes = (v) => v >= 1024 ** 3 ? num(v / 1024 ** 3, 2) + ' ' + L().gb : Math.round(v / 1024 ** 2) + ' ' + L().mbT;
+  const dur = (ms) => {
+    const s = Math.floor(ms / 1000), h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s % 60).padStart(2, '0');
+  };
+
+  function drawChart() {
+    const max = 6e6;
+    const pts = (arr) => arr.map((v, i) => [(i / (N - 1)) * 300, 96 - Math.min(1, v / max) * 88]);
+    const line = (p) => p.map(([x, y], i) => (i ? 'L' : 'M') + x.toFixed(1) + ' ' + y.toFixed(1)).join('');
+    const d = pts(down), u = pts(up);
+    $('ch-dn').setAttribute('d', line(d));
+    $('ch-dn-a').setAttribute('d', line(d) + 'L300 100L0 100Z');
+    $('ch-up').setAttribute('d', line(u));
+    $('sp-dn').textContent = speed(down[down.length - 1]);
+    $('sp-up').textContent = speed(up[up.length - 1]);
+    $('tot-dn').textContent = bytes(totDn);
+    $('tot-up').textContent = bytes(totUp);
+  }
+
+  function renderDemo() {
+    const t = L(), live = demo.on && !demo.busy;
+    const power = $('power');
+    power.classList.toggle('on', demo.on);
+    power.classList.toggle('busy', demo.busy);
+    power.setAttribute('aria-pressed', String(demo.on));
+    power.setAttribute('aria-label', demo.on ? t.disconnect : t.connect);
+    const state = $('state');
+    state.textContent = demo.busy ? t.connecting : demo.on ? (demo.proxy || demo.tun ? t.protected : t.proxyOnly) : t.off;
+    state.classList.toggle('off', !demo.on && !demo.busy);
+    $('route').hidden = !live;
+    $('wmeta').innerHTML = live
+      ? `<span class="chip acc"><svg class="i"><use href="#i-bolt"/></svg>${t.bridge}</span><span>${t.connectedFor} <span class="mono" id="since">${dur(Date.now() - demo.since)}</span></span>`
+      : demo.busy ? '' : `<span>${t.direct}</span>`;
+    $('exit-via').textContent = live ? t.via : t.noVia;
+    $('exit-ip').textContent = live ? '203.0.113.42' : '198.51.100.23';
+    $('exit-loc').textContent = live ? t.loc : '—';
+    $('exit-net').textContent = live ? 'AS64500' : '—';
+    $('exit-lat').innerHTML = live ? `<span class="lat"><i></i>48 ${t.ms}</span>` : '—';
+    document.querySelectorAll('#mode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === demo.mode)));
+    $('sw-proxy').setAttribute('aria-checked', String(demo.proxy));
+    $('sw-tun').setAttribute('aria-checked', String(demo.tun));
+    const capture = [demo.tun && 'TUN', demo.proxy && t.sys].filter(Boolean).join(' + ') || t.portOnly;
+    $('wbar').innerHTML = `<span><span class="led${live ? ' on' : ''}"></span>${live ? t.running : demo.busy ? t.connecting : t.stopped}</span>`
+      + (live ? `<span class="opt">${t.port} <span class="num">7890</span></span><span class="opt">${capture}</span><span class="opt">${t.modes[demo.mode]}</span>` : '')
+      + `<span class="sp"></span><span>↓ <span class="num" id="bar-dn">${speed(down[down.length - 1])}</span></span><span>↑ <span class="num" id="bar-up">${speed(up[up.length - 1])}</span></span>`;
+    drawChart();
+  }
+
+  $('power').addEventListener('click', () => {
+    if (demo.busy) return;
+    if (demo.on) { demo.on = false; renderDemo(); return; }
+    demo.busy = true; renderDemo();
+    setTimeout(() => { demo.busy = false; demo.on = true; demo.since = Date.now(); renderDemo(); }, still ? 200 : 900);
+  });
+  $('mode').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-mode]');
+    if (b) { demo.mode = b.dataset.mode; renderDemo(); }
+  });
+  $('sw-proxy').addEventListener('click', () => { demo.proxy = !demo.proxy; renderDemo(); });
+  $('sw-tun').addEventListener('click', () => { demo.tun = !demo.tun; renderDemo(); });
+
+  setInterval(() => {
+    if (!still) sample();
+    const since = $('since');
+    if (since) since.textContent = dur(Date.now() - demo.since);
+    if (!still) {
+      drawChart();
+      const bd = $('bar-dn'), bu = $('bar-up');
+      if (bd) bd.textContent = speed(down[down.length - 1]);
+      if (bu) bu.textContent = speed(up[up.length - 1]);
+    }
+  }, 1000);
+
+  // ---------- suggestion demo ----------
+  let sugg = 'open';
+  function renderSugg() {
+    const t = L();
+    const slot = $('sugg-slot');
+    if (sugg === 'open') {
+      slot.innerHTML = `<div class="sugg"><div class="sugg-text">${t.sugg}</div><div class="sugg-ops"><button type="button" class="btn primary" id="sg-add">${t.add}</button><button type="button" class="btn ghost" id="sg-dismiss">${t.dismiss}</button></div></div>`;
+      $('sg-add').onclick = () => { sugg = 'added'; renderSugg(); };
+      $('sg-dismiss').onclick = () => { sugg = 'dismissed'; renderSugg(); };
+    } else {
+      slot.innerHTML = `<div class="done"><svg class="i"><use href="#i-check"/></svg><span>${sugg === 'added' ? t.added : t.dismissed}</span><button type="button" id="sg-again">${t.again}</button></div>`;
+      $('sg-again').onclick = () => { sugg = 'open'; renderSugg(); };
+    }
+    const rows = [
+      { k: t.suffix, v: 'youtube.com', to: t.proxy },
+      ...(sugg === 'added' ? [{ k: t.suffix, v: 'modrinth.com', to: t.proxy, cls: 'new mark' }] : []),
+      { k: t.geosite, v: 'category-games', to: t.directR, direct: true, cls: sugg === 'open' ? 'mark' : '' },
+    ];
+    $('rl').innerHTML = rows.map((r, i) => `<li class="${r.cls || ''}"><span class="no">${i + 5}</span><span class="k">${r.k}</span><span class="v">${r.v}</span><span class="to${r.direct ? ' direct' : ''}">${r.to}</span></li>`).join('');
+  }
+
+  // ---------- downloads ----------
+  const OS_NAME = { windows: 'Windows', android: 'Android', linux: 'Linux', macos: 'macOS' };
+  const ASSET = { windows: /_x64-setup\.exe$/, android: /_android-arm64\.apk$/, linux: /\.AppImage$/, macos: /\.dmg$/ };
+  const ua = navigator.userAgent;
+  const mine = /Android/i.test(ua) ? 'android' : /Windows/i.test(ua) ? 'windows' : /Mac OS X|Macintosh/i.test(ua) && !/iPhone|iPad/i.test(ua) ? 'macos' : /Linux/i.test(ua) ? 'linux' : null;
+  const card = (os) => document.querySelector(`.rel[data-os="${os}"]`);
+  if (mine) card(mine).classList.add('mine');
+  const ctaText = () => mine ? (lang === 'ru' ? 'Скачать для ' : 'Download for ') + OS_NAME[mine] : (lang === 'ru' ? 'Скачать' : 'Download');
+  let latest = null;
+  function renderDownloads() {
+    $('hero-cta').textContent = ctaText();
+    if (!latest) return;
+    $('hero-ver').textContent = latest.tag_name.replace(/^v/, '');
+    for (const os of Object.keys(ASSET)) {
+      const a = latest.assets.find((x) => ASSET[os].test(x.name));
+      const el = card(os);
+      if (!a) continue;
+      el.querySelector('a.btn').href = a.browser_download_url;
+      el.querySelector('.size').textContent = `${latest.tag_name.replace(/^v/, '')} · ${num(a.size / 1048576, 1)} ${lang === 'ru' ? 'МБ' : 'MB'}`;
+      if (os === mine) $('hero-dl').href = a.browser_download_url;
+    }
+  }
+  fetch('https://api.github.com/repos/scarletjess77/kova/releases/latest')
+    .then((r) => (r.ok ? r.json() : null))
+    .then((r) => { latest = r; renderDownloads(); })
+    .catch(() => {});
+
+  // ---------- language ----------
+  const texts = [...document.querySelectorAll('[data-t]')];
+  const english = new Map(texts.map((el) => [el, el.innerHTML]));
+  function setLang(next, remember) {
+    lang = next;
+    document.documentElement.lang = next;
+    for (const el of texts) el.innerHTML = next === 'ru' && RU[el.dataset.t] != null ? RU[el.dataset.t] : english.get(el);
+    for (const b of document.querySelectorAll('[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === next));
+    $('copy-label').textContent = L().copy;
+    if (remember) { try { localStorage.setItem('kova-lang', next); } catch (e) { /* private window */ } }
+    renderDemo();
+    renderSugg();
+    renderDownloads();
+  }
+  for (const b of document.querySelectorAll('[data-lang]')) b.addEventListener('click', () => setLang(b.dataset.lang, true));
+  let saved = null;
+  try { saved = localStorage.getItem('kova-lang'); } catch (e) { /* storage blocked */ }
+  setLang(saved === 'ru' || saved === 'en' ? saved : (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en', false);
+
+  // ---------- donate ----------
+  $('copy-addr').addEventListener('click', () => {
+    const done = (msg) => { $('copy-label').textContent = msg; setTimeout(() => { $('copy-label').textContent = L().copy; }, 1800); };
+    const select = () => {
+      const r = document.createRange(); r.selectNodeContents($('addr'));
+      const s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      done(L().select);
+    };
+    try { navigator.clipboard.writeText(ADDR).then(() => done(L().copied), select); } catch (e) { select(); }
+  });
+  if (typeof qrcode === 'function') {
+    const qr = qrcode(0, 'M');
+    qr.addData('ton://transfer/' + ADDR);
+    qr.make();
+    const n = qr.getModuleCount();
+    let d = '';
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c} ${r}h1v1h-1z`;
+    $('qr').innerHTML = `<svg viewBox="0 0 ${n} ${n}" shape-rendering="crispEdges" aria-hidden="true"><path d="${d}" style="fill:var(--qr-fg)"/></svg>`;
+    $('qr').hidden = false;
+  }
+})();
+</script>
+
+</body>
+</html>
