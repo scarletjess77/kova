@@ -139,8 +139,10 @@
         </div>
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Allow connections from LAN')}</div><div class="d">{t('Share the proxy with phones and consoles on your network')}</div>
-            {#if app.mobile && s.core.allow_lan}<div class="d">{t('Other devices sign in as {user} with the password', { user: 'kova' })} <span class="mono selectable">{s.core.local_password}</span></div>{/if}</div>
+            {#if s.core.allow_lan}<div class="d">{t('Other devices sign in as {user} with the password', { user: 'kova' })} <span class="mono selectable">{s.core.local_password}</span></div>{/if}</div>
             <button class="switch" role="switch" aria-label={t('Allow connections from LAN')} aria-checked={s.core.allow_lan} onclick={() => toggle((x) => x.core.allow_lan, (x, v) => (x.core.allow_lan = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Switch away from a dead node')}</div><div class="d">{t('When the chosen node stops answering, move to the fastest one that works and say so')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Switch away from a dead node')} aria-checked={s.auto_switch} onclick={() => toggle((x) => x.auto_switch, (x, v) => (x.auto_switch = v))}></button></div>
           <div class="row-sw"><div><div class="t">IPv6</div></div>
             <button class="switch" role="switch" aria-label="IPv6" aria-checked={s.core.ipv6} onclick={() => toggle((x) => x.core.ipv6, (x, v) => (x.core.ipv6 = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Sniff domains')}</div><div class="d">{t('Reads TLS and HTTP hostnames so domain rules also work for raw IP connections')}</div></div>
@@ -176,7 +178,11 @@
             {/each}
           </div>
         </div>
-        <p class="hint">{t('TUN captures every app, including games and UDP. It needs system rights, which the Kova service provides so Kova itself never runs as administrator.')}</p>
+        {#if app.platform === 'linux' || app.platform === 'macos'}
+          <p class="hint">{t('TUN captures every app, including games and UDP. On Linux and macOS it needs administrator rights for now: start Kova with sudo to use it. The system proxy works without them.')}</p>
+        {:else}
+          <p class="hint">{t('TUN captures every app, including games and UDP. It needs system rights, which the Kova service provides so Kova itself never runs as administrator.')}</p>
+        {/if}
         {#if svc?.supported}
           <div class="svc">
             <span class="led" class:on={svc.running}></span>
@@ -331,10 +337,10 @@
             {#if app.update.body}<p class="notes">{app.update.body.slice(0, 400)}</p>{/if}
             {#if app.updateProgress !== null}
               <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
-              <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : t('Installing, Kova will restart')}</div>
+              <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : app.mobile ? t('Opening Android’s installer') : t('Installing, Kova will restart')}</div>
             {:else if app.mobile}
               <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Download update')}</button></div>
-              <p class="hint">{t('The APK opens in your browser. Android asks you to confirm the install; your profiles and settings stay.')}</p>
+              <p class="hint">{t('Kova downloads and checks the update, then Android asks you to confirm the install. Your profiles and settings stay.')}</p>
             {:else}
               <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Install and restart')}</button></div>
               <p class="hint">{t('Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.')}</p>

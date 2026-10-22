@@ -107,6 +107,8 @@ pub enum Origin {
     Preset,
     /// An imported Clash profile's own rules.
     Profile,
+    /// No rule known: Site check found the site opens only directly.
+    SiteCheck,
 }
 
 /// What smart routing does about a route that fails.
@@ -130,6 +132,9 @@ pub struct Scope {
     pub internal_rules: std::collections::HashSet<String>,
     /// Learn over a subscription's own rules instead of only suggesting.
     pub profile_rules: bool,
+    /// Act on sites that fail through the proxy (checking them directly). Off, Kova
+    /// never goes direct on its own.
+    pub proxy_failures: bool,
 }
 
 impl Scope {
@@ -192,11 +197,36 @@ pub fn is_public_ip(ip: IpAddr) -> bool {
     }
 }
 
+/// Address ranges of the big CDNs (Cloudflare, Fastly, Amazon CloudFront), from their
+/// published lists. One such address serves thousands of unrelated sites, so a rule for
+/// it would move all of them; these are never learned.
+const SHARED_CDN: &[&str] = &[
+    "173.245.48.0/20", "103.21.244.0/22", "103.22.200.0/22", "103.31.4.0/22", "141.101.64.0/18", "108.162.192.0/18",
+    "190.93.240.0/20", "188.114.96.0/20", "197.234.240.0/22", "198.41.128.0/17", "162.158.0.0/15", "104.16.0.0/13",
+    "104.24.0.0/14", "172.64.0.0/13", "131.0.72.0/22", "2400:cb00::/32", "2606:4700::/32", "2803:f800::/32",
+    "2405:b500::/32", "2405:8100::/32", "2a06:98c0::/29", "2c0f:f248::/32",
+    "151.101.0.0/16", "199.232.0.0/16", "146.75.0.0/16", "2a04:4e40::/32",
+    "13.32.0.0/15", "13.224.0.0/14", "18.64.0.0/14", "52.84.0.0/15", "54.230.0.0/16", "54.239.128.0/18", "99.84.0.0/16",
+    "143.204.0.0/16", "205.251.192.0/19", "2600:9000::/28",
+];
+
+pub fn is_shared_cdn(ip: IpAddr) -> bool {
+    SHARED_CDN.iter().any(|net| {
+        let (base, len) = net.split_once('/').expect("a CIDR");
+        let len: u32 = len.parse().expect("a prefix length");
+        match (ip, base.parse::<IpAddr>().expect("an address")) {
+            (IpAddr::V4(a), IpAddr::V4(b)) => len == 0 || (u32::from(a) ^ u32::from(b)) >> (32 - len) == 0,
+            (IpAddr::V6(a), IpAddr::V6(b)) => len == 0 || (u128::from(a) ^ u128::from(b)) >> (128 - len) == 0,
+            _ => false,
+        }
+    })
+}
+
 /// What a rule should cover for a connection's destination: the registrable domain
 /// for a name (see [`rule_domain`]) or the address itself for a public IP.
 pub fn rule_target(host: &str) -> Option<String> {
     match parse_ip(host) {
-        Some(ip) => is_public_ip(ip).then(|| ip.to_string()),
+        Some(ip) => (is_public_ip(ip) && !is_shared_cdn(ip)).then(|| ip.to_string()),
         None => rule_domain(host),
     }
 }
@@ -298,6 +328,14 @@ mod tests {
     }
 
     #[test]
+    fn shared_cdn_addresses_are_never_learned() {
+        for cdn in ["104.16.132.229", "151.101.1.69", "13.33.0.1", "2606:4700::6810:84e5"] {
+            assert_eq!(rule_target(cdn), None, "{cdn}");
+        }
+        assert_eq!(rule_target("149.154.167.51").as_deref(), Some("149.154.167.51"));
+    }
+
+    #[test]
     fn only_plain_names_become_rules() {
         assert_eq!(rule_domain("cdn.Example.COM.").as_deref(), Some("example.com"));
         assert_eq!(rule_domain("xn--80ak6aa92e.com").as_deref(), Some("xn--80ak6aa92e.com"));
@@ -312,6 +350,7 @@ mod tests {
     fn learns_only_where_no_one_chose_and_suggests_elsewhere() {
         let set = |k: &[&str]| k.iter().map(|s| s.to_string()).collect();
         let mut scope = Scope {
+            proxy_failures: true,
             user_rules: set(&["GeoSite(category-games)"]),
             preset_rules: set(&["GeoSite(category-ru)", "GeoSite(category-games)"]),
             internal_rules: set(&["GeoSite(private)", "RuleSet(kova-learned-proxy)"]),

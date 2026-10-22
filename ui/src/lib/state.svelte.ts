@@ -1,6 +1,7 @@
 // Global reactive state, fed by commands and the engine's event stream.
 
 import { listen } from '@tauri-apps/api/event';
+import { friendly } from './errors';
 import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo } from './api';
 import { i18n, resolveLang, t, tn } from './i18n.svelte';
 
@@ -48,6 +49,8 @@ class AppState {
   coresVersion = $state(0);
   /** Running on a phone (Android): no window, tray, system proxy or in-app updates. */
   mobile = $state(false);
+  /** The operating system: "windows", "linux", "macos", "android", ... */
+  platform = $state('');
   /** A connect or disconnect the user started is under way. On Android that includes
    *  the permission dialog and opening the VPN, before the engine reports busy. */
   toggling = $state(false);
@@ -55,6 +58,8 @@ class AppState {
   navOpen = $state(false);
   /** Bumped whenever smart routing learns a site, so lists can reload. */
   learnedVersion = $state(0);
+  /** Smart-routing suggestions waiting for an answer, for the Rules badge. */
+  suggestionCount = $state(0);
   /** The system's display language, used when the language setting is "system". */
   private systemLang = navigator.language;
 
@@ -137,17 +142,23 @@ class AppState {
     return this.profiles.find((p) => p.id === this.settings?.active_profile);
   }
 
+  async countSuggestions() {
+    this.suggestionCount = (await api.smartSuggestions().catch(() => [])).length;
+  }
+
   async init() {
     const snap = await api.getState();
     this.status = snap.status;
     this.settings = snap.settings;
     this.profiles = snap.profiles;
+    void this.countSuggestions();
     this.dataDir = snap.data_dir;
-    this.mobile = ['android', 'ios'].includes(await api.platform().catch(() => ''));
+    this.platform = await api.platform().catch(() => '');
+    this.mobile = ['android', 'ios'].includes(this.platform);
     this.systemLang = await api.systemLanguage().catch(() => navigator.language);
     this.applyTheme();
     await listen<EngineEvent>('engine', (e) => this.onEvent(e.payload));
-    await listen<string>('toast', (e) => this.notify(e.payload));
+    await listen<string>('toast', (e) => this.notify(friendly(e.payload)));
     await listen<Settings>('settings-changed', (e) => { this.settings = e.payload; this.applyTheme(); });
     await listen('cores-changed', () => { this.coresVersion++; });
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
@@ -167,7 +178,7 @@ class AppState {
         if (was !== s.running) void this.refreshProxies();
         // Measure every node right after connecting so latency is visible and url-test groups settle.
         if (!was && s.running) setTimeout(() => void this.testDelays(undefined, true), 1200);
-        if (s.error && !s.busy && s.error !== oldError) this.notify(s.error);
+        if (s.error && !s.busy && s.error !== oldError) this.notify(friendly(s.error));
         break;
       }
       case 'traffic':
@@ -199,7 +210,9 @@ class AppState {
         break;
       case 'suggested':
         this.learnedVersion++;
-        this.notify(e.route === 'proxy'
+        void this.countSuggestions();
+        if (e.origin === 'site-check') this.notify(t('{domain} opens only directly. See Rules → Smart routing', { domain: e.domain }));
+        else this.notify(e.route === 'proxy'
           ? t('{domain} is blocked direct, but a rule sends it there. See Rules → Smart routing', { domain: e.domain })
           : t('{domain} doesn’t open through the proxy, but a rule sends it there. See Rules → Smart routing', { domain: e.domain }));
         break;
@@ -285,15 +298,13 @@ class AppState {
   /** Download, install and restart (Kova disconnects first). */
   async installUpdate() {
     if (!this.update || this.updateProgress !== null) return;
-    // On Android the browser downloads the APK and the system installs it.
-    if (this.mobile) {
-      await this.run(() => api.installUpdate());
-      return;
-    }
     this.updateProgress = 0;
     const stop = await listen<number>('update-progress', (e) => (this.updateProgress = e.payload));
     try {
       await api.installUpdate();
+      // Android's installer is now in front; should the user back out of it, the
+      // button is there again.
+      if (this.mobile) setTimeout(() => (this.updateProgress = null), 4000);
     } catch (e) {
       this.notify(t('The update failed: {error}', { error: errText(e) }));
       this.updateProgress = null;

@@ -5,4 +5,8 @@
     <string name="vpn_on_profile">Connected · %1$s</string>
     <string name="vpn_waiting">Open Kova to connect</string>
     <string name="disconnect">Disconnect</string>
+    <string name="widget_on">Connected</string>
+    <string name="widget_off">Disconnected</string>
+    <string name="widget_connect">Tap to connect</string>
+    <string name="widget_description">Connect and disconnect from the home screen</string>
 </resources>

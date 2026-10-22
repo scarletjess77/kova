@@ -41,8 +41,29 @@ struct Tunnel {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Active {
     active: bool,
+    #[serde(default = "yes")]
+    screen_on: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+#[derive(Serialize)]
+struct Details {
+    node: String,
+    speeds: String,
+}
+
+fn speed(bytes: u64) -> String {
+    if bytes >= 1024 * 1024 {
+        format!("{:.1} MB/s", bytes as f64 / 1024.0 / 1024.0)
+    } else {
+        format!("{} KB/s", bytes / 1024)
+    }
 }
 
 #[derive(Serialize)]
@@ -65,6 +86,8 @@ struct Action {
 static BUSY: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 /// Each connection's watcher stops when a newer connection starts.
 static SESSION: AtomicU64 = AtomicU64::new(0);
+/// The node last shown in the notification.
+static LAST_NODE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
     let _one = BUSY.lock().await;
@@ -139,15 +162,39 @@ async fn close(app: &AppHandle, engine: &Arc<Engine>) {
 /// has to hold twice in a row, so a core restarting for a settings change doesn't count.
 fn watch(app: AppHandle, engine: Arc<Engine>, session: u64) {
     tauri::async_runtime::spawn(async move {
-        let (mut core_down, mut vpn_gone) = (0, 0);
+        let (mut core_down, mut vpn_gone, mut quiet, mut tick) = (0, 0, false, 0u32);
+        engine.set_quiet(false);
+        let mut events = engine.subscribe();
+        let (mut up, mut down) = (0, 0);
         loop {
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            // Less often while the screen is off: nobody is looking, and it saves battery.
+            tokio::time::sleep(Duration::from_secs(if quiet { 6 } else { 2 })).await;
             if SESSION.load(Ordering::SeqCst) != session || !engine.has_tun_fd() {
                 return;
             }
+            while let Ok(ev) = events.try_recv() {
+                if let kova_engine::Event::Traffic { up: u, down: d, .. } = ev {
+                    (up, down) = (u, d);
+                }
+            }
             let st = engine.status();
             core_down = if !st.running && !st.busy { core_down + 1 } else { 0 };
-            vpn_gone = if matches!(call(&app, "status", ()).await, Ok(Active { active: false })) { vpn_gone + 1 } else { 0 };
+            let state: Option<Active> = call(&app, "status", ()).await.ok();
+            vpn_gone = if matches!(state, Some(Active { active: false, .. })) { vpn_gone + 1 } else { 0 };
+            if let Some(a) = &state {
+                if quiet == a.screen_on {
+                    quiet = !a.screen_on;
+                    engine.set_quiet(quiet);
+                }
+            }
+            // The notification shows the node and the speeds while someone can see it.
+            tick += 1;
+            if !quiet && st.running && core_down == 0 && vpn_gone == 0 {
+                let node = if tick % 5 == 1 { engine.current_node().await } else { None };
+                let details = Details { node: node.unwrap_or_else(|| LAST_NODE.lock().unwrap().clone()), speeds: format!("↓ {}  ↑ {}", speed(down), speed(up)) };
+                *LAST_NODE.lock().unwrap() = details.node.clone();
+                let _: Result<serde_json::Value, _> = call(&app, "details", details).await;
+            }
             if core_down < 2 && vpn_gone < 2 {
                 continue;
             }
@@ -202,4 +249,16 @@ pub fn listen_for_actions(app: AppHandle, engine: Arc<Engine>) {
             }
         }
     });
+}
+
+#[derive(Serialize)]
+struct ApkArgs {
+    path: String,
+}
+
+/// Hand a downloaded APK to Android's installer. The first time, Android asks to let
+/// Kova install apps; the settings page for that opens instead and this fails with a
+/// note to try again.
+pub async fn install_apk(app: &AppHandle, path: &std::path::Path) -> Result<(), Error> {
+    call::<serde_json::Value>(app, "installApk", ApkArgs { path: path.to_string_lossy().into() }).await.map(|_| ())
 }
