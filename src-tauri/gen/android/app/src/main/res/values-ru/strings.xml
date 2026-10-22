@@ -1,0 +1,6 @@
+<resources>
+    <string name="vpn_on">VPN включён</string>
+    <string name="vpn_on_profile">Подключено · %1$s</string>
+    <string name="vpn_waiting">Откройте Kova, чтобы подключиться</string>
+    <string name="disconnect">Отключить</string>
+</resources>

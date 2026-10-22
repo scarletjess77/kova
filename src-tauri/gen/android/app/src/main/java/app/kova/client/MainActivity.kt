@@ -1,5 +1,6 @@
 package app.kova.client
 
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.view.View
@@ -8,6 +9,11 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
+  companion object {
+    /** Opened to connect: from the Quick Settings tile, or for always-on VPN. */
+    const val ACTION_CONNECT = "app.kova.client.CONNECT"
+  }
+
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
@@ -20,5 +26,18 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+    connectIfAsked(intent)
+  }
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    connectIfAsked(intent)
+  }
+
+  private fun connectIfAsked(intent: Intent?) {
+    if (intent?.action != ACTION_CONNECT) return
+    intent.action = null
+    // Waits for Kova to be ready when it is only just starting.
+    Actions.send(Actions.CONNECT, keep = true)
   }
 }
