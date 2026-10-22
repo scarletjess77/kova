@@ -64,6 +64,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
       - run: npm ci
+      # The installer carries verified cores and routing data, so a first start needs
+      # nothing from GitHub, which is blocked in some countries.
+      - name: Cores for the installer
+        run: cargo run -q -p kova-engine --example bundle_cores -- src-tauri/resources/cores ${{ matrix.target }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -80,7 +86,7 @@ jobs:
           # copies don't update to them.
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
-          args: ${{ format('--bundles {0} {1} --config {{"bundle":{{"createUpdaterArtifacts":true}}}}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '') }}
+          args: ${{ format('--bundles {0} {1} --config {{"bundle":{{"createUpdaterArtifacts":true,"resources":{{"resources/cores/":"cores/"}}}}}}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '') }}
 
   # One APK per processor, side by side: 64-bit phones, and 32-bit phones and TVs. Each
   # build gets only its own cores, so an APK never lists a processor it can't run on.
