@@ -30,7 +30,7 @@ fn geox_url(opts: &RuntimeOptions) -> Value {
 
 /// Settings every Mihomo config gets, whatever the profile says.
 fn base(opts: &RuntimeOptions) -> Value {
-    json!({
+    let mut v = json!({
         "mixed-port": opts.mixed_port,
         "allow-lan": opts.allow_lan,
         "bind-address": if opts.allow_lan { "*" } else { "127.0.0.1" },
@@ -48,7 +48,14 @@ fn base(opts: &RuntimeOptions) -> Value {
         "geo-update-interval": 24,
         "geox-url": geox_url(opts),
         "profile": { "store-selected": true, "store-fake-ip": true },
-    })
+    });
+    // Android: every app on the phone can reach the proxy port, and through it learn the
+    // server's address or skip the per-app VPN choice. Only Kova knows the login.
+    if opts.tun_fd.is_some() && !opts.local_password.is_empty() {
+        v["authentication"] = json!([format!("{LOCAL_USER}:{}", opts.local_password)]);
+        v["skip-auth-prefixes"] = json!([]);
+    }
+    v
 }
 
 fn sniffer() -> Value {
@@ -160,7 +167,12 @@ fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<Stri
         _ => Vec::new(),
     };
     for (name, port, proxy) in [("kova-probe-direct", sm.direct_port, "DIRECT"), ("kova-probe-proxy", sm.proxy_port, main)] {
-        listeners.push(to_yaml(json!({ "name": name, "type": "mixed", "listen": "127.0.0.1", "port": port, "udp": false, "proxy": proxy })));
+        let mut l = json!({ "name": name, "type": "mixed", "listen": "127.0.0.1", "port": port, "udp": false, "proxy": proxy });
+        // Only Kova's checks use these; without a login any local program could.
+        if !sm.password.is_empty() {
+            l["users"] = json!([{ "username": LOCAL_USER, "password": sm.password }]);
+        }
+        listeners.push(to_yaml(l));
     }
     doc.insert(Yaml::String("listeners".into()), Yaml::Sequence(listeners));
     vec![
@@ -200,7 +212,14 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     let mut names = Vec::new();
     for n in nodes.iter().filter(|n| !dropped.contains(&n.name.as_str())) {
         let p = match bridges.get(&n.name) {
-            Some(port) => json!({ "name": n.name, "type": "socks5", "server": "127.0.0.1", "port": port, "udp": true }),
+            Some(port) => {
+                let mut p = json!({ "name": n.name, "type": "socks5", "server": "127.0.0.1", "port": port, "udp": true });
+                if !opts.local_password.is_empty() {
+                    p["username"] = json!(LOCAL_USER);
+                    p["password"] = json!(opts.local_password);
+                }
+                p
+            }
             None => to_clash(n),
         };
         proxies.push(p);
@@ -240,7 +259,7 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
 /// with ours; the controller is ours so the UI can talk to the core.
 const STRIP: &[&str] = &[
     "port", "socks-port", "redir-port", "tproxy-port", "external-controller-tls", "external-controller-unix",
-    "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication",
+    "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication", "skip-auth-prefixes",
 ];
 
 /// Take an imported Clash config and apply app-controlled settings on top.
@@ -383,12 +402,15 @@ mod tests {
         ];
         let p = plan(&nodes, CorePreference::Auto);
         let bridges = Bridges::from([("XH".to_string(), 17001)]);
-        let y = from_nodes(&nodes, &p, &bridges, &opts());
+        let mut o = opts();
+        o.local_password = "pw".into();
+        let y = from_nodes(&nodes, &p, &bridges, &o);
         let doc: Value = serde_yaml_ng::from_str(&y).unwrap();
         assert_eq!(doc["mixed-port"], 7890);
         assert_eq!(doc["external-controller"], "127.0.0.1:9097");
         let proxies = doc["proxies"].as_array().unwrap();
         assert_eq!(proxies[0]["type"], "socks5");
+        assert_eq!((proxies[0]["username"].as_str(), proxies[0]["password"].as_str()), (Some("kova"), Some("pw")), "the bridge needs Kova's login");
         assert_eq!(proxies[0]["port"], 17001);
         assert_eq!(proxies[1]["type"], "trojan");
         assert_eq!(doc["proxy-groups"][0]["proxies"][0], AUTO);
@@ -432,7 +454,7 @@ mod tests {
         let p = plan(&nodes, CorePreference::Auto);
         let mut o = opts();
         o.presets = vec![Preset::ProxyBlockedRu];
-        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, scope: Default::default() });
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
         let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
         let at = |r: &str| rules.iter().position(|x| x.starts_with(r)).unwrap();
@@ -465,11 +487,12 @@ rules:
   - MATCH,Sel
 ";
         let mut o = opts();
-        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, scope: Default::default() });
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
         let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
         let names: Vec<&str> = doc["listeners"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap()).collect();
         assert_eq!(names, ["mine", "kova-probe-direct", "kova-probe-proxy"]);
         assert_eq!(doc["listeners"][2]["proxy"], "Sel");
+        assert_eq!(doc["listeners"][1]["users"], json!([{ "username": "kova", "password": "pw" }]), "probe ports need Kova's login");
         let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
         // The profile's own rules still come first; learned sites only precede its catch-all.
         let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
@@ -513,6 +536,16 @@ rules:
         assert_eq!(doc["tun"]["file-descriptor"], 42);
         assert_eq!(doc["tun"]["auto-route"], false);
         assert_eq!(doc["find-process-mode"], "off");
+        assert!(doc.get("authentication").is_none(), "no password, no login");
+
+        // Every app on the phone can reach the proxy port: it asks for Kova's login.
+        o.local_password = "pw".into();
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert_eq!(doc["authentication"], json!(["kova:pw"]));
+        assert_eq!(doc["skip-auth-prefixes"], json!([]));
+        o.tun_fd = None;
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert!(doc.get("authentication").is_none(), "the desktop system proxy can't send a login");
         let saved: RuntimeOptions = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
         assert_eq!(saved.tun_fd, None, "a descriptor is never stored");
     }

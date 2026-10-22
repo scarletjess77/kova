@@ -392,17 +392,26 @@ enum Target {
     Addr(SocketAddr),
 }
 
+/// The probe port `port` as a proxy URL, with Kova's login when it has one.
+fn probe_url(ports: &SmartRuntime, port: u16) -> String {
+    if ports.password.is_empty() {
+        format!("http://127.0.0.1:{port}")
+    } else {
+        format!("http://{}:{}@127.0.0.1:{port}", kova_core::options::LOCAL_USER, ports.password)
+    }
+}
+
 /// Try `target` through one of Mihomo's probe ports. `Err` holds how it failed.
-async fn attempt(target: &Target, port: u16) -> Result<(), String> {
+async fn attempt(target: &Target, ports: &SmartRuntime, port: u16) -> Result<(), String> {
     match target {
         Target::Url(url) => {
-            let p = probe(url, Some(&format!("http://127.0.0.1:{port}"))).await;
+            let p = probe(url, Some(&probe_url(ports, port))).await;
             if answered(&p) {
                 return Ok(());
             }
             Err(serde_json::to_value(&p.outcome).ok().and_then(|v| v.as_str().map(String::from)).unwrap_or_else(|| "connect-failed".into()))
         }
-        Target::Addr(addr) => if reaches(port, *addr).await { Ok(()) } else { Err("connect-failed".into()) },
+        Target::Addr(addr) => if reaches(port, &ports.password, *addr).await { Ok(()) } else { Err("connect-failed".into()) },
     }
 }
 
@@ -414,29 +423,44 @@ async fn confirm(target: &Target, failed: Route, ports: &SmartRuntime, health: &
         Route::Direct => (ports.direct_port, ports.proxy_port),
         Route::Proxy => (ports.proxy_port, ports.direct_port),
     };
-    if attempt(target, usual).await.is_ok() || attempt(target, other).await.is_err() {
+    if attempt(target, ports, usual).await.is_ok() || attempt(target, ports, other).await.is_err() {
         return None;
     }
-    let via = |port: u16| format!("http://127.0.0.1:{port}");
-    if !health.ok(&via(usual)).await || !health.ok(&via(other)).await {
+    if !health.ok(&probe_url(ports, usual)).await || !health.ok(&probe_url(ports, other)).await {
         return None;
     }
     tokio::time::sleep(Duration::from_secs(2)).await;
-    attempt(target, usual).await.err()
+    attempt(target, ports, usual).await.err()
 }
 
 /// Whether a TCP connection to `dest` can be opened through the probe port `port`,
-/// using its SOCKS5 side. Mihomo may confirm the request before it has connected, so a
-/// connection it then could not open shows as it closing; one that stays open waiting
-/// for us to speak, or that greets us, is up.
-pub async fn reaches(port: u16, dest: SocketAddr) -> bool {
+/// using its SOCKS5 side, with Kova's login unless `password` is empty. Mihomo may
+/// confirm the request before it has connected, so a connection it then could not open
+/// shows as it closing; one that stays open waiting for us to speak, or that greets us,
+/// is up.
+pub async fn reaches(port: u16, password: &str, dest: SocketAddr) -> bool {
     let attempt = async {
         let mut s = TcpStream::connect(("127.0.0.1", port)).await?;
-        s.write_all(&[5, 1, 0]).await?;
+        let method = if password.is_empty() { 0 } else { 2 };
+        s.write_all(&[5, 1, method]).await?;
         let mut hello = [0u8; 2];
         s.read_exact(&mut hello).await?;
-        if hello != [5, 0] {
+        if hello != [5, method] {
             return Ok(false);
+        }
+        if method == 2 {
+            // Username and password (RFC 1929).
+            let user = kova_core::options::LOCAL_USER.as_bytes();
+            let mut auth = vec![1, user.len() as u8];
+            auth.extend_from_slice(user);
+            auth.push(password.len() as u8);
+            auth.extend_from_slice(password.as_bytes());
+            s.write_all(&auth).await?;
+            let mut ok = [0u8; 2];
+            s.read_exact(&mut ok).await?;
+            if ok[1] != 0 {
+                return Ok(false);
+            }
         }
         let mut req = vec![5, 1, 0];
         match dest.ip() {
@@ -533,7 +557,7 @@ Connection: close
     }
 
     async fn ports(direct: &'static [&'static str], proxy: &'static [&'static str]) -> SmartRuntime {
-        SmartRuntime { lists_url: String::new(), direct_port: fake_path(direct).await, proxy_port: fake_path(proxy).await, scope: Default::default() }
+        SmartRuntime { lists_url: String::new(), direct_port: fake_path(direct).await, proxy_port: fake_path(proxy).await, password: String::new(), scope: Default::default() }
     }
 
     #[tokio::test]

@@ -268,6 +268,10 @@ pub struct RuntimeOptions {
     pub controller_port: u16,
     /// Bearer secret for the Mihomo controller; regenerated per install.
     pub secret: String,
+    /// Password of [`LOCAL_USER`] on the local ports only Kova itself uses (smart
+    /// routing's probes, the Xray bridge) and, on Android, on the proxy port, which every
+    /// app on the phone could otherwise use. Made once per install.
+    pub local_password: String,
     pub allow_lan: bool,
     pub ipv6: bool,
     pub mode: Mode,
@@ -306,6 +310,9 @@ pub struct RuntimeOptions {
     pub tun_fd: Option<i32>,
 }
 
+/// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
+pub const LOCAL_USER: &str = "kova";
+
 /// Per-run parts of smart routing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SmartRuntime {
@@ -315,6 +322,8 @@ pub struct SmartRuntime {
     /// group; Kova checks a site both ways through them.
     pub direct_port: u16,
     pub proxy_port: u16,
+    /// Password of [`LOCAL_USER`] on the probe ports; empty for none.
+    pub password: String,
     /// Which failures to act on.
     pub scope: crate::smart::Scope,
 }
@@ -325,6 +334,7 @@ impl Default for RuntimeOptions {
             mixed_port: 7890,
             controller_port: 9097,
             secret: String::new(),
+            local_password: String::new(),
             allow_lan: false,
             ipv6: true,
             mode: Mode::Rule,

@@ -28,7 +28,6 @@ import java.io.ByteArrayOutputStream
 @InvokeArg
 class TunnelArgs {
     var mtu: Int = 9000
-    var ipv6: Boolean = true
     /** "all", "only" or "except", for [apps]. */
     var mode: String = "all"
     var apps: Array<String> = arrayOf()

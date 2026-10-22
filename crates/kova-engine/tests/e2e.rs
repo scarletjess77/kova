@@ -235,8 +235,11 @@ impl Controller {
     }
 
     /// Fetch `url` through local port `via` and report the rule and chain Mihomo used.
-    async fn route_of(&self, url: &str, via: u16) -> (String, Vec<String>) {
-        let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{via}")).unwrap()).build().unwrap();
+    /// Fetch `url` through the local port `via` (with Kova's login when `password` isn't
+    /// empty) and see which rule and chain Mihomo used.
+    async fn route_of(&self, url: &str, via: u16, password: &str) -> (String, Vec<String>) {
+        let proxy = if password.is_empty() { format!("http://127.0.0.1:{via}") } else { format!("http://kova:{password}@127.0.0.1:{via}") };
+        let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(proxy).unwrap()).build().unwrap();
         let req = tokio::spawn({
             let url = url.to_string();
             async move { client.get(url).send().await.unwrap().text().await.unwrap() }
@@ -324,7 +327,7 @@ async fn smart_routing_in_real_mihomo() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     assert_eq!(count, 2, "learned list not loaded");
-    let (rule, chains) = ctl.route_of(&url, s.core.mixed_port).await;
+    let (rule, chains) = ctl.route_of(&url, s.core.mixed_port, "").await;
     assert_eq!(rule, "RuleSet");
     assert!(chains.contains(&"Local WS".to_string()), "{chains:?}");
 
@@ -332,7 +335,7 @@ async fn smart_routing_in_real_mihomo() {
     let since = engine.status().since;
     engine.forget_learned("localhost").await.unwrap();
     assert_eq!(ctl.rule_count(PROVIDER_PROXY).await, 1);
-    let (rule, chains) = ctl.route_of(&url, s.core.mixed_port).await;
+    let (rule, chains) = ctl.route_of(&url, s.core.mixed_port, "").await;
     assert_ne!(rule, "RuleSet");
     assert_eq!(chains, ["DIRECT"]);
     assert_eq!(engine.status().since, since, "the core was restarted");
@@ -353,10 +356,15 @@ async fn smart_routing_in_real_mihomo() {
     assert_ne!(o.rule, "RuleSet(kova-learned-proxy)", "the forgotten site still matched the learned list");
 
     // The probe ports ignore the rules: one always uses the proxy, one always goes direct.
-    let (_, chains) = ctl.route_of(&url, ctl.listener_port("kova-probe-proxy")).await;
+    // Only Kova may use them.
+    let password = engine.settings().core.local_password;
+    assert!(!password.is_empty());
+    let (_, chains) = ctl.route_of(&url, ctl.listener_port("kova-probe-proxy"), &password).await;
     assert!(chains.contains(&"Local WS".to_string()), "{chains:?}");
-    let (_, chains) = ctl.route_of(&url, ctl.listener_port("kova-probe-direct")).await;
+    let (_, chains) = ctl.route_of(&url, ctl.listener_port("kova-probe-direct"), &password).await;
     assert_eq!(chains, ["DIRECT"]);
+    let anyone = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", ctl.listener_port("kova-probe-direct"))).unwrap()).build().unwrap();
+    assert_eq!(anyone.get(&url).send().await.unwrap().status(), 407, "a probe port let in a program without the login");
 
     // Bare addresses (apps that connect without a name, as in TUN mode) are checked at
     // the connection level through the same ports. Their list is loaded too.
@@ -365,9 +373,9 @@ async fn smart_routing_in_real_mihomo() {
     let closed: std::net::SocketAddr = format!("127.0.0.1:{}", free_port()).parse().unwrap();
     for name in ["kova-probe-direct", "kova-probe-proxy"] {
         let port = ctl.listener_port(name);
-        assert!(reaches(port, open).await, "{name}: an open port looked closed");
+        assert!(reaches(port, &password, open).await, "{name}: an open port looked closed");
         // Through VLESS the server reports a failed connection only after accepting it.
-        assert!(!reaches(port, closed).await, "{name}: a closed port looked open");
+        assert!(!reaches(port, &password, closed).await, "{name}: a closed port looked open");
     }
 
     // With the proxy down every site fails through it. That must teach nothing, or every

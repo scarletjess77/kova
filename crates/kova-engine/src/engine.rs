@@ -331,6 +331,7 @@ impl Engine {
             // These change only through their own engine calls (select, set_active_profile);
             // a settings save from the UI carries a possibly stale copy of them.
             new.core.secret = s.core.secret.clone();
+            new.core.local_password = s.core.local_password.clone();
             new.active_profile = s.active_profile.clone();
             new.selections = s.selections.clone();
             new.xray_selection = s.xray_selection.clone();
@@ -390,7 +391,22 @@ impl Engine {
     }
 
     fn fetch_proxy(&self, via_proxy: bool) -> Option<String> {
-        (via_proxy && self.status().running).then(|| format!("http://127.0.0.1:{}", self.settings().core.mixed_port))
+        if via_proxy { self.proxy_url() } else { None }
+    }
+
+    /// The proxy port as a URL for Kova's own requests while connected, with Kova's
+    /// login where the port asks for one (Android).
+    pub fn proxy_url(&self) -> Option<String> {
+        let st = self.status();
+        if !st.running {
+            return None;
+        }
+        let password = self.settings().core.local_password;
+        Some(if self.has_tun_fd() && !password.is_empty() {
+            format!("http://{}:{password}@127.0.0.1:{}", kova_core::options::LOCAL_USER, st.mixed_port)
+        } else {
+            format!("http://127.0.0.1:{}", st.mixed_port)
+        })
     }
 
     /// Add a profile from a subscription URL, or from pasted share links / config text.
@@ -931,7 +947,8 @@ impl Engine {
             // A subscription's own rules exist only in an imported Clash profile.
             let profile_rules = opts.smart_profile_rules && profile.format == Format::Clash;
             let scope = gen_mihomo::smart_scope(&opts, profile_rules);
-            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port(), scope });
+            let password = opts.local_password.clone();
+            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port(), password, scope });
         }
         let home = run_dir.join("mihomo");
         std::fs::create_dir_all(&home)?;
@@ -1441,9 +1458,7 @@ impl Engine {
 
     /// Check one site through Kova (when connected) and directly.
     pub async fn check_site(&self, url: &str) -> crate::sitecheck::SiteResult {
-        let st = self.status();
-        let proxy = st.running.then(|| format!("http://127.0.0.1:{}", st.mixed_port));
-        crate::sitecheck::check(url, proxy.as_deref()).await
+        crate::sitecheck::check(url, self.proxy_url().as_deref()).await
     }
 
     // ------------------------------------------------------------------ connections

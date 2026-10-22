@@ -383,9 +383,11 @@ struct ExitInfo {
 /// Public IP as seen through the proxy (or directly when disconnected).
 #[tauri::command]
 async fn exit_info(engine: Eng<'_>) -> R<ExitInfo> {
-    let st = engine.status();
     let mut b = kova_engine::fetch::builder().timeout(Duration::from_secs(8));
-    b = if st.running { b.proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", st.mixed_port))?) } else { b.no_proxy() };
+    b = match engine.proxy_url() {
+        Some(p) => b.proxy(reqwest::Proxy::all(p)?),
+        None => b.no_proxy(),
+    };
     let c = b.build()?;
     // Any failure of the first service (blocked, down, bad answer) falls through to the second.
     let first = match c.get("https://ipwho.is/").send().await {

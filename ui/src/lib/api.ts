@@ -24,6 +24,8 @@ export type RuleKind = 'domain' | 'domain-suffix' | 'domain-keyword' | 'geosite'
 export interface Rule { kind: RuleKind; value: string; target: string }
 
 export interface RuntimeOptions {
+  /** Kova's login on its local ports (user `kova`); on Android also on the proxy port. */
+  local_password: string;
   mixed_port: number;
   controller_port: number;
   secret: string;
