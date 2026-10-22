@@ -124,7 +124,9 @@ pub struct PendingUpdate(std::sync::Mutex<Option<Release>>);
 #[tauri::command]
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     let current = semver::Version::parse(&app.package_info().version.to_string()).map_err(|e| Error::Other(e.to_string()))?;
-    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with(".apk")).await?.filter(|r| r.version > current);
+    // The APK built for this device's processor: 64-bit phones, or 32-bit phones and TVs.
+    let suffix = if std::env::consts::ARCH == "arm" { "_android-armv7.apk" } else { "_android-arm64.apk" };
+    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with(suffix)).await?.filter(|r| r.version > current);
     let info = found.as_ref().map(|r| UpdateInfo { version: r.version.to_string(), date: r.date.clone(), body: r.body.clone() });
     *app.state::<PendingUpdate>().0.lock().unwrap() = found;
     Ok(info)
@@ -136,17 +138,53 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
 /// with the same key as the installed one.
 #[cfg(mobile)]
 #[tauri::command]
-pub async fn install_update(app: AppHandle) -> R<()> {
+pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<()> {
+    use std::time::Duration;
     use tauri::Emitter;
     let r = app.state::<PendingUpdate>().0.lock().unwrap().clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
-    let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
-    let mut resp = c.get(&r.asset).send().await?.error_for_status()?;
-    let total = resp.content_length().unwrap_or(0);
-    let mut data = Vec::with_capacity(total as usize);
-    while let Some(chunk) = resp.chunk().await? {
-        data.extend_from_slice(&chunk);
-        if total > 0 {
-            let _ = app.emit("update-progress", data.len() as f64 / total as f64);
+    // A 50 MB file on mobile data takes minutes, so there is no limit on the whole
+    // download, only on silence. Through Kova's proxy when connected: GitHub's downloads
+    // are often slow or blocked directly where Kova is needed.
+    let mut b = kova_engine::fetch::builder().user_agent(kova_engine::fetch::APP_UA).connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(30));
+    b = match engine.proxy_url() {
+        Some(p) => b.proxy(reqwest::Proxy::all(p)?),
+        None => b.no_proxy(),
+    };
+    let c = b.build()?;
+    let mut data: Vec<u8> = Vec::new();
+    let mut total = 0u64;
+    // A dropped connection resumes where it stopped, a few times over.
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let mut req = c.get(&r.asset);
+        if !data.is_empty() {
+            req = req.header(reqwest::header::RANGE, format!("bytes={}-", data.len()));
+        }
+        let step: R<()> = async {
+            let mut resp = req.send().await?.error_for_status()?;
+            if resp.status() != reqwest::StatusCode::PARTIAL_CONTENT {
+                // The server sent the whole file again.
+                data.clear();
+                total = resp.content_length().unwrap_or(0);
+            } else if total == 0 {
+                total = data.len() as u64 + resp.content_length().unwrap_or(0);
+            }
+            while let Some(chunk) = resp.chunk().await? {
+                data.extend_from_slice(&chunk);
+                if total > 0 {
+                    let _ = app.emit("update-progress", (data.len() as f64 / total as f64).min(0.99));
+                }
+            }
+            Ok(())
+        }
+        .await;
+        match step {
+            Ok(()) if total == 0 || data.len() as u64 >= total => break,
+            Ok(()) if attempts < 5 => continue,
+            Err(_) if attempts < 5 => tokio::time::sleep(Duration::from_secs(2)).await,
+            Ok(()) => return Err(Error::Other("The download ended early. Try again".into())),
+            Err(e) => return Err(e),
         }
     }
     if let Some(expected) = &r.digest {

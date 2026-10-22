@@ -86,7 +86,7 @@
   <div class="seg" role="group" aria-label={t('Import from')}>
     <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>{t('Link')}</button>
     <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>{t('Clipboard')}</button>
-    {#if app.mobile && app.camera}<button aria-pressed={tab === 'qr'} onclick={() => (tab = 'qr')}>{t('QR code')}</button>{/if}
+    {#if app.mobile && app.camera && !app.tv}<button aria-pressed={tab === 'qr'} onclick={() => (tab = 'qr')}>{t('QR code')}</button>{/if}
     {#if !app.mobile}<button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>{/if}
     <button aria-pressed={tab === 'device'} onclick={() => (tab = 'device')}>{t('Another device')}</button>
   </div>

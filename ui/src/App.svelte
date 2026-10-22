@@ -29,7 +29,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="app" class:mobile={app.mobile}>
+<div class="app" class:mobile={app.mobile} class:tv={app.tv}>
   <Titlebar />
   <Sidebar />
   <main class="main">
