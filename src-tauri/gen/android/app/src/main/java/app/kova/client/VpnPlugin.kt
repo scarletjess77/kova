@@ -14,7 +14,10 @@ import android.util.Base64
 import androidx.activity.result.ActivityResult
 import app.tauri.annotation.ActivityCallback
 import app.tauri.annotation.Command
+import app.tauri.PermissionState
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
@@ -37,10 +40,26 @@ class TunnelArgs {
  * (whose descriptor Rust hands to the core), closing it, whether it is still up, the
  * installed apps to choose from, and requests from the tile and the notification.
  */
-@TauriPlugin
+@TauriPlugin(permissions = [Permission(strings = [android.Manifest.permission.POST_NOTIFICATIONS], alias = "notifications")])
 class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun prepare(invoke: Invoke) {
+        // Android 13 and later hide the VPN's notification, Disconnect button included,
+        // until the app may post notifications: ask first. Android itself stops showing
+        // the question once it has been turned down.
+        if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED) {
+            requestPermissionForAlias("notifications", invoke, "notificationsAnswered")
+        } else {
+            prepareVpn(invoke)
+        }
+    }
+
+    @PermissionCallback
+    fun notificationsAnswered(invoke: Invoke) {
+        prepareVpn(invoke)
+    }
+
+    private fun prepareVpn(invoke: Invoke) {
         // Asks only the first time, or after another VPN app took over.
         val intent = VpnService.prepare(activity)
         if (intent == null) {
