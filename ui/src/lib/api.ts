@@ -78,6 +78,8 @@ export interface Settings {
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
+/** One step of a diagnostic or privacy check; the interface words it by id and state. */
+export interface Check { id: string; state: 'ok' | 'warn' | 'fail' | 'skipped'; detail: string | null; fix: string | null }
 /** An app installed on the phone; `icon` is a data URL. */
 export interface VpnApp { package: string; label: string; system: boolean; icon: string }
 
@@ -190,6 +192,13 @@ export const api = {
   installUpdate: () => invoke<void>('install_update'),
   systemLanguage: () => invoke<string>('system_language'),
   platform: () => invoke<string>('platform'),
+  deviceInfo: () => invoke<{ tv: boolean; camera: boolean }>('device_info'),
+  diagnose: () => invoke<Check[]>('diagnose'),
+  privacyCheck: () => invoke<Check[]>('privacy_check'),
+  speedTest: () => invoke<{ through_kova: number | null; direct: number | null }>('speed_test'),
+  lanAddress: () => invoke<string | null>('lan_address'),
+  receiveStart: () => invoke<{ url: string }>('receive_start'),
+  receiveStop: () => invoke<void>('receive_stop'),
   vpnApps: () => invoke<{ apps: VpnApp[] }>('vpn_apps'),
   openVpnSettings: () => invoke<void>('open_vpn_settings'),
   learnedSites: () => invoke<Learned[]>('learned_sites'),

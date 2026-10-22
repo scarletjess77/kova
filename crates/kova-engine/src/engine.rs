@@ -1553,6 +1553,11 @@ impl Engine {
 
     // ------------------------------------------------------------------ connections
 
+    /// The running Mihomo's controller, if Mihomo runs.
+    pub async fn mihomo(&self) -> Option<Mihomo> {
+        self.api().await
+    }
+
     async fn api(&self) -> Option<Mihomo> {
         self.run.lock().await.as_ref().and_then(|r| r.api.clone())
     }

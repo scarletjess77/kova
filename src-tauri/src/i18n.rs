@@ -41,6 +41,9 @@ const RU: &[(&str, &str)] = &[
     ("Could not install {}: {}", "Не удалось установить {}: {}"),
     ("Could not connect: {}", "Не удалось подключиться: {}"),
     ("{} stopped answering; switched to {}", "{} перестал отвечать; переключено на {}"),
+    ("{} has expired", "Подписка {} закончилась"),
+    ("{} ends in {} days", "Подписка {} закончится через {} дн."),
+    ("{} has used {}% of its traffic", "Подписка {} израсходовала {}% трафика"),
 ];
 
 /// `en` in `lang`, with each `{}` replaced by the next of `args`.

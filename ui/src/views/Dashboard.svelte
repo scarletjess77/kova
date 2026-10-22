@@ -2,12 +2,13 @@
   import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
   import { api, errText, type ExitInfo, type Mode } from '../lib/api';
-  import { countryCode, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
+  import { countryCode, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
   import Latency from '../components/Latency.svelte';
   import TrafficChart from '../components/TrafficChart.svelte';
+  import DiagnoseModal from '../components/DiagnoseModal.svelte';
 
   let s = $derived(app.status);
   let settings = $derived(app.settings);
@@ -80,12 +81,31 @@
 
   const setMode = (m: Mode) => app.saveSettings((x) => (x.core.mode = m));
   let details = $state(false);
+  let diagnosing = $state(false);
+
+  // A subscription about to end or run out is worth saying before it happens.
+  let subWarning = $derived.by(() => {
+    const u = profile?.usage;
+    if (!u) return null;
+    if (u.expire) {
+      const d = daysUntil(u.expire);
+      if (d < 0) return t('{name} has expired. Renew it with your provider.', { name: profile!.name });
+      if (d <= 3) return tn(Math.max(1, d), '{name} ends in {n} day. Renew it with your provider.', '{name} ends in {n} days. Renew it with your provider.', { name: profile!.name });
+    }
+    if (u.total && u.upload + u.download >= u.total * 0.9) {
+      return t('{name} has used {pct}% of its traffic.', { name: profile!.name, pct: Math.min(100, Math.round(((u.upload + u.download) / u.total) * 100)) });
+    }
+    return null;
+  });
 </script>
 
 <div class="page-head">
   <h1>{t('Dashboard')}</h1>
   {#if profile}<span class="sub">{profile.name} · {tn(profile.node_count, '{n} node', '{n} nodes')}</span>{/if}
+  <div class="tools"><button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button></div>
 </div>
+{#if subWarning}<div class="sub-warn"><Icon name="alert" />{subWarning}</div>{/if}
+{#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
 
 <div class="dash">
   <section class="card hero">
@@ -227,6 +247,8 @@
 </div>
 
 <style>
+  .sub-warn { display: flex; align-items: center; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+  .sub-warn :global(.i) { width: 16px; height: 16px; flex: none; }
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .speed { color: var(--fg); }
   .start { margin: 4px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }

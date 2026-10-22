@@ -2,6 +2,7 @@
 //! talking to them, and the system proxy. The UI layer (Tauri) only calls [`Engine`].
 
 pub mod cores;
+pub mod diag;
 pub mod engine;
 pub mod fetch;
 pub mod geodata;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { api, type Connection } from '../lib/api';
+  import { api, type Rule, type Connection } from '../lib/api';
   import { displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -43,6 +43,18 @@
     await app.run(() => api.closeConnection(r.id));
     rows = rows.filter((x) => x.id !== r.id);
   }
+  /** Route this connection's site the other way from now on, with a rule above all others. */
+  async function flip(r: Row) {
+    const toDirect = !isDirect(r);
+    const ip = /^[\d.]+$/.test(r.host) || r.host.includes(':');
+    const value = ip ? `${r.host}/${r.host.includes(':') ? 128 : 32}` : r.host.replace(/^www\./, '');
+    const rule: Rule = { kind: ip ? 'ip-cidr' : 'domain-suffix', value, target: toDirect ? 'DIRECT' : 'Proxy' };
+    await app.saveSettings((x) => {
+      x.core.custom_rules = [rule, ...x.core.custom_rules.filter((y) => !(y.kind === rule.kind && y.value === rule.value))];
+    }, toDirect ? t('{host} now always goes direct', { host: value }) : t('{host} now always goes through the proxy', { host: value }));
+    await app.run(() => api.closeConnection(r.id));
+  }
+
   async function closeAll() {
     const n = rows.length;
     await app.run(() => api.closeAllConnections(), tn(n, 'Closed {n} connection', 'Closed {n} connections'));
@@ -82,7 +94,10 @@
             <td class="r num up">{r.ul > 0 ? fmtSpeed(r.ul) : '—'}</td>
             <td class="r num">{fmtBytes(r.upload + r.download)}</td>
             <td class="r num">{fmtDur(now - r.started)}</td>
-            <td><button class="x" onclick={() => close(r)} aria-label={t('Close connection to {host}', { host: r.host })}><Icon name="x" /></button></td>
+            <td class="acts">
+              {#if r.host}<button class="x" onclick={() => flip(r)} title={isDirect(r) ? t('Always send {host} through the proxy', { host: r.host }) : t('Always send {host} direct', { host: r.host })}
+                aria-label={isDirect(r) ? t('Always send {host} through the proxy', { host: r.host }) : t('Always send {host} direct', { host: r.host })}><Icon name="connections" /></button>{/if}
+              <button class="x" onclick={() => close(r)} aria-label={t('Close connection to {host}', { host: r.host })}><Icon name="x" /></button></td>
           </tr>
         {:else}
           <tr><td colspan="9" class="none">{app.status.running ? t('No open connections match this filter.') : t('Connect to see live connections.')}</td></tr>
