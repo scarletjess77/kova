@@ -682,8 +682,9 @@ p { text-wrap: pretty; }
         <p data-t="dl.win.p">Installer for Windows 10 and 11, x64. Kova updates itself from inside the app.</p>
         <a class="btn primary" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
       <article class="rel" data-os="android"><div class="rel-h"><b>Android</b><span class="pill ok" data-t="pl.ready">Available</span></div>
-        <p data-t="dl.and.p">APK for Android 7 and later, arm64. Per-app VPN, QR import, a Quick Settings tile and a widget.</p>
-        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
+        <p data-t="dl.and.p">APK for Android 7 and later, phones and Android TV. Per-app VPN, QR import, a Quick Settings tile and a widget.</p>
+        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small>
+        <small><a id="apk32" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener" data-t="dl.and32">32-bit APK for older phones and most TVs</a></small></article>
       <article class="rel" data-os="linux"><div class="rel-h"><b>Linux</b><span class="pill warn" data-t="pl.new">New</span></div>
         <p data-t="dl.lin.p">AppImage and .deb, x64. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
         <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
@@ -802,7 +803,8 @@ p { text-wrap: pretty; }
     'dl.eyebrow': 'Скачать', 'dl.title': 'Установите Kova',
     'dl.btn': 'Скачать',
     'dl.win.p': 'Установщик для Windows 10 и 11, x64. Дальше Kova обновляется сама, прямо из приложения.',
-    'dl.and.p': 'APK для Android 7 и новее, arm64. Выбор приложений для VPN, импорт по QR-коду, плитка в быстрых настройках и виджет.',
+    'dl.and.p': 'APK для Android 7 и новее — телефоны и Android TV. Выбор приложений для VPN, импорт по QR-коду, плитка в быстрых настройках и виджет.',
+    'dl.and32': '32-битный APK для старых телефонов и большинства телевизоров',
     'dl.lin.p': 'AppImage и .deb, x64. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
     'dl.mac.p': 'Универсальный .dmg для Apple silicon и Intel. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
     'pl.ready': 'Доступно',
@@ -996,6 +998,8 @@ p { text-wrap: pretty; }
       el.querySelector('.size').textContent = `${latest.tag_name.replace(/^v/, '')} · ${num(a.size / 1048576, 1)} ${lang === 'ru' ? 'МБ' : 'MB'}`;
       if (os === mine) $('hero-dl').href = a.browser_download_url;
     }
+    const apk32 = latest.assets.find((x) => /_android-armv7\.apk$/.test(x.name));
+    if (apk32) $('apk32').href = apk32.browser_download_url;
   }
   fetch('https://api.github.com/repos/scarletjess77/kova/releases/latest')
     .then((r) => (r.ok ? r.json() : null))

@@ -89,7 +89,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
-          targets: aarch64-linux-android
+          targets: aarch64-linux-android,armv7-linux-androideabi
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
       - run: npm ci
       - name: Android NDK
@@ -97,10 +97,12 @@ jobs:
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;28.2.13676358" "platforms;android-36" > /dev/null
           echo "NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
       - name: Cores for Android
-        run: node scripts/android-cores.mjs
+        run: node scripts/android-cores.mjs arm64-v8a armeabi-v7a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Build the APK
+      # One APK per processor: 64-bit phones, and 32-bit phones and TVs. Each build gets
+      # only its own cores, so an APK never lists a processor it can't run on.
+      - name: Build the APKs
         env:
           # The APK signing key: every release must use the same one to install as an update.
           KEYSTORE_BASE64: ${{ secrets.KOVA_ANDROID_KEYSTORE }}
@@ -108,12 +110,17 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kova.jks"
           export KOVA_ANDROID_KEYSTORE="$RUNNER_TEMP/kova.jks"
-          npx tauri android build --apk --target aarch64
-      - name: Add it to the release
+          libs=src-tauri/gen/android/app/src/main/jniLibs
+          mkdir -p "$RUNNER_TEMP/aside"
+          for pair in "aarch64 arm64-v8a arm64" "armv7 armeabi-v7a armv7"; do
+            set -- $pair
+            other=$( [ "$2" = arm64-v8a ] && echo armeabi-v7a || echo arm64-v8a )
+            mv "$libs/$other" "$RUNNER_TEMP/aside/"
+            npx tauri android build --apk --target "$1"
+            cp "$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)" "Kova_${GITHUB_REF_NAME#v}_android-$3.apk"
+            mv "$RUNNER_TEMP/aside/$other" "$libs/"
+          done
+      - name: Add them to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          apk=$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)
-          name="Kova_${GITHUB_REF_NAME#v}_android-arm64.apk"
-          cp "$apk" "$name"
-          gh release upload "$GITHUB_REF_NAME" "$name" --clobber
+        run: gh release upload "$GITHUB_REF_NAME" Kova_*_android-*.apk --clobber

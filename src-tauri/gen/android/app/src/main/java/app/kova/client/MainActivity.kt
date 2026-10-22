@@ -39,6 +39,31 @@ class MainActivity : TauriActivity() {
     connectIfAsked(intent)
   }
 
+  // With a TV remote the first key press would only move Android's focus onto the page
+  // (Android swallows it when leaving touch mode) and do nothing the user can see; the
+  // page takes focus as soon as the window has it instead, touch mode or not.
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus) focusPage(20)
+  }
+
+  /** The page view appears a moment after the window, so look for it a few times. */
+  private fun focusPage(tries: Int) {
+    val web = findWebView(findViewById(android.R.id.content))
+    if (web == null) {
+      if (tries > 0) window.decorView.postDelayed({ focusPage(tries - 1) }, 250)
+      return
+    }
+    web.isFocusableInTouchMode = true
+    if (!web.hasFocus()) web.requestFocus()
+  }
+
+  private fun findWebView(view: View?): android.webkit.WebView? = when (view) {
+    is android.webkit.WebView -> view
+    is android.view.ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { findWebView(view.getChildAt(it)) }
+    else -> null
+  }
+
   private fun connectIfAsked(intent: Intent?) {
     // Once only: the same intent comes back when Android recreates the window.
     if (intent?.component?.className != "app.kova.client.Connect" || intent.getBooleanExtra(HANDLED, false)) return

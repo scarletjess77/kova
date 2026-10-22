@@ -17,7 +17,7 @@
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-{#if app.mobile && app.navOpen}<div class="scrim" onclick={() => app.closeNav()}></div>{/if}
+{#if app.mobile && !app.tv && app.navOpen}<div class="scrim" onclick={() => app.closeNav()}></div>{/if}
 <aside class="side" class:open={app.navOpen}>
   <nav class="nav">
     {#each NAV as [id, label] (id)}
@@ -61,11 +61,12 @@
   .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .s { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
 
-  /* Phone: the same list as a panel that slides in from the left, over the page. */
+  /* Phone: the same list as a panel that slides in from the left, over the page. A TV
+     has the room to keep it in place, as on a computer. */
   .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .5); z-index: 24; }
-  :global(.app.mobile) .side { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 82vw); z-index: 25; background: var(--win); padding: 16px 12px; gap: 14px;
+  :global(.app.mobile:not(.tv)) .side { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 82vw); z-index: 25; background: var(--win); padding: 16px 12px; gap: 14px;
     transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow); }
-  :global(.app.mobile) .side.open { transform: none; }
+  :global(.app.mobile:not(.tv)) .side.open { transform: none; }
   :global(.app.mobile) .nav button { padding: 13px 12px; font-size: 15px; gap: 14px; }
   :global(.app.mobile) .nav button :global(.i) { width: 20px; height: 20px; }
 </style>

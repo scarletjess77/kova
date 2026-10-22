@@ -16,7 +16,7 @@
 
 <!-- Dragging moves the window on desktop; a phone has no window to move. -->
 <header class="titlebar" data-tauri-drag-region={app.mobile ? undefined : ''}>
-  {#if app.mobile}
+  {#if app.mobile && !app.tv}
     <button class="tb-btn menu" onclick={() => app.openNav()} aria-label={t('Menu')} aria-expanded={app.navOpen}><Icon name="menu" /></button>
   {/if}
   <div class="brand" data-tauri-drag-region={app.mobile ? undefined : ''}>
