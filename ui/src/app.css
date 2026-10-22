@@ -158,3 +158,5 @@ td.r, th.r { text-align: right; }
 /* ---------- Android TV: focus must be obvious from across the room ---------- */
 .tv :focus, .tv :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
 .tv .btn, .tv .seg button { min-height: 44px; }
+.app.mobile.tv { grid-template-columns: 260px minmax(0, 1fr); }
+.app.mobile.tv .main { grid-column: 2; padding: 22px 28px 28px; }

@@ -66,3 +66,21 @@ export function countryCode(name: string): string | null {
 export function displayName(name: string): string {
   return name.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim() || name;
 }
+
+/**
+ * Release notes as written on GitHub, made readable: bold, bullets and headings
+ * without their Markdown marks. Escaped first, so the text can't add markup of its own.
+ */
+export function notesHtml(md: string, limit = 700): string {
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const text = md.length > limit ? md.slice(0, md.lastIndexOf('\n', limit) > 0 ? md.lastIndexOf('\n', limit) : limit) + '\n…' : md;
+  return text
+    .split('\n')
+    .map((line) => {
+      let l = esc(line.trim()).replace(/\*\*(.+?)\*\*/g, '<b>$1</b>').replace(/`([^`]+)`/g, '$1');
+      if (/^#{1,6}\s/.test(l)) l = `<b>${l.replace(/^#+\s*/, '')}</b>`;
+      if (/^[-*]\s/.test(l)) l = '• ' + l.slice(2);
+      return l;
+    })
+    .join('\n');
+}
