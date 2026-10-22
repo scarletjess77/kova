@@ -251,7 +251,7 @@
   .sub-warn :global(.i) { width: 16px; height: 16px; flex: none; }
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .speed { color: var(--fg); }
-  .start { margin: 4px 0 12px; padding-left: 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+  .start { margin: 4px 0 12px; padding-left: 20px; text-align: left; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
   .start li::marker { color: var(--faint); font: 600 12px var(--f-mono); }
   .start b { display: block; color: var(--fg); font-weight: 600; }
   .dash { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; }

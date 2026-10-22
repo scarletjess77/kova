@@ -3,7 +3,7 @@
   import { getVersion } from '@tauri-apps/api/app';
   import { openPath } from '@tauri-apps/plugin-opener';
   import { api, errText, type CoreKind, type CoreStatus, type GeoInfo, type GeoSource, type ServiceView, type Settings } from '../lib/api';
-  import { fmtAgo, fmtBytes } from '../lib/format';
+  import { fmtAgo, fmtBytes, notesHtml } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import AppPicker from '../components/AppPicker.svelte';
@@ -339,7 +339,7 @@
           <div class="upd">
             <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
             {#if app.update.date}<div class="d">{t('Released {date}', { date: app.update.date.slice(0, 10) })}</div>{/if}
-            {#if app.update.body}<p class="notes">{app.update.body.slice(0, 400)}</p>{/if}
+            {#if app.update.body}<p class="notes">{@html notesHtml(app.update.body)}</p>{/if}
             {#if app.updateProgress !== null}
               <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
               <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : app.mobile ? t('Opening Android’s installer') : t('Installing, Kova will restart')}</div>
