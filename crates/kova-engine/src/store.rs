@@ -124,6 +124,28 @@ pub struct Settings {
     pub check_updates: bool,
     /// Also update to beta versions (pre-releases). On by default in a beta build.
     pub beta_updates: bool,
+    /// Android: which apps go through the VPN.
+    pub vpn_apps: VpnApps,
+}
+
+/// Which apps the Android VPN covers, by package name.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VpnApps {
+    pub mode: VpnAppsMode,
+    pub apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VpnAppsMode {
+    /// Every app.
+    #[default]
+    All,
+    /// Only the listed apps.
+    Only,
+    /// Every app but the listed ones.
+    Except,
 }
 
 impl Default for Settings {
@@ -144,6 +166,7 @@ impl Default for Settings {
             check_sites: Vec::new(),
             check_updates: true,
             beta_updates: env!("CARGO_PKG_VERSION").contains('-'),
+            vpn_apps: VpnApps::default(),
         }
     }
 }

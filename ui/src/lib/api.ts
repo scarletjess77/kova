@@ -67,7 +67,13 @@ export interface Settings {
   check_sites: string[];
   check_updates: boolean;
   beta_updates: boolean;
+  /** Android: which apps go through the VPN. */
+  vpn_apps: { mode: VpnAppsMode; apps: string[] };
 }
+
+export type VpnAppsMode = 'all' | 'only' | 'except';
+/** An app installed on the phone; `icon` is a data URL. */
+export interface VpnApp { package: string; label: string; system: boolean; icon: string }
 
 export interface Status {
   running: boolean;
@@ -178,6 +184,8 @@ export const api = {
   installUpdate: () => invoke<void>('install_update'),
   systemLanguage: () => invoke<string>('system_language'),
   platform: () => invoke<string>('platform'),
+  vpnApps: () => invoke<{ apps: VpnApp[] }>('vpn_apps'),
+  openVpnSettings: () => invoke<void>('open_vpn_settings'),
   learnedSites: () => invoke<Learned[]>('learned_sites'),
   forgetLearned: (domain: string) => invoke<void>('forget_learned', { domain }),
   keepLearned: (domain: string) => invoke<Settings>('keep_learned', { domain }),

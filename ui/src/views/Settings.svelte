@@ -6,10 +6,12 @@
   import { fmtAgo, fmtBytes } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
+  import AppPicker from '../components/AppPicker.svelte';
   import Donate from '../components/Donate.svelte';
   import Icon from '../components/Icon.svelte';
 
   let appVersion = $state('');
+  let pickingApps = $state(false);
   getVersion().then((v) => (appVersion = v), () => {});
 
   let s = $derived(app.settings);
@@ -144,6 +146,23 @@
             <button class="switch" role="switch" aria-label={t('Sniff domains')} aria-checked={s.core.sniff} onclick={() => toggle((x) => x.core.sniff, (x, v) => (x.core.sniff = v))}></button></div>
         </div>
       </section>
+
+      {#if app.mobile}
+      <section class="card">
+        <div class="card-h"><h2>VPN</h2></div>
+        <div class="rows">
+          <div class="row-sw"><div><div class="t">{t('Apps through the VPN')}</div>
+            <div class="d">{s.vpn_apps.mode === 'all' ? t('All apps') : s.vpn_apps.mode === 'only'
+              ? tn(s.vpn_apps.apps.length, 'Only {n} chosen app', 'Only {n} chosen apps')
+              : tn(s.vpn_apps.apps.length, 'All but {n} chosen app', 'All but {n} chosen apps')}</div></div>
+            <button class="btn" onclick={() => (pickingApps = true)}>{t('Choose')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Always-on VPN')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN.')}</div></div>
+            <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
+        </div>
+      </section>
+      {/if}
+      {#if pickingApps}<AppPicker onclose={() => (pickingApps = false)} />{/if}
 
       {#if !app.mobile}
       <section class="card">

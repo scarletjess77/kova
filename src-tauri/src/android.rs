@@ -7,6 +7,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
+use kova_engine::store::VpnAppsMode;
 use kova_engine::{Engine, Error};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -48,6 +49,16 @@ struct Active {
 struct TunnelArgs {
     mtu: u32,
     ipv6: bool,
+    /// "all", "only" or "except", for `apps`.
+    mode: &'static str,
+    apps: Vec<String>,
+    /// What the VPN's notification shows: the profile.
+    label: String,
+}
+
+#[derive(Deserialize)]
+struct Action {
+    action: String,
 }
 
 /// Connecting and disconnecting run one at a time: a second tap while the permission
@@ -66,7 +77,14 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
         return Err(Error::Other("Kova needs permission to set up a VPN to connect".into()));
     }
     let s = engine.settings();
-    let t: Tunnel = call(app, "establish", TunnelArgs { mtu: s.core.tun.mtu.into(), ipv6: s.core.ipv6 }).await?;
+    let mode = match s.vpn_apps.mode {
+        VpnAppsMode::All => "all",
+        VpnAppsMode::Only => "only",
+        VpnAppsMode::Except => "except",
+    };
+    let label = engine.profiles().into_iter().find(|p| Some(&p.id) == s.active_profile.as_ref()).map(|p| p.name).unwrap_or_default();
+    let args = TunnelArgs { mtu: s.core.tun.mtu.into(), ipv6: s.core.ipv6, mode, apps: s.vpn_apps.apps.clone(), label };
+    let t: Tunnel = call(app, "establish", args).await?;
     // An interface still held from a connection that ended on its own is closed first.
     if let Some(old) = engine.take_tun_fd() {
         close_fd(old);
@@ -146,6 +164,43 @@ fn watch(app: AppHandle, engine: Arc<Engine>, session: u64) {
             };
             let _ = app.emit("toast", msg);
             return;
+        }
+    });
+}
+
+/// The apps installed on the phone that can use the network, for choosing which go
+/// through the VPN: package, label, icon (a data URL) and whether it is a system app.
+pub async fn apps(app: &AppHandle) -> Result<serde_json::Value, Error> {
+    call(app, "apps", ()).await
+}
+
+/// Android's VPN settings, where Kova can be made the always-on VPN.
+pub async fn open_vpn_settings(app: &AppHandle) -> Result<(), Error> {
+    call::<serde_json::Value>(app, "openVpnSettings", ()).await.map(|_| ())
+}
+
+/// Requests from outside Kova's window: the Quick Settings tile, the notification's
+/// Disconnect button, and Android starting the VPN on its own (always-on). The Kotlin
+/// side answers a waiting call when one comes, so this keeps one call waiting.
+pub fn listen_for_actions(app: AppHandle, engine: Arc<Engine>) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let a: Action = match call(&app, "nextAction", ()).await {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!("waiting for VPN actions failed: {e}");
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    continue;
+                }
+            };
+            let done = match a.action.as_str() {
+                "connect" => connect(&app, &engine).await,
+                "disconnect" => disconnect(&app, &engine).await,
+                _ => Ok(()),
+            };
+            if let Err(e) = done {
+                let _ = app.emit("toast", e.to_string());
+            }
         }
     });
 }

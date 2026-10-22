@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { checkPermissions, Format, requestPermissions, scan } from '@tauri-apps/plugin-barcode-scanner';
   import { readText } from '@tauri-apps/plugin-clipboard-manager';
   import { open } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
@@ -10,7 +11,7 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  type Tab = 'link' | 'clip' | 'file';
+  type Tab = 'link' | 'clip' | 'file' | 'qr';
   let tab = $state<Tab>('link');
   let input = $state('');
   let name = $state('');
@@ -26,6 +27,21 @@
     try { clip = (await readText()) ?? ''; } catch { clip = ''; }
   }
   $effect(() => { if (tab === 'clip' && clip === null) void loadClipboard(); });
+
+  /** Phone: read a subscription or share link from a QR code with the camera. */
+  async function scanQr() {
+    let perm = await checkPermissions().catch(() => 'prompt');
+    if (perm !== 'granted') perm = await requestPermissions().catch(() => 'denied');
+    if (perm !== 'granted') {
+      app.notify(t('Kova needs the camera to read a QR code. Allow it in Android’s app settings.'));
+      return;
+    }
+    const r = await app.run(() => scan({ windowed: false, formats: [Format.QRCode] }));
+    if (r?.content) {
+      input = r.content.trim();
+      tab = 'link';
+    }
+  }
 
   async function pickFile() {
     const path = await open({ multiple: false, filters: [{ name: t('Configs and link lists'), extensions: ['yaml', 'yml', 'json', 'txt', 'conf'] }] });
@@ -50,7 +66,8 @@
   <div class="seg" role="group" aria-label={t('Import from')}>
     <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>{t('Link')}</button>
     <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>{t('Clipboard')}</button>
-    {#if !app.mobile}<button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>{/if}
+    {#if app.mobile}<button aria-pressed={tab === 'qr'} onclick={() => (tab = 'qr')}>{t('QR code')}</button>
+    {:else}<button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>{/if}
   </div>
 
   {#if tab === 'link'}
@@ -74,6 +91,12 @@
         <b>{t('The clipboard is empty')}</b><span>{t('Copy a subscription URL or share links, then check again.')}</span>
       {/if}
       <button class="btn ghost" onclick={loadClipboard}><Icon name="refresh" />{t('Check again')}</button>
+    </div>
+  {:else if tab === 'qr'}
+    <div class="drop">
+      <Icon name="qr" />
+      <b>{t('Scan a QR code')}</b><span>{t('A subscription or share link shown as a QR code, on another screen or on paper.')}</span>
+      <button class="btn primary" onclick={scanQr}><Icon name="qr" />{t('Open the camera')}</button>
     </div>
   {:else}
     <div class="drop">

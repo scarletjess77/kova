@@ -122,6 +122,30 @@ fn dismiss_suggestion(engine: Eng, domain: String) {
     engine.dismiss_suggestion(&domain);
 }
 
+/// Android: the installed apps, for choosing which go through the VPN.
+#[tauri::command]
+async fn vpn_apps(app: AppHandle) -> R<serde_json::Value> {
+    #[cfg(target_os = "android")]
+    return android::apps(&app).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(Error::Other("Only on Android".into()))
+    }
+}
+
+/// Android: open the system's VPN settings (always-on VPN).
+#[tauri::command]
+async fn open_vpn_settings(app: AppHandle) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::open_vpn_settings(&app).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(Error::Other("Only on Android".into()))
+    }
+}
+
 #[tauri::command]
 async fn connect(app: AppHandle, engine: Eng<'_>) -> R<()> {
     start(&app, engine.inner()).await
@@ -494,7 +518,7 @@ pub fn run() {
             }
         });
     #[cfg(target_os = "android")]
-    let builder = builder.plugin(android::plugin());
+    let builder = builder.plugin(android::plugin()).plugin(tauri_plugin_barcode_scanner::init());
     let app = builder
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
@@ -508,6 +532,8 @@ pub fn run() {
             app.manage(updates::PendingUpdate::default());
             let handle = app.handle().clone();
             forward_events(handle.clone(), engine.clone());
+            #[cfg(target_os = "android")]
+            android::listen_for_actions(handle.clone(), engine.clone());
             tauri::async_runtime::spawn(background(handle, engine));
             Ok(())
         })
@@ -516,6 +542,8 @@ pub fn run() {
             system_language,
             platform,
             updates::check_update,
+            vpn_apps,
+            open_vpn_settings,
             updates::install_update,
             learned_sites,
             forget_learned,
