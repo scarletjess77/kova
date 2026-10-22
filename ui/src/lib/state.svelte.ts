@@ -2,6 +2,7 @@
 
 import { listen } from '@tauri-apps/api/event';
 import { friendly } from './errors';
+import { enableTvNavigation } from './tvnav';
 import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo } from './api';
 import { i18n, resolveLang, t, tn } from './i18n.svelte';
 
@@ -51,6 +52,9 @@ class AppState {
   mobile = $state(false);
   /** The operating system: "windows", "linux", "macos", "android", ... */
   platform = $state('');
+  /** Android TV: navigated with a remote, no touch, usually no camera. */
+  tv = $state(false);
+  camera = $state(true);
   /** A connect or disconnect the user started is under way. On Android that includes
    *  the permission dialog and opening the VPN, before the engine reports busy. */
   toggling = $state(false);
@@ -155,6 +159,12 @@ class AppState {
     this.dataDir = snap.data_dir;
     this.platform = await api.platform().catch(() => '');
     this.mobile = ['android', 'ios'].includes(this.platform);
+    if (this.mobile) {
+      const d = await api.deviceInfo().catch(() => ({ tv: false, camera: true }));
+      this.tv = d.tv;
+      this.camera = d.camera;
+      if (this.tv) enableTvNavigation();
+    }
     this.systemLang = await api.systemLanguage().catch(() => navigator.language);
     this.applyTheme();
     await listen<EngineEvent>('engine', (e) => this.onEvent(e.payload));

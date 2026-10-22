@@ -12,6 +12,8 @@
 
   let appVersion = $state('');
   let pickingApps = $state(false);
+  let lanIp = $state<string | null>(null);
+  $effect(() => { if (app.settings?.core.allow_lan) void api.lanAddress().then((v) => (lanIp = v), () => {}); });
   getVersion().then((v) => (appVersion = v), () => {});
 
   let s = $derived(app.settings);
@@ -139,7 +141,10 @@
         </div>
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Allow connections from LAN')}</div><div class="d">{t('Share the proxy with phones and consoles on your network')}</div>
-            {#if s.core.allow_lan}<div class="d">{t('Other devices sign in as {user} with the password', { user: 'kova' })} <span class="mono selectable">{s.core.local_password}</span></div>{/if}</div>
+            {#if s.core.allow_lan}
+              {#if lanIp}<div class="d">{t('Address for other devices')} <span class="mono selectable">{lanIp}:{s.core.mixed_port}</span> {t('(HTTP and SOCKS5)')}</div>{/if}
+              <div class="d">{t('Other devices sign in as {user} with the password', { user: 'kova' })} <span class="mono selectable">{s.core.local_password}</span></div>
+            {/if}</div>
             <button class="switch" role="switch" aria-label={t('Allow connections from LAN')} aria-checked={s.core.allow_lan} onclick={() => toggle((x) => x.core.allow_lan, (x, v) => (x.core.allow_lan = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Switch away from a dead node')}</div><div class="d">{t('When the chosen node stops answering, move to the fastest one that works and say so')}</div></div>
             <button class="switch" role="switch" aria-label={t('Switch away from a dead node')} aria-checked={s.auto_switch} onclick={() => toggle((x) => x.auto_switch, (x, v) => (x.auto_switch = v))}></button></div>
@@ -357,6 +362,23 @@
         <div class="actions gap"><button class="btn" class:busy={app.checkingUpdate} disabled={app.checkingUpdate || app.updateProgress !== null} onclick={() => app.checkForUpdate()}><Icon name="refresh" />{t('Check now')}</button></div>
       </section>
 
+      <section class="card">
+        <details class="contacts">
+          <summary><h2>{t('What Kova connects to')}</h2></summary>
+          <p class="hint">{t('Besides your servers, Kova contacts only these, and the last four only when you use that feature:')}</p>
+          <dl>
+            <dt class="mono">github.com</dt><dd>{t('Kova updates, cores and routing data')}</dd>
+            <dt>{t('Your subscription’s address')}</dt><dd>{t('Updating the profile')}</dd>
+            <dt class="mono">www.gstatic.com</dt><dd>{t('Latency tests and health checks, through your servers')}</dd>
+            <dt class="mono">ipwho.is, ipinfo.io</dt><dd>{t('The Exit point card')}</dd>
+            <dt class="mono">ya.ru</dt><dd>{t('What’s wrong? (whether the network works)')}</dd>
+            <dt class="mono">api.ipify.org</dt><dd>{t('Privacy check')}</dd>
+            <dt class="mono">speed.cloudflare.com</dt><dd>{t('Speed test')}</dd>
+            <dt>{t('Sites in Site check')}</dt><dd>{t('Site check')}</dd>
+          </dl>
+        </details>
+      </section>
+
       <section class="card" id="donate">
         <div class="card-h"><h2>{t('Support Kova')}</h2><span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span></div>
         <Donate />
@@ -366,6 +388,11 @@
 {/if}
 
 <style>
+  .contacts summary { cursor: pointer; list-style: none; }
+  .contacts summary h2 { display: inline; font: 600 13.5px var(--f-ui); }
+  .contacts dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 0; font-size: 12.5px; }
+  .contacts dt { overflow-wrap: anywhere; }
+  .contacts dd { margin: 0; color: var(--muted); }
   .set { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
   .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   @container (max-width: 900px) { .set { grid-template-columns: minmax(0, 1fr); } }

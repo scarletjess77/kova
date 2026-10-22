@@ -154,3 +154,7 @@ td.r, th.r { text-align: right; }
 .dn { color: var(--fg); }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
+
+/* ---------- Android TV: focus must be obvious from across the room ---------- */
+.tv :focus, .tv :focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.tv .btn, .tv .seg button { min-height: 44px; }

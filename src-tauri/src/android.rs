@@ -262,3 +262,8 @@ struct ApkArgs {
 pub async fn install_apk(app: &AppHandle, path: &std::path::Path) -> Result<(), Error> {
     call::<serde_json::Value>(app, "installApk", ApkArgs { path: path.to_string_lossy().into() }).await.map(|_| ())
 }
+
+/// Whether this is a TV and whether it has a camera.
+pub async fn device(app: &AppHandle) -> Result<serde_json::Value, Error> {
+    call(app, "device", ()).await
+}

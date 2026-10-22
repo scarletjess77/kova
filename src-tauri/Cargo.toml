@@ -24,6 +24,8 @@ tauri = { version = "2.12.4", features = ["tray-icon", "image-png"] }
 tauri-plugin-clipboard-manager = "2.5.0"
 tauri-plugin-dialog = "2.8.3"
 tauri-plugin-opener = "2.7.2"
+tauri-plugin-notification = "2.6.0"
+uuid = { version = "1.28.0", features = ["v4"] }
 tokio = { version = "1.54.0", features = ["full"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
@@ -40,3 +42,6 @@ tauri-plugin-barcode-scanner = "2.5.3"
 
 [build-dependencies]
 tauri-build = { version = "2.7.3", features = [] }
+
+[dev-dependencies]
+tempfile = "3.27.0"

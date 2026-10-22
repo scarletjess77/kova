@@ -6,6 +6,7 @@ mod android;
 #[cfg(desktop)]
 mod desktop;
 mod i18n;
+mod receive;
 mod updates;
 
 use std::collections::HashMap;
@@ -120,6 +121,58 @@ async fn accept_suggestion(app: AppHandle, engine: Eng<'_>, domain: String) -> R
 #[tauri::command]
 fn dismiss_suggestion(engine: Eng, domain: String) {
     engine.dismiss_suggestion(&domain);
+}
+
+/// What kind of device: `{ tv, camera }`. Only Android has TVs and cameras Kova uses.
+#[tauri::command]
+async fn device_info(app: AppHandle) -> serde_json::Value {
+    #[cfg(target_os = "android")]
+    if let Ok(v) = android::device(&app).await {
+        return v;
+    }
+    let _ = app;
+    serde_json::json!({ "tv": false, "camera": false })
+}
+
+/// Why isn't it working? Step by step; see `kova_engine::diag`.
+#[tauri::command]
+async fn diagnose(engine: Eng<'_>) -> R<Vec<kova_engine::diag::Check>> {
+    Ok(engine.diagnose().await)
+}
+
+#[tauri::command]
+async fn privacy_check(engine: Eng<'_>) -> R<Vec<kova_engine::diag::Check>> {
+    Ok(engine.privacy_check().await)
+}
+
+#[derive(Serialize)]
+struct Speeds {
+    through_kova: Option<f64>,
+    direct: Option<f64>,
+}
+
+#[tauri::command]
+async fn speed_test(engine: Eng<'_>) -> R<Speeds> {
+    let (through_kova, direct) = engine.speed_test().await;
+    Ok(Speeds { through_kova, direct })
+}
+
+/// This device's address on the local network, for sharing the proxy.
+#[tauri::command]
+fn lan_address() -> Option<String> {
+    receive::lan_ip().map(|ip| ip.to_string())
+}
+
+/// Serve the "add from another device" page; see `receive`.
+#[tauri::command]
+async fn receive_start(app: AppHandle, engine: Eng<'_>) -> R<receive::Receiving> {
+    let ru = i18n::lang(&engine.settings()) == i18n::Lang::Ru;
+    receive::start(app, engine.inner().clone(), ru).await
+}
+
+#[tauri::command]
+fn receive_stop() {
+    receive::stop();
 }
 
 /// Android: the installed apps, for choosing which go through the VPN.
@@ -464,6 +517,16 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
             let _ = app.emit("toast", tr(l, "Could not connect: {}", &[&e.to_string()]));
         }
     }
+    // A subscription about to run out is announced a few days ahead, once a day.
+    tauri::async_runtime::spawn({
+        let (app, engine) = (app.clone(), engine.clone());
+        async move {
+            loop {
+                warn_subscriptions(&app, &engine);
+                tokio::time::sleep(Duration::from_secs(24 * 3600)).await;
+            }
+        }
+    });
     // A chosen node that stops answering is swapped for a working one.
     tauri::async_runtime::spawn({
         let (app, engine) = (app.clone(), engine.clone());
@@ -513,6 +576,30 @@ fn forward_events(app: AppHandle, engine: Arc<Engine>) {
             }
         }
     });
+}
+
+/// Notify about subscriptions that end within three days or have used 90% of their
+/// traffic: as a system notification, so it shows even with Kova in the background.
+fn warn_subscriptions(app: &AppHandle, engine: &Arc<Engine>) {
+    use tauri_plugin_notification::NotificationExt;
+    let l = i18n::lang(&engine.settings());
+    let now = kova_engine::store::now();
+    for p in engine.profiles() {
+        let Some(u) = p.usage else { continue };
+        let left_days = u.expire.map(|e| (e - now) as f64 / 86400.0);
+        let text = match left_days {
+            Some(d) if d < 0.0 => Some(tr(l, "{} has expired", &[&p.name])),
+            Some(d) if d <= 3.0 => Some(tr(l, "{} ends in {} days", &[&p.name, &(d.ceil() as i64).max(1).to_string()])),
+            _ if u.total > 0 && (u.upload + u.download) as f64 >= u.total as f64 * 0.9 => {
+                let pct = ((u.upload + u.download) as f64 / u.total as f64 * 100.0).min(100.0) as i64;
+                Some(tr(l, "{} has used {}% of its traffic", &[&p.name, &pct.to_string()]))
+            }
+            _ => None,
+        };
+        if let Some(text) = text {
+            let _ = app.notification().builder().title("Kova").body(&text).show();
+        }
+    }
 }
 
 /// A new install starts with the routing presets for where its user likely is, by the
@@ -565,6 +652,7 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let dir: std::path::PathBuf = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
             let first_run = !kova_engine::store::Paths::new(&dir).map(|p| p.settings().exists()).unwrap_or(true);
@@ -590,6 +678,13 @@ pub fn run() {
             updates::check_update,
             vpn_apps,
             open_vpn_settings,
+            device_info,
+            diagnose,
+            privacy_check,
+            speed_test,
+            lan_address,
+            receive_start,
+            receive_stop,
             updates::install_update,
             learned_sites,
             forget_learned,

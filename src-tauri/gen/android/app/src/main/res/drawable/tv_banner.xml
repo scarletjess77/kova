@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Android TV launcher banner (320×180): Kova's mark and name on its dark ground. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="320dp"
+    android:height="180dp"
+    android:viewportWidth="320"
+    android:viewportHeight="180">
+    <path android:fillColor="#101012" android:pathData="M0,0h320v180h-320z" />
+    <path android:fillColor="#EDEDEF" android:pathData="M40,58h64v64h-64z" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M62,72 V108 M83,72 L65,90 L83,108"
+        android:strokeColor="#111113"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="8" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M128,68 V112 M156,68 L132,90 L156,112 M196,68 a22,22 0 1,0 0.1,0 Z M232,68 L248,112 L264,68 M272,112 L288,68 L304,112 M279,98 H297"
+        android:strokeColor="#EDEDEF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="7" />
+</vector>

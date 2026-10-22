@@ -128,6 +128,15 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    /** What kind of device this is: a TV (no touch, a remote) and whether it has a camera. */
+    @Command
+    fun device(invoke: Invoke) {
+        val ui = activity.getSystemService(android.app.UiModeManager::class.java)
+        val tv = ui?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
+        val camera = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+        invoke.resolve(JSObject().put("tv", tv).put("camera", camera))
+    }
+
     /** Open Android's installer for a downloaded update. */
     @Command
     fun installApk(invoke: Invoke) {
