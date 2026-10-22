@@ -122,7 +122,12 @@ struct Asset {
 async fn latest_release(core: CoreKind) -> Result<Release, Error> {
     let c = fetch::client(None, fetch::APP_UA)?;
     let url = format!("https://api.github.com/repos/{}/releases/latest", repo(core));
-    let r = c.get(url).header("Accept", "application/vnd.github+json").send().await?;
+    let mut req = c.get(url).header("Accept", "application/vnd.github+json");
+    // Release builds run where many share GitHub's limit for anonymous requests.
+    if let Ok(token) = std::env::var("GITHUB_TOKEN") {
+        req = req.bearer_auth(token);
+    }
+    let r = req.send().await?;
     if !r.status().is_success() {
         return Err(Error::Http(format!("GitHub answered {}", r.status())));
     }
@@ -139,9 +144,10 @@ fn os_arch() -> (&'static str, &'static str) {
     (os, arch)
 }
 
-/// Pick the release asset for this machine, most compatible build first.
-fn pick_asset<'a>(core: CoreKind, rel: &'a Release) -> Option<&'a Asset> {
-    let (os, arch) = os_arch();
+/// Pick the release asset for this system and `arch` ("amd64" or "arm64"), most
+/// compatible build first.
+fn pick_asset<'a>(core: CoreKind, rel: &'a Release, arch: &str) -> Option<&'a Asset> {
+    let (os, _) = os_arch();
     let tag = &rel.tag_name;
     let candidates: Vec<String> = match core {
         CoreKind::Mihomo => {
@@ -181,11 +187,17 @@ async fn expected_sha256(c: &reqwest::Client, rel: &Release, asset: &Asset) -> R
 
 /// Download, verify and install the latest release. Returns the installed tag.
 pub async fn install_latest(cores_dir: &Path, core: CoreKind) -> Result<String, Error> {
+    install_latest_for(cores_dir, core, os_arch().1).await
+}
+
+/// [`install_latest`] for another processor of this system (`"amd64"` or `"arm64"`):
+/// building the Intel Mac installer on an Apple-silicon machine.
+pub async fn install_latest_for(cores_dir: &Path, core: CoreKind, arch: &str) -> Result<String, Error> {
     if cfg!(target_os = "android") {
         return Err(Error::Core(format!("On Android, {} is updated together with Kova", core.label())));
     }
     let rel = latest_release(core).await?;
-    let asset = pick_asset(core, &rel).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
+    let asset = pick_asset(core, &rel, arch).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
     let c = fetch::client(None, fetch::APP_UA)?;
     let expected = expected_sha256(&c, &rel, asset).await?.ok_or_else(|| Error::Core(format!("{} has no published checksum; refusing to install it", asset.name)))?;
     let data = c.get(&asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
@@ -225,6 +237,31 @@ pub async fn install_latest(cores_dir: &Path, core: CoreKind) -> Result<String, 
     }
     let _ = std::fs::remove_dir_all(&staging);
     Ok(rel.tag_name)
+}
+
+/// Copy the cores and routing data that came with the installer into `cores_dir`, for
+/// whatever isn't there yet: Kova then works on its first start even where GitHub, which
+/// it would download them from, is blocked. Later updates still come from GitHub.
+pub fn adopt_bundled(bundle_dir: &Path, cores_dir: &Path) -> Vec<String> {
+    let mut adopted = Vec::new();
+    let Ok(entries) = std::fs::read_dir(bundle_dir) else { return adopted };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let dest = cores_dir.join(&name);
+        if !entry.path().is_file() || dest.exists() {
+            continue;
+        }
+        if std::fs::create_dir_all(cores_dir).is_err() || std::fs::copy(entry.path(), &dest).is_err() {
+            continue;
+        }
+        #[cfg(unix)]
+        if !name.ends_with(".dat") {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&dest, std::fs::Permissions::from_mode(0o755));
+        }
+        adopted.push(name);
+    }
+    adopted
 }
 
 fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bool) -> Result<(), Error> {

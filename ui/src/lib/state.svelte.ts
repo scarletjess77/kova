@@ -218,6 +218,9 @@ class AppState {
           ? t('{domain} is blocked here; it now goes through the proxy', { domain: e.domain })
           : t('{domain} refuses the proxy; it now goes direct', { domain: e.domain }));
         break;
+      case 'notice':
+        this.notify(friendly(e.text));
+        break;
       case 'suggested':
         this.learnedVersion++;
         void this.countSuggestions();

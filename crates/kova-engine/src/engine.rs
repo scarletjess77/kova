@@ -36,6 +36,8 @@ pub enum Event {
     Learned { domain: String, route: kova_core::smart::Route, reason: String },
     /// Smart routing suggests an exception to a rule the user owns.
     Suggested { domain: String, route: kova_core::smart::Route, rule: String, origin: kova_core::smart::Origin },
+    /// Something the user should hear about once, in plain words.
+    Notice { text: String },
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -688,6 +690,9 @@ impl Engine {
                 if let Err(e) = self.apply_system_proxy() {
                     self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("could not set the system proxy: {e}") });
                 }
+                if !self.has_geodata() {
+                    self.fetch_geodata_through_proxy();
+                }
                 Ok(())
             }
             Err(e) => {
@@ -738,6 +743,37 @@ impl Engine {
 
     /// Give a Mihomo home the installed geodata, so a start doesn't depend on Mihomo
     /// downloading it from GitHub (slow or blocked in some countries).
+    /// Whether both routing data files are installed.
+    fn has_geodata(&self) -> bool {
+        let dir = self.paths.cores_dir();
+        ["geoip.dat", "geosite.dat"].iter().all(|f| dir.join(f).exists())
+    }
+
+    /// Connected without the routing data: download it through the connection, which
+    /// works where GitHub itself is blocked, then reconnect with every rule. Tries a few
+    /// times with growing pauses while the connection stays up.
+    fn fetch_geodata_through_proxy(&self) {
+        let me = self.me.clone();
+        tokio::spawn(async move {
+            for attempt in 1..=5u64 {
+                let Some(e) = me.upgrade() else { return };
+                if !e.status().running {
+                    return;
+                }
+                match e.refresh_geodata_files(false).await {
+                    Ok(_) => {
+                        let _ = e.restart().await;
+                        e.emit(Event::Notice { text: "Routing data downloaded through the server; every rule works now".into() });
+                        return;
+                    }
+                    Err(err) => tracing::warn!("routing data through the proxy, attempt {attempt}: {err}"),
+                }
+                drop(e);
+                tokio::time::sleep(Duration::from_secs(20 * attempt)).await;
+            }
+        });
+    }
+
     fn seed_geodata(&self, home: &Path) {
         crate::geodata::seed_mihomo_home(&self.paths.cores_dir(), home);
     }
@@ -832,10 +868,23 @@ impl Engine {
             opts.mixed_port = free_port();
             opts.tun.enabled = false;
             opts.mode = Mode::Rule;
+            opts.without_geodata = !self.has_geodata();
         } else {
             port_available(opts.listen_addr(), opts.mixed_port)?;
             *self.tun_error.write().unwrap() = None;
-            self.check_geodata(&opts).await?;
+            // No routing data yet (a first start). Where GitHub can't be reached, waiting
+            // for it would mean never connecting: connect without it instead, and fetch it
+            // through the connection (see `start`).
+            if !self.has_geodata() {
+                let direct = tokio::time::timeout(Duration::from_secs(20), self.refresh_geodata_files(false)).await;
+                if !matches!(direct, Ok(Ok(_))) {
+                    opts.without_geodata = true;
+                    warning = Some("Connected without the routing data, which couldn't be downloaded directly; getting it through the server".to_string());
+                }
+            }
+            if !opts.without_geodata {
+                self.check_geodata(&opts).await?;
+            }
         }
 
         // On Android the VPN is Mihomo's TUN, which Xray can't provide: a profile set to

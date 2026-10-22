@@ -312,6 +312,11 @@ pub struct RuntimeOptions {
     /// device instead of creating one. Set per run.
     #[serde(skip)]
     pub tun_fd: Option<i32>,
+    /// Run without the routing data (geoip.dat, geosite.dat), which could not be had:
+    /// every rule that needs it is left out and everything else goes through the proxy,
+    /// through which the data is then fetched. Set per run.
+    #[serde(skip)]
+    pub without_geodata: bool,
 }
 
 /// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
@@ -358,6 +363,7 @@ impl Default for RuntimeOptions {
             smart_learn_direct: false,
             smart: None,
             tun_fd: None,
+            without_geodata: false,
         }
     }
 }
@@ -369,21 +375,30 @@ impl RuntimeOptions {
         for p in Preset::ALL.iter().filter(|p| self.presets.contains(p)) {
             out.extend(p.rules());
         }
+        out.retain(|r| self.can_use(r));
         out
     }
 
     /// LAN goes direct, then the catch-all: the main group, or DIRECT when only blocked
-    /// sites should be proxied.
+    /// sites should be proxied (which needs the routing data to tell what is blocked).
     pub fn tail_rules(&self) -> Vec<Rule> {
-        let catch_all = if self.presets.contains(&Preset::ProxyBlockedRu) { "DIRECT" } else { PROXY };
-        vec![
+        let catch_all = if self.presets.contains(&Preset::ProxyBlockedRu) && !self.without_geodata { "DIRECT" } else { PROXY };
+        let mut out = vec![
             Rule { kind: RuleKind::Geosite, value: "private".into(), target: "DIRECT".into() },
             Rule { kind: RuleKind::IpCidr, value: "10.0.0.0/8".into(), target: "DIRECT".into() },
             Rule { kind: RuleKind::IpCidr, value: "172.16.0.0/12".into(), target: "DIRECT".into() },
             Rule { kind: RuleKind::IpCidr, value: "192.168.0.0/16".into(), target: "DIRECT".into() },
             Rule { kind: RuleKind::IpCidr, value: "127.0.0.0/8".into(), target: "DIRECT".into() },
             Rule { kind: RuleKind::Match, value: String::new(), target: catch_all.into() },
-        ]
+        ];
+        out.retain(|r| self.can_use(r));
+        out
+    }
+
+    /// Whether a rule can work in this run: rules on GeoSite and GeoIP lists need the
+    /// routing data.
+    pub fn can_use(&self, r: &Rule) -> bool {
+        !(self.without_geodata && matches!(r.kind, RuleKind::Geosite | RuleKind::Geoip))
     }
 
     /// Geodata categories the enabled presets need, as (geosite, geoip).

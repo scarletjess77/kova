@@ -45,6 +45,8 @@ const RULES: Rule[] = [
   [/^That file is larger than 8 MB/, () => t('That file is larger than 8 MB; it is unlikely to be a config')],
   [/^Check for updates first$/, () => t('Check for updates first')],
   [/^Allow Kova to install apps, then press Download update again$/, () => t('Allow Kova to install apps, then press Download update again')],
+  [/^Connected without the routing data/, () => t('Connected without the routing data, which couldn’t be downloaded directly; getting it through the server')],
+  [/^Routing data downloaded through the server/, () => t('Routing data downloaded through the server; every rule works now')],
   // What the system and the cores say, in plain words.
   [/i\/o timeout|timed out|deadline exceeded|operation timed out/i, () => t('No answer in time. The server may be down or blocked')],
   [/connection refused|actively refused/i, () => t('The connection was refused. The server may be down or the port wrong')],

@@ -689,8 +689,9 @@ p { text-wrap: pretty; }
         <p data-t="dl.lin.p">AppImage and .deb, x64. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
         <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
       <article class="rel" data-os="macos"><div class="rel-h"><b>macOS</b><span class="pill warn" data-t="pl.new">New</span></div>
-        <p data-t="dl.mac.p">Universal .dmg for Apple silicon and Intel. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
-        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
+        <p data-t="dl.mac.p">.dmg for Apple silicon Macs. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
+        <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small>
+        <small><a id="dmg-intel" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener" data-t="dl.mac.intel">For Macs with an Intel processor</a></small></article>
     </div>
     <div class="dl-notes">
       <p class="note" data-t="dl.n1">The installer isn’t code-signed yet, so Windows SmartScreen may warn you. Choose <b>More info → Run anyway</b>.</p>
@@ -806,7 +807,8 @@ p { text-wrap: pretty; }
     'dl.and.p': 'APK для Android 7 и новее — телефоны и Android TV. Выбор приложений для VPN, импорт по QR-коду, плитка в быстрых настройках и виджет.',
     'dl.and32': '32-битный APK для старых телефонов и большинства телевизоров',
     'dl.lin.p': 'AppImage и .deb, x64. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
-    'dl.mac.p': 'Универсальный .dmg для Apple silicon и Intel. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
+    'dl.mac.p': '.dmg для Mac на Apple silicon. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
+    'dl.mac.intel': 'Для Mac с процессором Intel',
     'pl.ready': 'Доступно',
     'pl.new': 'Новое',
     'dl.n1': 'Установщик пока не подписан сертификатом, поэтому SmartScreen может показать предупреждение. Нажмите <b>Подробнее → Выполнить в любом случае</b>.',
@@ -979,7 +981,7 @@ p { text-wrap: pretty; }
 
   // ---------- downloads ----------
   const OS_NAME = { windows: 'Windows', android: 'Android', linux: 'Linux', macos: 'macOS' };
-  const ASSET = { windows: /_x64-setup\.exe$/, android: /_android-arm64\.apk$/, linux: /\.AppImage$/, macos: /\.dmg$/ };
+  const ASSET = { windows: /_x64-setup\.exe$/, android: /_android-arm64\.apk$/, linux: /\.AppImage$/, macos: /(_aarch64|_universal)\.dmg$/ };
   const ua = navigator.userAgent;
   const mine = /Android/i.test(ua) ? 'android' : /Windows/i.test(ua) ? 'windows' : /Mac OS X|Macintosh/i.test(ua) && !/iPhone|iPad/i.test(ua) ? 'macos' : /Linux/i.test(ua) ? 'linux' : null;
   const card = (os) => document.querySelector(`.rel[data-os="${os}"]`);
@@ -1000,6 +1002,8 @@ p { text-wrap: pretty; }
     }
     const apk32 = latest.assets.find((x) => /_android-armv7\.apk$/.test(x.name));
     if (apk32) $('apk32').href = apk32.browser_download_url;
+    const intel = latest.assets.find((x) => /(_x64|_universal)\.dmg$/.test(x.name));
+    if (intel) $('dmg-intel').href = intel.browser_download_url;
   }
   fetch('https://api.github.com/repos/scarletjess77/kova/releases/latest')
     .then((r) => (r.ok ? r.json() : null))
