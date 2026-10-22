@@ -10,7 +10,7 @@ use kova_core::compat::{self, CoreKind, CorePreference, Plan};
 use kova_core::gen_mihomo::{self, Bridges};
 use kova_core::gen_xray::{self, Selection};
 use kova_core::model::Node;
-use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, RuntimeOptions, TEST_URL};
+use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, Rule, RuleKind, RuntimeOptions, SmartRuntime, TEST_URL};
 use kova_core::subscription::{self, Format};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -32,6 +32,10 @@ pub enum Event {
     Memory { bytes: u64 },
     Profiles,
     Delays { delays: HashMap<String, Option<u32>> },
+    /// Smart routing learned a site.
+    Learned { domain: String, route: kova_core::smart::Route, reason: String },
+    /// Smart routing suggests an exception to a rule the user owns.
+    Suggested { domain: String, route: kova_core::smart::Route, rule: String, origin: kova_core::smart::Origin },
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -165,6 +169,11 @@ pub struct Engine {
     /// Routing-data updates run one at a time (background refresh, Update now, source
     /// change); they write the same files.
     geodata_lock: Mutex<()>,
+    /// Sites smart routing learned.
+    smart: Arc<crate::smart::Smart>,
+    /// Android: the VPN interface the system opened for Kova. Mihomo reads and writes
+    /// it directly; it stays open across core restarts and is closed on disconnect.
+    tun_fd: std::sync::Mutex<Option<i32>>,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -257,6 +266,7 @@ impl Engine {
         let settings = Settings::load(&paths);
         let profiles = ProfileIndex::load(&paths);
         let (events, _) = broadcast::channel(2048);
+        let smart = crate::smart::Smart::load(paths.learned());
         Ok(Arc::new_cyclic(|me| Self {
             status: RwLock::new(Status { mixed_port: settings.core.mixed_port, ..Default::default() }),
             paths,
@@ -266,9 +276,25 @@ impl Engine {
             delays: RwLock::new(HashMap::new()),
             tun_error: RwLock::new(None),
             geodata_lock: Mutex::new(()),
+            smart,
+            tun_fd: std::sync::Mutex::new(None),
             events,
             me: me.clone(),
         }))
+    }
+
+    /// Android: hand over the VPN interface to run the core on (see `tun_fd`).
+    pub fn set_tun_fd(&self, fd: Option<i32>) {
+        *self.tun_fd.lock().unwrap() = fd;
+    }
+
+    pub fn has_tun_fd(&self) -> bool {
+        self.tun_fd.lock().unwrap().is_some()
+    }
+
+    /// Android: give the VPN interface back, to be closed.
+    pub fn take_tun_fd(&self) -> Option<i32> {
+        self.tun_fd.lock().unwrap().take()
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
@@ -305,6 +331,7 @@ impl Engine {
             // These change only through their own engine calls (select, set_active_profile);
             // a settings save from the UI carries a possibly stale copy of them.
             new.core.secret = s.core.secret.clone();
+            new.core.local_password = s.core.local_password.clone();
             new.active_profile = s.active_profile.clone();
             new.selections = s.selections.clone();
             new.xray_selection = s.xray_selection.clone();
@@ -323,9 +350,10 @@ impl Engine {
         if core_changed && (RuntimeOptions { mode: new.core.mode, ..old.core.clone() }) == new.core {
             // Only the routing mode changed: Mihomo can switch live.
             let api = self.run.lock().await.as_ref().and_then(|r| r.api.clone());
+            // The Android build of Mihomo refuses config changes over its API; then the
+            // core restarts with the new mode like for any other change.
             if let Some(api) = api {
-                api.set_mode(new.core.mode).await?;
-                core_changed = false;
+                core_changed = api.set_mode(new.core.mode).await.is_err();
             }
         }
         if core_changed {
@@ -337,6 +365,10 @@ impl Engine {
     }
 
     fn apply_system_proxy(&self) -> Result<()> {
+        // Android has no system proxy to set: the VPN captures everything.
+        if cfg!(target_os = "android") {
+            return Ok(());
+        }
         let s = self.settings();
         let marker = self.paths.proxy_marker();
         if s.system_proxy && self.status().running {
@@ -359,7 +391,22 @@ impl Engine {
     }
 
     fn fetch_proxy(&self, via_proxy: bool) -> Option<String> {
-        (via_proxy && self.status().running).then(|| format!("http://127.0.0.1:{}", self.settings().core.mixed_port))
+        if via_proxy { self.proxy_url() } else { None }
+    }
+
+    /// The proxy port as a URL for Kova's own requests while connected, with Kova's
+    /// login where the port asks for one (Android).
+    pub fn proxy_url(&self) -> Option<String> {
+        let st = self.status();
+        if !st.running {
+            return None;
+        }
+        let password = self.settings().core.local_password;
+        Some(if self.has_tun_fd() && !password.is_empty() {
+            format!("http://{}:{password}@127.0.0.1:{}", kova_core::options::LOCAL_USER, st.mixed_port)
+        } else {
+            format!("http://127.0.0.1:{}", st.mixed_port)
+        })
     }
 
     /// Add a profile from a subscription URL, or from pasted share links / config text.
@@ -785,10 +832,13 @@ impl Engine {
             self.check_geodata(&opts).await?;
         }
 
-        let mut plan = if profile.format == Format::Clash && profile.core != CorePreference::Xray {
+        // On Android the VPN is Mihomo's TUN, which Xray can't provide: a profile set to
+        // Xray only runs as Automatic there (Mihomo, with Xray bridging what needs it).
+        let core = if cfg!(target_os = "android") && profile.core == CorePreference::Xray { CorePreference::Auto } else { profile.core };
+        let mut plan = if profile.format == Format::Clash && core != CorePreference::Xray {
             Plan { front: CoreKind::Mihomo, bridged: Vec::new(), dropped: Vec::new() }
         } else {
-            compat::plan(&nodes, profile.core)
+            compat::plan(&nodes, core)
         };
         // Testing always runs through Mihomo, which can measure every node it runs.
         if quiet && plan.front == CoreKind::Xray {
@@ -842,7 +892,15 @@ impl Engine {
         // Mihomo in front, with an Xray sidecar for nodes only Xray can run.
         // TUN needs elevated rights. Without them, Mihomo runs inside the Kova service.
         let mut via_service = !quiet && std::env::var_os("KOVA_FORCE_SERVICE").is_some();
-        if opts.tun.enabled && !crate::process::is_elevated() {
+        // Android: TUN is the VPN interface the system gave Kova, which needs no rights.
+        let tun_fd = if quiet { None } else { *self.tun_fd.lock().unwrap() };
+        if cfg!(target_os = "android") {
+            opts.tun.enabled = tun_fd.is_some();
+        }
+        if let Some(fd) = tun_fd {
+            opts.tun.enabled = true;
+            opts.tun_fd = Some(fd);
+        } else if opts.tun.enabled && !crate::process::is_elevated() {
             if !quiet && crate::service::hello().await.is_some() {
                 via_service = true;
             } else {
@@ -882,6 +940,16 @@ impl Engine {
             }
         }
 
+        // Smart routing needs Kova's rules in the config; an imported Clash profile has
+        // them only when the user applies them.
+        if !quiet && opts.smart_routing && (profile.format != Format::Clash || opts.apply_rules_to_clash_profiles) {
+            let lists_url = self.smart.lists_url().await?;
+            // A subscription's own rules exist only in an imported Clash profile.
+            let profile_rules = opts.smart_profile_rules && profile.format == Format::Clash;
+            let scope = gen_mihomo::smart_scope(&opts, profile_rules);
+            let password = opts.local_password.clone();
+            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port(), password, scope });
+        }
         let home = run_dir.join("mihomo");
         std::fs::create_dir_all(&home)?;
         self.seed_geodata(&home);
@@ -916,7 +984,7 @@ impl Engine {
             }
             Front::Service(crate::service::RemoteCore::new(tail))
         } else {
-            Front::Local(CoreProcess::spawn("mihomo", &mihomo_bin, &["-d", &h, "-f", &c], &home, &[], self.log_sink(quiet))?)
+            Front::Local(CoreProcess::spawn_with_fd("mihomo", &mihomo_bin, &["-d", &h, "-f", &c], &home, &[], self.log_sink(quiet), opts.tun_fd)?)
         };
         let api = Mihomo::new(opts.controller_port, &opts.secret);
         let deadline = tokio::time::Instant::now() + Duration::from_secs(if via_service { 60 } else { 30 });
@@ -963,10 +1031,119 @@ impl Engine {
         };
         r.tasks.extend(log_poller);
         if !quiet {
+            if let Some(sm) = opts.smart.clone() {
+                r.tasks.push(self.spawn_learner(api.clone(), sm));
+            }
             r.tasks.push(self.spawn_mihomo_streams(api));
             r.tasks.push(self.spawn_watchdog());
         }
         Ok((r, plan))
+    }
+
+    fn spawn_learner(&self, api: Mihomo, sm: SmartRuntime) -> JoinHandle<()> {
+        use crate::smart::Hooks;
+        let (me, me2, me3) = (self.me.clone(), self.me.clone(), self.me.clone());
+        let hooks = Hooks {
+            active: Box::new(move || me.upgrade().is_some_and(|e| {
+                let c = e.settings().core;
+                c.smart_routing && c.mode == Mode::Rule
+            })),
+            learned: Box::new(move |l| {
+                if let Some(e) = me2.upgrade() {
+                    let how = match l.route {
+                        kova_core::smart::Route::Proxy => "now goes through the proxy",
+                        kova_core::smart::Route::Direct => "now goes direct",
+                    };
+                    e.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("smart routing: {} failed on its usual path ({}), {how}", l.domain, l.reason) });
+                    e.emit(Event::Learned { domain: l.domain.clone(), route: l.route, reason: l.reason.clone() });
+                }
+            }),
+            suggested: Box::new(move |s| {
+                if let Some(e) = me3.upgrade() {
+                    e.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("smart routing: {} fails on the route {} chose ({}); suggesting an exception", s.domain, s.rule, s.reason) });
+                    e.emit(Event::Suggested { domain: s.domain.clone(), route: s.route, rule: s.rule.clone(), origin: s.origin });
+                }
+            }),
+        };
+        tokio::spawn(crate::smart::learn(self.smart.clone(), api, sm, hooks))
+    }
+
+    // ------------------------------------------------------------------ smart routing
+
+    /// Sites smart routing learned, newest first.
+    pub fn learned_sites(&self) -> Vec<kova_core::smart::Learned> {
+        self.smart.list()
+    }
+
+    pub async fn forget_learned(&self, domain: &str) -> Result<()> {
+        self.smart.forget(domain);
+        self.refresh_learned().await;
+        Ok(())
+    }
+
+    pub async fn clear_learned(&self) -> Result<()> {
+        self.smart.clear();
+        self.refresh_learned().await;
+        Ok(())
+    }
+
+    /// Turn a learned site into a rule of the user's own, so it never expires.
+    pub async fn keep_learned(&self, domain: &str) -> Result<()> {
+        let l = self.smart.get(domain).ok_or_else(|| Error::Other(format!("{domain} is not in the learned list")))?;
+        let target = match l.route {
+            kova_core::smart::Route::Proxy => PROXY,
+            kova_core::smart::Route::Direct => "DIRECT",
+        };
+        let rule = match kova_core::smart::parse_ip(&l.domain) {
+            Some(std::net::IpAddr::V4(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/32"), target: target.into() },
+            Some(std::net::IpAddr::V6(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/128"), target: target.into() },
+            None => Rule { kind: RuleKind::DomainSuffix, value: l.domain.clone(), target: target.into() },
+        };
+        let mut s = self.settings();
+        s.core.custom_rules.retain(|r| !(r.kind == rule.kind && r.value == rule.value));
+        s.core.custom_rules.push(rule);
+        self.smart.forget(domain);
+        self.update_settings(s).await
+    }
+
+    pub fn smart_suggestions(&self) -> Vec<kova_core::smart::Suggestion> {
+        self.smart.suggestions()
+    }
+
+    pub fn dismiss_suggestion(&self, domain: &str) {
+        self.smart.dismiss_suggestion(domain);
+    }
+
+    /// Apply a suggestion: an exception for the site, placed right above the user's rule
+    /// it is an exception to (or first, for a preset's or the subscription's rule).
+    pub async fn accept_suggestion(&self, domain: &str) -> Result<()> {
+        let s = self.smart.take_suggestion(domain).ok_or_else(|| Error::Other(format!("there is no suggestion for {domain}")))?;
+        let target = match s.route {
+            kova_core::smart::Route::Proxy => PROXY,
+            kova_core::smart::Route::Direct => "DIRECT",
+        };
+        let rule = match kova_core::smart::parse_ip(&s.domain) {
+            Some(std::net::IpAddr::V4(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/32"), target: target.into() },
+            Some(std::net::IpAddr::V6(ip)) => Rule { kind: RuleKind::IpCidr, value: format!("{ip}/128"), target: target.into() },
+            None => Rule { kind: RuleKind::DomainSuffix, value: s.domain.clone(), target: target.into() },
+        };
+        let mut settings = self.settings();
+        let rules = &mut settings.core.custom_rules;
+        rules.retain(|r| !(r.kind == rule.kind && r.value == rule.value));
+        let key = |r: &Rule| kova_core::smart::rule_key(r.kind.mihomo_name(), &r.value);
+        let at = rules.iter().position(|r| key(r) == s.rule).unwrap_or(0);
+        rules.insert(at, rule);
+        self.update_settings(settings).await
+    }
+
+    /// Make the running core pick up a changed learned list.
+    async fn refresh_learned(&self) {
+        let api = self.run.lock().await.as_ref().and_then(|r| r.api.clone());
+        if let Some(api) = api {
+            if self.settings().core.smart_routing {
+                crate::smart::refresh(&api).await;
+            }
+        }
     }
 
     /// Relay Mihomo's log lines from the service into the normal log stream.
@@ -1042,7 +1219,7 @@ impl Engine {
     fn spawn_xray_metrics(&self, port: u16) -> JoinHandle<()> {
         let me = self.me.clone();
         tokio::spawn(async move {
-            let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().expect("client");
+            let http = fetch::builder().no_proxy().timeout(Duration::from_secs(2)).build().expect("client");
             let url = format!("http://127.0.0.1:{port}/debug/vars");
             let (mut last_up, mut last_down) = (None::<u64>, None::<u64>);
             loop {
@@ -1281,9 +1458,7 @@ impl Engine {
 
     /// Check one site through Kova (when connected) and directly.
     pub async fn check_site(&self, url: &str) -> crate::sitecheck::SiteResult {
-        let st = self.status();
-        let proxy = st.running.then(|| format!("http://127.0.0.1:{}", st.mixed_port));
-        crate::sitecheck::check(url, proxy.as_deref()).await
+        crate::sitecheck::check(url, self.proxy_url().as_deref()).await
     }
 
     // ------------------------------------------------------------------ connections
@@ -1375,5 +1550,38 @@ mod tests {
         let (l, m) = parse_log("xray", "2026/10/20 12:00:00.123456 from 127.0.0.1:5000 accepted tcp:a.example:443 [http-in -> X]");
         assert_eq!(l, "info");
         assert!(m.starts_with("from 127.0.0.1"));
+    }
+}
+
+#[cfg(test)]
+mod suggestion_tests {
+    use kova_core::options::{PROXY, Rule, RuleKind};
+    use kova_core::smart::{Origin, Route, Suggestion};
+
+    use super::Engine;
+
+    #[tokio::test]
+    async fn an_accepted_suggestion_goes_right_above_the_users_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        let rule = |kind, value: &str, target: &str| Rule { kind, value: value.into(), target: target.into() };
+        let mut s = e.settings();
+        s.system_proxy = false;
+        s.core.custom_rules = vec![rule(RuleKind::DomainSuffix, "a.example", PROXY), rule(RuleKind::Geosite, "category-games", "DIRECT")];
+        e.update_settings(s).await.unwrap();
+        e.smart.suggest(Suggestion { domain: "modrinth.com".into(), route: Route::Proxy, reason: "reset".into(), rule: "GeoSite(category-games)".into(), origin: Origin::User, at: 0 });
+        assert_eq!(e.smart_suggestions().len(), 1);
+
+        e.accept_suggestion("modrinth.com").await.unwrap();
+        let r = e.settings().core.custom_rules;
+        let order: Vec<&str> = r.iter().map(|x| x.value.as_str()).collect();
+        assert_eq!(order, ["a.example", "modrinth.com", "category-games"]);
+        assert_eq!(r[1].target, PROXY);
+        assert!(e.smart_suggestions().is_empty());
+
+        // A dismissed site is not suggested again this session.
+        e.smart.suggest(Suggestion { domain: "x.example".into(), route: Route::Proxy, reason: "reset".into(), rule: "GeoSite(category-ru)".into(), origin: Origin::Preset, at: 0 });
+        e.dismiss_suggestion("x.example");
+        assert!(e.smart_suggestions().is_empty());
     }
 }

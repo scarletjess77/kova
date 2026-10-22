@@ -24,6 +24,8 @@ export type RuleKind = 'domain' | 'domain-suffix' | 'domain-keyword' | 'geosite'
 export interface Rule { kind: RuleKind; value: string; target: string }
 
 export interface RuntimeOptions {
+  /** Kova's login on its local ports (user `kova`); on Android also on the proxy port. */
+  local_password: string;
   mixed_port: number;
   controller_port: number;
   secret: string;
@@ -39,7 +41,17 @@ export interface RuntimeOptions {
   apply_rules_to_clash_profiles: boolean;
   xray_metrics_port: number;
   geodata: GeoSource;
+  smart_routing: boolean;
+  smart_profile_rules: boolean;
 }
+
+export type Route = 'proxy' | 'direct';
+/** A site smart routing learned. `reason` is a site-check outcome such as "reset". */
+export interface Learned { domain: string; route: Route; reason: string; learned_at: number }
+/** Where a rule comes from: the user's own, a preset, or the imported subscription. */
+export type RuleOrigin = 'user' | 'preset' | 'profile';
+/** A site that fails on the route a rule chose on purpose; `rule` as Mihomo names it. */
+export interface Suggestion { domain: string; route: Route; reason: string; rule: string; origin: RuleOrigin; at: number }
 
 export interface Settings {
   core: RuntimeOptions;
@@ -57,7 +69,13 @@ export interface Settings {
   check_sites: string[];
   check_updates: boolean;
   beta_updates: boolean;
+  /** Android: which apps go through the VPN. */
+  vpn_apps: { mode: VpnAppsMode; apps: string[] };
 }
+
+export type VpnAppsMode = 'all' | 'only' | 'except';
+/** An app installed on the phone; `icon` is a data URL. */
+export interface VpnApp { package: string; label: string; system: boolean; icon: string }
 
 export interface Status {
   running: boolean;
@@ -125,7 +143,9 @@ export type EngineEvent =
   | { type: 'log'; source: string; level: string; message: string }
   | { type: 'memory'; bytes: number }
   | { type: 'profiles' }
-  | { type: 'delays'; delays: Record<string, number | null> };
+  | { type: 'delays'; delays: Record<string, number | null> }
+  | { type: 'learned'; domain: string; route: Route; reason: string }
+  | { type: 'suggested'; domain: string; route: Route; rule: string; origin: RuleOrigin };
 
 export interface Snapshot { status: Status; settings: Settings; profiles: Profile[]; data_dir: string }
 
@@ -165,6 +185,16 @@ export const api = {
   checkUpdate: () => invoke<UpdateInfo | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
   systemLanguage: () => invoke<string>('system_language'),
+  platform: () => invoke<string>('platform'),
+  vpnApps: () => invoke<{ apps: VpnApp[] }>('vpn_apps'),
+  openVpnSettings: () => invoke<void>('open_vpn_settings'),
+  learnedSites: () => invoke<Learned[]>('learned_sites'),
+  forgetLearned: (domain: string) => invoke<void>('forget_learned', { domain }),
+  keepLearned: (domain: string) => invoke<Settings>('keep_learned', { domain }),
+  clearLearned: () => invoke<void>('clear_learned'),
+  smartSuggestions: () => invoke<Suggestion[]>('smart_suggestions'),
+  acceptSuggestion: (domain: string) => invoke<Settings>('accept_suggestion', { domain }),
+  dismissSuggestion: (domain: string) => invoke<void>('dismiss_suggestion', { domain }),
 };
 
 /** Tauri rejects with the serialised error string; make sure we always show text. */

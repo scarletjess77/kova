@@ -29,7 +29,7 @@
 
 <svelte:window onkeydown={onKey} />
 
-<div class="app">
+<div class="app" class:mobile={app.mobile}>
   <Titlebar />
   <Sidebar />
   <main class="main">
@@ -46,7 +46,7 @@
       {:else}<SettingsView />{/if}
     {/if}
   </main>
-  <StatusBar />
+  {#if !app.mobile}<StatusBar />{/if}
 </div>
 
 {#if app.importOpen}<ImportModal onclose={() => (app.importOpen = false)} />{/if}

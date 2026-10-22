@@ -46,8 +46,92 @@ class AppState {
   toast = $state<string | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
   coresVersion = $state(0);
+  /** Running on a phone (Android): no window, tray, system proxy or in-app updates. */
+  mobile = $state(false);
+  /** A connect or disconnect the user started is under way. On Android that includes
+   *  the permission dialog and opening the VPN, before the engine reports busy. */
+  toggling = $state(false);
+  /** Phone: the page list, opened from the title bar, is showing. */
+  navOpen = $state(false);
+  /** Bumped whenever smart routing learns a site, so lists can reload. */
+  learnedVersion = $state(0);
   /** The system's display language, used when the language setting is "system". */
   private systemLang = navigator.language;
+
+  // Android's back gesture steps back through the page's history, and only leaves the
+  // app when there is none. So each step back should undo (opening a page, the menu,
+  // a dialog) adds a history entry together with how to undo it.
+  private backSteps: (() => void)[] = [];
+  /** Pops caused by dropBack, still to come, which mean nothing to undo. */
+  private ignorePops = 0;
+  /** Entries pushed while such a pop was still on its way. history.back() is
+   *  asynchronous: an entry pushed before it lands would be the one it removes. */
+  private deferredPushes = 0;
+  private readonly closeNavStep = () => {
+    this.navOpen = false;
+  };
+
+  /** Make the next back gesture run `undo`. */
+  pushBack(undo: () => void) {
+    if (!this.mobile) return;
+    this.backSteps.push(undo);
+    if (this.ignorePops > 0) this.deferredPushes++;
+    else history.pushState(null, '');
+  }
+
+  /** Forget a step that was undone some other way (a dialog closed with its button). */
+  dropBack(undo: () => void) {
+    const i = this.backSteps.lastIndexOf(undo);
+    if (i < 0) return;
+    this.backSteps.splice(i, 1);
+    if (this.deferredPushes > 0) {
+      // Its entry was never pushed.
+      this.deferredPushes--;
+      return;
+    }
+    this.ignorePops++;
+    history.back();
+  }
+
+  private onPopState = () => {
+    if (this.ignorePops > 0) {
+      this.ignorePops--;
+      if (this.ignorePops === 0) {
+        for (; this.deferredPushes > 0; this.deferredPushes--) history.pushState(null, '');
+      }
+      return;
+    }
+    this.backSteps.pop()?.();
+  };
+
+  /** Show a page; back returns to the one before. */
+  go(view: View) {
+    const from = this.view;
+    if (this.navOpen && view === from) {
+      // The page already showing: just close the menu.
+      this.closeNav();
+      return;
+    }
+    if (this.navOpen) {
+      // Chosen from the menu: the menu's step becomes the page's.
+      this.navOpen = false;
+      const i = this.backSteps.lastIndexOf(this.closeNavStep);
+      if (i >= 0) this.backSteps[i] = () => (this.view = from);
+    } else if (view !== from) {
+      this.pushBack(() => (this.view = from));
+    }
+    this.view = view;
+  }
+
+  openNav() {
+    this.navOpen = true;
+    this.pushBack(this.closeNavStep);
+  }
+
+  closeNav() {
+    this.navOpen = false;
+    this.dropBack(this.closeNavStep);
+  }
 
   get activeProfile(): Profile | undefined {
     return this.profiles.find((p) => p.id === this.settings?.active_profile);
@@ -59,6 +143,7 @@ class AppState {
     this.settings = snap.settings;
     this.profiles = snap.profiles;
     this.dataDir = snap.data_dir;
+    this.mobile = ['android', 'ios'].includes(await api.platform().catch(() => ''));
     this.systemLang = await api.systemLanguage().catch(() => navigator.language);
     this.applyTheme();
     await listen<EngineEvent>('engine', (e) => this.onEvent(e.payload));
@@ -66,6 +151,7 @@ class AppState {
     await listen<Settings>('settings-changed', (e) => { this.settings = e.payload; this.applyTheme(); });
     await listen('cores-changed', () => { this.coresVersion++; });
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
+    window.addEventListener('popstate', this.onPopState);
     this.ready = true;
     void this.refreshProxies();
     if (this.settings?.check_updates) setTimeout(() => void this.checkForUpdate(true), 5000);
@@ -104,6 +190,18 @@ class AppState {
         break;
       case 'delays':
         this.delays = { ...this.delays, ...e.delays };
+        break;
+      case 'learned':
+        this.learnedVersion++;
+        this.notify(e.route === 'proxy'
+          ? t('{domain} is blocked here; it now goes through the proxy', { domain: e.domain })
+          : t('{domain} refuses the proxy; it now goes direct', { domain: e.domain }));
+        break;
+      case 'suggested':
+        this.learnedVersion++;
+        this.notify(e.route === 'proxy'
+          ? t('{domain} is blocked direct, but a rule sends it there. See Rules → Smart routing', { domain: e.domain })
+          : t('{domain} doesn’t open through the proxy, but a rule sends it there. See Rules → Smart routing', { domain: e.domain }));
         break;
     }
   }
@@ -163,9 +261,14 @@ class AppState {
   }
 
   async toggleConnection() {
-    if (this.status.busy) return;
-    if (this.status.running) await this.run(() => api.disconnect());
-    else await this.run(() => api.connect());
+    if (this.status.busy || this.toggling) return;
+    this.toggling = true;
+    try {
+      if (this.status.running) await this.run(() => api.disconnect());
+      else await this.run(() => api.connect());
+    } finally {
+      this.toggling = false;
+    }
   }
 
   async checkForUpdate(silent = false) {
@@ -182,6 +285,11 @@ class AppState {
   /** Download, install and restart (Kova disconnects first). */
   async installUpdate() {
     if (!this.update || this.updateProgress !== null) return;
+    // On Android the browser downloads the APK and the system installs it.
+    if (this.mobile) {
+      await this.run(() => api.installUpdate());
+      return;
+    }
     this.updateProgress = 0;
     const stop = await listen<number>('update-progress', (e) => (this.updateProgress = e.payload));
     try {

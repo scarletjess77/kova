@@ -11,8 +11,63 @@ use crate::Error;
 pub const DEFAULT_SUB_UA: &str = concat!("clash.meta/1.19 mihomo Kova/", env!("CARGO_PKG_VERSION"));
 pub const APP_UA: &str = concat!("Kova/", env!("CARGO_PKG_VERSION"));
 
+/// Start every HTTP client here. On Android the certificate check reqwest uses by
+/// default needs a Java component Kova doesn't ship, so the device's own trusted
+/// certificates are handed over instead.
+pub fn builder() -> reqwest::ClientBuilder {
+    let b = reqwest::Client::builder();
+    #[cfg(target_os = "android")]
+    let b = b.tls_certs_only(android_roots().iter().cloned());
+    b
+}
+
+/// How many trusted certificates HTTPS checks use: the device's on Android, `None`
+/// where the system checks them itself.
+pub fn trusted_certificates() -> Option<usize> {
+    #[cfg(target_os = "android")]
+    return Some(android_roots().len());
+    #[cfg(not(target_os = "android"))]
+    None
+}
+
+/// A request error with everything it was caused by: reqwest's own message alone
+/// ("error sending request") doesn't say what went wrong.
+pub fn describe(e: &reqwest::Error) -> String {
+    let mut out = e.to_string();
+    let mut src = std::error::Error::source(e);
+    while let Some(s) = src {
+        out.push_str(": ");
+        out.push_str(&s.to_string());
+        src = s.source();
+    }
+    out
+}
+
+/// The certificates Android trusts: the updatable store (Android 14+), else the system one.
+#[cfg(target_os = "android")]
+fn android_roots() -> &'static [reqwest::Certificate] {
+    static ROOTS: std::sync::OnceLock<Vec<reqwest::Certificate>> = std::sync::OnceLock::new();
+    ROOTS.get_or_init(|| {
+        for dir in ["/apex/com.android.conscrypt/cacerts", "/system/etc/security/cacerts"] {
+            let certs: Vec<reqwest::Certificate> = std::fs::read_dir(dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|e| std::fs::read(e.path()).ok())
+                .filter_map(|pem| reqwest::Certificate::from_pem(&pem).ok())
+                .filter(|c| reqwest::Client::builder().tls_certs_only([c.clone()]).build().is_ok())
+                .collect();
+            if !certs.is_empty() {
+                return certs;
+            }
+        }
+        tracing::warn!("no trusted certificates found on this device");
+        Vec::new()
+    })
+}
+
 pub fn client(proxy: Option<&str>, user_agent: &str) -> Result<reqwest::Client, Error> {
-    let mut b = reqwest::Client::builder().user_agent(user_agent).connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(60));
+    let mut b = builder().user_agent(user_agent).connect_timeout(Duration::from_secs(10)).timeout(Duration::from_secs(60));
     b = match proxy {
         Some(p) => b.proxy(reqwest::Proxy::all(p)?),
         None => b.no_proxy(),

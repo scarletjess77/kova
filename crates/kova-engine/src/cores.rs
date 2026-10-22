@@ -20,7 +20,41 @@ pub fn binary_name(core: CoreKind) -> &'static str {
 }
 
 pub fn binary_path(cores_dir: &Path, core: CoreKind) -> PathBuf {
+    #[cfg(target_os = "android")]
+    if let Some(dir) = android::bundled_dir() {
+        return dir.join(android::lib_name(core));
+    }
     cores_dir.join(binary_name(core))
+}
+
+/// Android runs only programs that ship inside the app, so there the cores come as
+/// native libraries in the app's library folder, next to Kova's own, and are updated
+/// with the app.
+#[cfg(target_os = "android")]
+mod android {
+    use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
+
+    use kova_core::CoreKind;
+
+    pub fn lib_name(core: CoreKind) -> &'static str {
+        match core {
+            CoreKind::Mihomo => "libmihomo.so",
+            CoreKind::Xray => "libxray.so",
+        }
+    }
+
+    /// The folder Android unpacked the app's libraries to, found from where Kova's own
+    /// library is loaded.
+    pub fn bundled_dir() -> Option<&'static Path> {
+        static DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
+        DIR.get_or_init(|| {
+            let maps = std::fs::read_to_string("/proc/self/maps").ok()?;
+            let lib = maps.lines().filter_map(|l| l.split_whitespace().nth(5)).find(|p| p.ends_with("/libkova_app.so"))?;
+            Path::new(lib).parent().map(Path::to_path_buf)
+        })
+        .as_deref()
+    }
 }
 
 fn repo(core: CoreKind) -> &'static str {
@@ -147,6 +181,9 @@ async fn expected_sha256(c: &reqwest::Client, rel: &Release, asset: &Asset) -> R
 
 /// Download, verify and install the latest release. Returns the installed tag.
 pub async fn install_latest(cores_dir: &Path, core: CoreKind) -> Result<String, Error> {
+    if cfg!(target_os = "android") {
+        return Err(Error::Core(format!("On Android, {} is updated together with Kova", core.label())));
+    }
     let rel = latest_release(core).await?;
     let asset = pick_asset(core, &rel).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
     let c = fetch::client(None, fetch::APP_UA)?;
@@ -231,6 +268,7 @@ fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bo
 pub async fn status(cores_dir: &Path, core: CoreKind, check_latest: bool) -> CoreStatus {
     let dir = cores_dir.to_path_buf();
     let installed = tokio::task::spawn_blocking(move || installed_version(&dir, core)).await.ok().flatten();
-    let latest = if check_latest { latest_version(core).await.ok() } else { None };
+    // On Android the cores can't be replaced separately, so there is nothing to offer.
+    let latest = if check_latest && !cfg!(target_os = "android") { latest_version(core).await.ok() } else { None };
     CoreStatus { core, installed, latest }
 }

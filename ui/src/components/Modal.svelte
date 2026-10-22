@@ -1,11 +1,17 @@
 <script lang="ts">
-  import type { Snippet } from 'svelte';
+  import { onDestroy, onMount, type Snippet } from 'svelte';
   import { t } from '../lib/i18n.svelte';
+  import { app } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
 
   let { title, wide = false, onclose, children, footer, badge }: {
     title: string; wide?: boolean; onclose: () => void; children: Snippet; footer?: Snippet; badge?: Snippet;
   } = $props();
+
+  // The back gesture closes the dialog.
+  const back = () => onclose();
+  onMount(() => app.pushBack(back));
+  onDestroy(() => app.dropBack(back));
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />

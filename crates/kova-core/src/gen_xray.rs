@@ -163,7 +163,13 @@ pub fn sidecar(bridged: &[(&Node, u16)], opts: &RuntimeOptions) -> String {
     for (i, (n, port)) in bridged.iter().enumerate() {
         let Some(o) = outbound(n) else { continue };
         let tag = format!("in-{i}");
-        inbounds.push(json!({ "tag": tag, "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": { "udp": true, "auth": "noauth" } }));
+        // Only Mihomo uses the bridge; with a login no other local program can.
+        let settings = if opts.local_password.is_empty() {
+            json!({ "udp": true, "auth": "noauth" })
+        } else {
+            json!({ "udp": true, "auth": "password", "accounts": [{ "user": crate::options::LOCAL_USER, "pass": opts.local_password }] })
+        };
+        inbounds.push(json!({ "tag": tag, "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": settings }));
         rules.push(json!({ "inboundTag": [tag], "outboundTag": n.name }));
         outbounds.push(o);
     }

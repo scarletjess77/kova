@@ -180,7 +180,7 @@ async fn download_into(dir: &Path, source: &GeoSource, proxy: Option<&str>) -> R
         return Err(Error::Other("Enter both download addresses for the custom routing data".into()));
     }
     // Big files (the Russian lists are ~70 MB): no overall timeout, only a connect timeout.
-    let big = reqwest::Client::builder().user_agent(fetch::APP_UA).connect_timeout(std::time::Duration::from_secs(15));
+    let big = fetch::builder().user_agent(fetch::APP_UA).connect_timeout(std::time::Duration::from_secs(15));
     let big = match proxy {
         Some(p) => big.proxy(reqwest::Proxy::all(p)?),
         None => big.no_proxy(),
