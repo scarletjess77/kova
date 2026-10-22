@@ -660,6 +660,15 @@ pub fn run() {
             if first_run {
                 first_run_presets(&engine);
             }
+            // Cores and routing data that came with the installer, for a first start
+            // where GitHub can't be reached.
+            #[cfg(desktop)]
+            if let Ok(res) = app.path().resource_dir() {
+                let adopted = kova_engine::cores::adopt_bundled(&res.join("cores"), &engine.paths.cores_dir());
+                if !adopted.is_empty() {
+                    tracing::info!("installed from the installer: {}", adopted.join(", "));
+                }
+            }
             app.manage(engine.clone());
             #[cfg(desktop)]
             desktop::setup(app, &engine)?;

@@ -483,3 +483,105 @@ async fn switches_away_from_a_dead_node() {
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
+
+/// A first start where the routing data can't be downloaded directly (GitHub blocked):
+/// Kova connects without it, fetches it through the server, and reconnects with every
+/// rule. Here the data lives at a name only the server can resolve.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn first_start_gets_routing_data_through_the_server() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        let is_data = e.path().extension().is_some_and(|x| x == "dat");
+        if e.path().is_file() && !is_data {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    assert!(!engine.paths.cores_dir().join("geosite.dat").exists());
+
+    // The routing data, served locally.
+    let files = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let files_port = files.local_addr().unwrap().port();
+    let cache = cores_cache.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = files.accept().await else { return };
+            let cache = cache.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 4096];
+                let n = s.read(&mut buf).await.unwrap_or(0);
+                let head = String::from_utf8_lossy(&buf[..n]).to_string();
+                let name = if head.contains("geoip.dat") { "geoip.dat" } else { "geosite.dat" };
+                let body = std::fs::read(cache.join(name)).unwrap();
+                let crlf = "\r\n";
+                let _ = s.write_all(format!("HTTP/1.1 200 OK{crlf}Content-Length: {}{crlf}Connection: close{crlf}{crlf}", body.len()).as_bytes()).await;
+                let _ = s.write_all(&body).await;
+            });
+        }
+    });
+
+    // The server resolves "geodata.test" for its own outbound; nothing else can.
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "dns": { "hosts": { "geodata.test": "127.0.0.1" } },
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom", "settings": { "domainStrategy": "UseIP" } }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray))
+        .args(["run", "-c", server_cfg.to_str().unwrap()])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.controller_port = free_port();
+    s.core.presets.clear();
+    s.core.geodata = kova_core::options::GeoSource::Custom {
+        geoip: format!("http://geodata.test:{files_port}/geoip.dat"),
+        geosite: format!("http://geodata.test:{files_port}/geosite.dat"),
+    };
+    // A new source is downloaded right away, which fails here like it would where GitHub
+    // is blocked; the setting is saved first all the same.
+    let _ = engine.update_settings(s).await;
+    assert!(matches!(engine.settings().core.geodata, kova_core::options::GeoSource::Custom { .. }));
+    engine.add_profile(&format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Live\n"), Some("Data".into())).await.unwrap();
+
+    let mut events = engine.subscribe();
+    engine.start().await.unwrap_or_else(|e| panic!("could not connect without the routing data: {e}"));
+    let st = engine.status();
+    assert!(st.running && st.warning.as_deref().is_some_and(|w| w.contains("without the routing data")), "{st:?}");
+
+    // Fetched through the server, then reconnected with every rule.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(90);
+    let mut noticed = false;
+    while !noticed && tokio::time::Instant::now() < deadline {
+        if let Ok(Ok(kova_engine::Event::Notice { .. })) = tokio::time::timeout(Duration::from_secs(1), events.recv()).await {
+            noticed = true;
+        }
+    }
+    assert!(noticed, "the routing data never arrived through the server");
+    assert!(engine.paths.cores_dir().join("geosite.dat").exists());
+    let st = engine.status();
+    assert!(st.running && st.warning.is_none(), "{st:?}");
+    let config = std::fs::read_to_string(engine.paths.runtime_dir().join("main").join("mihomo").join("config.yaml")).unwrap();
+    assert!(config.contains("GEOSITE,private,DIRECT"), "the full rules are back");
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}

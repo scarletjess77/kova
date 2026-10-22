@@ -395,6 +395,22 @@ pub fn install() -> Result<(), Failure> {
         }
         copied.map_err(|e| Failure(EXIT_COPY, e))?;
     }
+    // Mihomo and the routing data that came with the installer, so TUN works without
+    // GitHub, which is blocked in some countries. Only from Kova's own folder under
+    // Program Files, which ordinary programs can't change.
+    if let Some(bundled) = me.parent().map(|d| d.join("cores")).filter(|d| d.starts_with(program_files())) {
+        let cores = home.join("cores");
+        let wanted = |n: &str| n == cores::binary_name(CoreKind::Mihomo) || n.ends_with(".dat");
+        if let Ok(entries) = std::fs::read_dir(&bundled) {
+            for e in entries.flatten() {
+                let name = e.file_name().to_string_lossy().to_string();
+                if wanted(&name) && !cores.join(&name).exists() {
+                    let _ = std::fs::create_dir_all(&cores);
+                    let _ = std::fs::copy(e.path(), cores.join(&name));
+                }
+            }
+        }
+    }
 
     let info = ServiceInfo {
         name: OsString::from(SERVICE_NAME),
