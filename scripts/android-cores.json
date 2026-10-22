@@ -1,4 +1,10 @@
 {
-  "mihomo": { "tag": "v1.19.33", "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8" },
-  "xray": { "tag": "v26.3.27" }
+  "mihomo": {
+    "tag": "v1.19.33",
+    "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
+  },
+  "xray": {
+    "tag": "v26.3.27",
+    "commit": "d2758a023cd7f4174a5a5fa4ff66e487d4342ba0"
+  }
 }
