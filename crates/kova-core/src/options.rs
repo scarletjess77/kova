@@ -142,6 +142,20 @@ pub enum RuleKind {
 }
 
 impl RuleKind {
+    /// The name Mihomo gives this kind of rule in its logs.
+    pub fn mihomo_name(self) -> &'static str {
+        match self {
+            RuleKind::Domain => "Domain",
+            RuleKind::DomainSuffix => "DomainSuffix",
+            RuleKind::DomainKeyword => "DomainKeyword",
+            RuleKind::Geosite => "GeoSite",
+            RuleKind::Geoip => "GeoIP",
+            RuleKind::IpCidr => "IPCIDR",
+            RuleKind::ProcessName => "ProcessName",
+            RuleKind::Match => "Match",
+        }
+    }
+
     pub fn clash(self) -> &'static str {
         match self {
             RuleKind::Domain => "DOMAIN",
@@ -254,6 +268,10 @@ pub struct RuntimeOptions {
     pub controller_port: u16,
     /// Bearer secret for the Mihomo controller; regenerated per install.
     pub secret: String,
+    /// Password of [`LOCAL_USER`] on the local ports only Kova itself uses (smart
+    /// routing's probes, the Xray bridge) and, on Android, on the proxy port, which every
+    /// app on the phone could otherwise use. Made once per install.
+    pub local_password: String,
     pub allow_lan: bool,
     pub ipv6: bool,
     pub mode: Mode,
@@ -277,6 +295,37 @@ pub struct RuntimeOptions {
     /// bridge talks to. Unlike rules this also holds in Global mode. Set per run.
     #[serde(skip)]
     pub tun_exclude: Vec<String>,
+    /// Learn sites that fail on their usual path and route them the other way.
+    pub smart_routing: bool,
+    /// Let smart routing also correct an imported Clash profile's own rules, not just
+    /// traffic that only the catch-all matched. Learned sites then come before the
+    /// profile's rules.
+    pub smart_profile_rules: bool,
+    /// Where this run's smart routing lives. Set per run when it is on.
+    #[serde(skip)]
+    pub smart: Option<SmartRuntime>,
+    /// Android: the VPN interface's file descriptor, which the core uses as its TUN
+    /// device instead of creating one. Set per run.
+    #[serde(skip)]
+    pub tun_fd: Option<i32>,
+}
+
+/// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
+pub const LOCAL_USER: &str = "kova";
+
+/// Per-run parts of smart routing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SmartRuntime {
+    /// Base URL Mihomo fetches the learned rule lists from, ending in `/`.
+    pub lists_url: String,
+    /// Local ports that skip the rules and always go direct, or always use the main
+    /// group; Kova checks a site both ways through them.
+    pub direct_port: u16,
+    pub proxy_port: u16,
+    /// Password of [`LOCAL_USER`] on the probe ports; empty for none.
+    pub password: String,
+    /// Which failures to act on.
+    pub scope: crate::smart::Scope,
 }
 
 impl Default for RuntimeOptions {
@@ -285,6 +334,7 @@ impl Default for RuntimeOptions {
             mixed_port: 7890,
             controller_port: 9097,
             secret: String::new(),
+            local_password: String::new(),
             allow_lan: false,
             ipv6: true,
             mode: Mode::Rule,
@@ -299,6 +349,10 @@ impl Default for RuntimeOptions {
             geodata: GeoSource::Default,
             bypass_processes: Vec::new(),
             tun_exclude: Vec::new(),
+            smart_routing: false,
+            smart_profile_rules: false,
+            smart: None,
+            tun_fd: None,
         }
     }
 }

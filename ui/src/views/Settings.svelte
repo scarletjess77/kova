@@ -1,12 +1,18 @@
 <script lang="ts">
   import { disable as autostartOff, enable as autostartOn, isEnabled as autostartIsOn } from '@tauri-apps/plugin-autostart';
+  import { getVersion } from '@tauri-apps/api/app';
   import { openPath } from '@tauri-apps/plugin-opener';
   import { api, errText, type CoreKind, type CoreStatus, type GeoInfo, type GeoSource, type ServiceView, type Settings } from '../lib/api';
   import { fmtAgo, fmtBytes } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
+  import AppPicker from '../components/AppPicker.svelte';
   import Donate from '../components/Donate.svelte';
   import Icon from '../components/Icon.svelte';
+
+  let appVersion = $state('');
+  let pickingApps = $state(false);
+  getVersion().then((v) => (appVersion = v), () => {});
 
   let s = $derived(app.settings);
   let cores = $state<CoreStatus[]>([]);
@@ -107,6 +113,7 @@
 
   // The OS entry is the truth (it can be removed outside Kova); keep the switch in step.
   $effect(() => {
+    if (app.mobile) return;
     autostartIsOn().then((on) => {
       if (app.settings && app.settings.launch_at_login !== on) void set((x) => (x.launch_at_login = on));
     }).catch(() => {});
@@ -125,11 +132,14 @@
         <div class="form">
           <div class="fld full"><label for="st-port">{t('Proxy port (HTTP + SOCKS5)')}</label>
             <input id="st-port" class="input mono" value={s.core.mixed_port} onchange={(e) => port(e.currentTarget.value, (x, p) => (x.core.mixed_port = p))} /></div>
-          <div class="fld full"><label for="st-bypass">{t('Skip the system proxy for')}</label>
-            <input id="st-bypass" class="input mono small" value={s.proxy_bypass} onchange={(e) => set((x) => (x.proxy_bypass = e.currentTarget.value), t('Saved'))} /></div>
+          {#if !app.mobile}
+            <div class="fld full"><label for="st-bypass">{t('Skip the system proxy for')}</label>
+              <input id="st-bypass" class="input mono small" value={s.proxy_bypass} onchange={(e) => set((x) => (x.proxy_bypass = e.currentTarget.value), t('Saved'))} /></div>
+          {/if}
         </div>
         <div class="rows">
-          <div class="row-sw"><div><div class="t">{t('Allow connections from LAN')}</div><div class="d">{t('Share the proxy with phones and consoles on your network')}</div></div>
+          <div class="row-sw"><div><div class="t">{t('Allow connections from LAN')}</div><div class="d">{t('Share the proxy with phones and consoles on your network')}</div>
+            {#if app.mobile && s.core.allow_lan}<div class="d">{t('Other devices sign in as {user} with the password', { user: 'kova' })} <span class="mono selectable">{s.core.local_password}</span></div>{/if}</div>
             <button class="switch" role="switch" aria-label={t('Allow connections from LAN')} aria-checked={s.core.allow_lan} onclick={() => toggle((x) => x.core.allow_lan, (x, v) => (x.core.allow_lan = v))}></button></div>
           <div class="row-sw"><div><div class="t">IPv6</div></div>
             <button class="switch" role="switch" aria-label="IPv6" aria-checked={s.core.ipv6} onclick={() => toggle((x) => x.core.ipv6, (x, v) => (x.core.ipv6 = v))}></button></div>
@@ -138,6 +148,24 @@
         </div>
       </section>
 
+      {#if app.mobile}
+      <section class="card">
+        <div class="card-h"><h2>VPN</h2></div>
+        <div class="rows">
+          <div class="row-sw"><div><div class="t">{t('Apps through the VPN')}</div>
+            <div class="d">{s.vpn_apps.mode === 'all' ? t('All apps') : s.vpn_apps.mode === 'only'
+              ? tn(s.vpn_apps.apps.length, 'Only {n} chosen app', 'Only {n} chosen apps')
+              : tn(s.vpn_apps.apps.length, 'All but {n} chosen app', 'All but {n} chosen apps')}</div></div>
+            <button class="btn" onclick={() => (pickingApps = true)}>{t('Choose')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Always-on VPN')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN.')}</div></div>
+            <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
+        </div>
+      </section>
+      {/if}
+      {#if pickingApps}<AppPicker onclose={() => (pickingApps = false)} />{/if}
+
+      {#if !app.mobile}
       <section class="card">
         <div class="card-h"><h2>{t('TUN mode')}</h2>
           <button class="switch aside-sw" role="switch" aria-label={t('TUN mode')} aria-checked={s.core.tun.enabled} onclick={() => toggle((x) => x.core.tun.enabled, (x, v) => (x.core.tun.enabled = v))}></button></div>
@@ -178,6 +206,7 @@
             <button class="switch" role="switch" aria-label={t('Strict route')} aria-checked={s.core.tun.strict_route} onclick={() => toggle((x) => x.core.tun.strict_route, (x, v) => (x.core.tun.strict_route = v))}></button></div>
         </div>
       </section>
+      {/if}
 
       <section class="card">
         <div class="card-h"><h2>DNS</h2></div>
@@ -235,14 +264,14 @@
     <div class="col">
       <section class="card">
         <div class="card-h"><h2>{t('Cores')}</h2>
-          <button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button></div>
+          {#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}</div>
         {#each cores as c (c.core)}
           {@const name = c.core === 'xray' ? 'Xray' : 'Mihomo'}
           {@const update = c.latest && norm(c.latest) !== norm(c.installed)}
           <div class="core">
             <span class="ico">{name[0]}</span>
             <span class="t">{name} {c.installed ?? ''}</span>
-            {#if !c.installed || update}
+            {#if !app.mobile && (!c.installed || update)}
               <button class="btn primary" class:busy={installing === c.core} disabled={installing !== null} onclick={() => install(c.core)}>
                 {#if installing === c.core}<Icon name="refresh" />{t('Installing…')}{:else}{c.installed ? t('Update to {version}', { version: c.latest ?? '' }) : t('Install')}{/if}</button>
             {:else}
@@ -251,16 +280,18 @@
             <span class="d">{c.core === 'xray' ? t('XTLS/Xray-core · XHTTP, Reality, bridged nodes') : t('MetaCubeX/mihomo · rules, groups, TUN, most protocols')}{!c.installed ? ` · ${t('not installed')}` : ''}</span>
           </div>
         {/each}
-        <p class="hint">{t('Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.')}</p>
+        <p class="hint">{app.mobile ? t('Included with the app and updated together with it.') : t('Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.')}</p>
       </section>
 
       <section class="card">
         <div class="card-h"><h2>{t('App')}</h2></div>
         <div class="rows">
-          <div class="row-sw"><div><div class="t">{t('Launch at sign-in')}</div></div>
-            <button class="switch" role="switch" aria-label={t('Launch at sign-in')} aria-checked={s.launch_at_login} onclick={setAutostart}></button></div>
-          <div class="row-sw"><div><div class="t">{t('Start in the tray')}</div></div>
-            <button class="switch" role="switch" aria-label={t('Start in the tray')} aria-checked={s.start_minimized} onclick={() => toggle((x) => x.start_minimized, (x, v) => (x.start_minimized = v))}></button></div>
+          {#if !app.mobile}
+            <div class="row-sw"><div><div class="t">{t('Launch at sign-in')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Launch at sign-in')} aria-checked={s.launch_at_login} onclick={setAutostart}></button></div>
+            <div class="row-sw"><div><div class="t">{t('Start in the tray')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Start in the tray')} aria-checked={s.start_minimized} onclick={() => toggle((x) => x.start_minimized, (x, v) => (x.start_minimized = v))}></button></div>
+          {/if}
           <div class="row-sw"><div><div class="t">{t('Connect on launch')}</div></div>
             <button class="switch" role="switch" aria-label={t('Connect on launch')} aria-checked={s.connect_on_launch} onclick={() => toggle((x) => x.connect_on_launch, (x, v) => (x.connect_on_launch = v))}></button></div>
         </div>
@@ -283,14 +314,16 @@
               <option value="debug">{t('Debug')}</option><option value="info">{t('Info')}</option><option value="warning">{t('Warning')}</option><option value="error">{t('Error')}</option><option value="silent">{t('Silent')}</option>
             </select></div>
         </div>
-        <div class="row-sw data"><div><div class="t">{t('Data folder')}</div><div class="d mono selectable">{app.dataDir}</div></div>
-          <button class="btn" onclick={() => app.run(() => openPath(app.dataDir))}><Icon name="folder" />{t('Open')}</button></div>
-        <div class="row-sw"><div><div class="t">{t('Quit Kova')}</div><div class="d">{t('Disconnects and restores your system proxy')}</div></div>
-          <button class="btn danger" onclick={() => api.quit()}>{t('Quit')}</button></div>
+        {#if !app.mobile}
+          <div class="row-sw data"><div><div class="t">{t('Data folder')}</div><div class="d mono selectable">{app.dataDir}</div></div>
+            <button class="btn" onclick={() => app.run(() => openPath(app.dataDir))}><Icon name="folder" />{t('Open')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Quit Kova')}</div><div class="d">{t('Disconnects and restores your system proxy')}</div></div>
+            <button class="btn danger" onclick={() => api.quit()}>{t('Quit')}</button></div>
+        {/if}
       </section>
 
       <section class="card">
-        <div class="card-h"><h2>{t('Updates')}</h2><span class="aside">Kova {svc?.app_version ?? ''}</span></div>
+        <div class="card-h"><h2>{t('Updates')}</h2><span class="aside">Kova {appVersion}</span></div>
         {#if app.update}
           <div class="upd">
             <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
@@ -299,6 +332,9 @@
             {#if app.updateProgress !== null}
               <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
               <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : t('Installing, Kova will restart')}</div>
+            {:else if app.mobile}
+              <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Download update')}</button></div>
+              <p class="hint">{t('The APK opens in your browser. Android asks you to confirm the install; your profiles and settings stay.')}</p>
             {:else}
               <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Install and restart')}</button></div>
               <p class="hint">{t('Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.')}</p>

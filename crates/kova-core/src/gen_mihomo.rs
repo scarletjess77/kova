@@ -30,7 +30,7 @@ fn geox_url(opts: &RuntimeOptions) -> Value {
 
 /// Settings every Mihomo config gets, whatever the profile says.
 fn base(opts: &RuntimeOptions) -> Value {
-    json!({
+    let mut v = json!({
         "mixed-port": opts.mixed_port,
         "allow-lan": opts.allow_lan,
         "bind-address": if opts.allow_lan { "*" } else { "127.0.0.1" },
@@ -39,7 +39,8 @@ fn base(opts: &RuntimeOptions) -> Value {
         "ipv6": opts.ipv6,
         "unified-delay": true,
         "tcp-concurrent": true,
-        "find-process-mode": "always",
+        // Android doesn't let an app see other apps' connections.
+        "find-process-mode": if opts.tun_fd.is_some() { "off" } else { "always" },
         "external-controller": format!("127.0.0.1:{}", opts.controller_port),
         "secret": opts.secret,
         "geodata-mode": true,
@@ -47,7 +48,14 @@ fn base(opts: &RuntimeOptions) -> Value {
         "geo-update-interval": 24,
         "geox-url": geox_url(opts),
         "profile": { "store-selected": true, "store-fake-ip": true },
-    })
+    });
+    // Android: every app on the phone can reach the proxy port, and through it learn the
+    // server's address or skip the per-app VPN choice. Only Kova knows the login.
+    if opts.tun_fd.is_some() && !opts.local_password.is_empty() {
+        v["authentication"] = json!([format!("{LOCAL_USER}:{}", opts.local_password)]);
+        v["skip-auth-prefixes"] = json!([]);
+    }
+    v
 }
 
 fn sniffer() -> Value {
@@ -107,6 +115,15 @@ fn tun(opts: &RuntimeOptions) -> Value {
     if !opts.tun_exclude.is_empty() {
         v["route-exclude-address"] = json!(opts.tun_exclude);
     }
+    if let Some(fd) = opts.tun_fd {
+        // Android: the system made the interface and set its routes and DNS; Kova's own
+        // traffic (the core included) is kept out of it by the VPN itself.
+        v["file-descriptor"] = json!(fd);
+        v["stack"] = json!("gvisor");
+        for k in ["auto-route", "auto-redirect", "auto-detect-interface", "strict-route"] {
+            v[k] = json!(false);
+        }
+    }
     v
 }
 
@@ -123,6 +140,68 @@ fn blocked_only(opts: &RuntimeOptions) -> bool {
     opts.presets.contains(&Preset::ProxyBlockedRu)
 }
 
+/// Smart routing's rule lists and probe ports, added to the config when it is on.
+/// Learned sites come right after the user's rules and presets: they were learned
+/// from traffic that only the catch-all matched, so they never override a rule.
+fn apply_smart(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) -> Vec<String> {
+    use crate::smart::{PROVIDER_DIRECT, PROVIDER_DIRECT_IP, PROVIDER_PROXY, PROVIDER_PROXY_IP, PROVIDERS};
+    let Some(sm) = &opts.smart else { return Vec::new() };
+    let to_yaml = |v: Value| serde_yaml_ng::to_value(v).expect("json to yaml");
+    let provider = |name: &str| {
+        // Fetched from Kova over loopback and refreshed through the controller whenever
+        // a site is learned; `interval: 0` keeps Mihomo from polling on its own.
+        let behavior = if name.ends_with("-ip") { "ipcidr" } else { "domain" };
+        to_yaml(json!({ "type": "http", "behavior": behavior, "format": "text", "url": format!("{}{name}.txt", sm.lists_url), "path": format!("./{name}.txt"), "interval": 0 }))
+    };
+    let mut providers = match doc.remove("rule-providers") {
+        Some(Yaml::Mapping(m)) => m,
+        _ => Mapping::new(),
+    };
+    for name in PROVIDERS {
+        providers.insert(Yaml::String(name.into()), provider(name));
+    }
+    doc.insert(Yaml::String("rule-providers".into()), Yaml::Mapping(providers));
+
+    let mut listeners = match doc.remove("listeners") {
+        Some(Yaml::Sequence(s)) => s,
+        _ => Vec::new(),
+    };
+    for (name, port, proxy) in [("kova-probe-direct", sm.direct_port, "DIRECT"), ("kova-probe-proxy", sm.proxy_port, main)] {
+        let mut l = json!({ "name": name, "type": "mixed", "listen": "127.0.0.1", "port": port, "udp": false, "proxy": proxy });
+        // Only Kova's checks use these; without a login any local program could.
+        if !sm.password.is_empty() {
+            l["users"] = json!([{ "username": LOCAL_USER, "password": sm.password }]);
+        }
+        listeners.push(to_yaml(l));
+    }
+    doc.insert(Yaml::String("listeners".into()), Yaml::Sequence(listeners));
+    vec![
+        format!("RULE-SET,{PROVIDER_DIRECT},DIRECT"),
+        format!("RULE-SET,{PROVIDER_PROXY},{main}"),
+        // Addresses only match connections that are already to an address: a name is
+        // never resolved just to check these.
+        format!("RULE-SET,{PROVIDER_DIRECT_IP},DIRECT,no-resolve"),
+        format!("RULE-SET,{PROVIDER_PROXY_IP},{main},no-resolve"),
+    ]
+}
+
+/// Who each rule in the config belongs to, by the name Mihomo logs it under, for smart
+/// routing to decide what it may do about a failure. `profile_rules`: an imported
+/// profile's own rules may be corrected.
+pub fn smart_scope(opts: &RuntimeOptions, profile_rules: bool) -> crate::smart::Scope {
+    use crate::smart::{PROVIDERS, rule_key};
+    let key = |r: &Rule| rule_key(r.kind.mihomo_name(), &r.value);
+    let mut internal: std::collections::HashSet<String> = opts.tail_rules().iter().map(key).collect();
+    internal.extend(opts.bypass_processes.iter().map(|p| rule_key("ProcessName", p)));
+    internal.extend(PROVIDERS.iter().map(|p| rule_key("RuleSet", p)));
+    crate::smart::Scope {
+        user_rules: opts.custom_rules.iter().map(key).collect(),
+        preset_rules: Preset::ALL.iter().filter(|p| opts.presets.contains(p)).flat_map(|p| p.rules()).map(|r| key(&r)).collect(),
+        internal_rules: internal,
+        profile_rules,
+    }
+}
+
 /// Address of the local Xray bridge for each bridged node.
 pub type Bridges = HashMap<String, u16>;
 
@@ -133,7 +212,14 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     let mut names = Vec::new();
     for n in nodes.iter().filter(|n| !dropped.contains(&n.name.as_str())) {
         let p = match bridges.get(&n.name) {
-            Some(port) => json!({ "name": n.name, "type": "socks5", "server": "127.0.0.1", "port": port, "udp": true }),
+            Some(port) => {
+                let mut p = json!({ "name": n.name, "type": "socks5", "server": "127.0.0.1", "port": port, "udp": true });
+                if !opts.local_password.is_empty() {
+                    p["username"] = json!(LOCAL_USER);
+                    p["password"] = json!(opts.local_password);
+                }
+                p
+            }
             None => to_clash(n),
         };
         proxies.push(p);
@@ -155,7 +241,6 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     let known: HashSet<&str> = names.iter().map(String::as_str).chain([AUTO, FALLBACK]).collect();
     let mut rules = bypass_rules(opts);
     rules.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(PROXY)));
-    rules.extend(opts.tail_rules().iter().map(|r| r.to_clash(PROXY)));
 
     let mut doc = base(opts);
     doc["sniffer"] = if opts.sniff { sniffer() } else { json!({ "enable": false }) };
@@ -163,7 +248,10 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     doc["tun"] = tun(opts);
     doc["proxies"] = Value::Array(proxies);
     doc["proxy-groups"] = groups;
-    doc["rules"] = json!(rules);
+    let mut doc: Mapping = serde_yaml_ng::from_value(serde_yaml_ng::to_value(doc).expect("json to yaml")).expect("an object");
+    rules.extend(apply_smart(&mut doc, opts, PROXY));
+    rules.extend(opts.tail_rules().iter().map(|r| r.to_clash(PROXY)));
+    doc.insert(Yaml::String("rules".into()), serde_yaml_ng::to_value(rules).expect("strings"));
     serde_yaml_ng::to_string(&doc).expect("JSON values always serialise to YAML")
 }
 
@@ -171,7 +259,7 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
 /// with ours; the controller is ours so the UI can talk to the core.
 const STRIP: &[&str] = &[
     "port", "socks-port", "redir-port", "tproxy-port", "external-controller-tls", "external-controller-unix",
-    "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication",
+    "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication", "skip-auth-prefixes",
 ];
 
 /// Take an imported Clash config and apply app-controlled settings on top.
@@ -204,20 +292,33 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     let main = main_group(&doc);
     let known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
+    let mut learned = Vec::new();
     if opts.apply_rules_to_clash_profiles {
         ours.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(&main)));
+        learned = apply_smart(&mut doc, opts, &main);
     }
-    if !ours.is_empty() {
-        let existing = match doc.remove("rules") {
+    if !ours.is_empty() || !learned.is_empty() {
+        let mut existing = match doc.remove("rules") {
             Some(Yaml::Sequence(s)) => s,
             _ => Vec::new(),
         };
         let mut merged: Vec<Yaml> = ours.into_iter().map(Yaml::String).collect();
+        let learned = learned.into_iter().map(Yaml::String);
         if opts.apply_rules_to_clash_profiles && blocked_only(opts) {
             // "Only blocked sites through the proxy": everything after our rules goes
             // direct, so the profile's own catch-all must not run.
+            merged.extend(learned);
             merged.extend(opts.tail_rules().iter().map(|r| Yaml::String(r.to_clash(&main))));
         } else {
+            // Learned from traffic only the catch-all matched, learned sites go right before
+            // it, so the profile's own rules keep deciding everything else. When smart
+            // routing may also correct the profile's rules, they must come first.
+            let catch_all = if opts.smart_profile_rules {
+                0
+            } else {
+                existing.iter().position(|r| r.as_str().is_some_and(|r| r.trim_start().starts_with("MATCH,"))).unwrap_or(existing.len())
+            };
+            existing.splice(catch_all..catch_all, learned);
             merged.extend(existing);
         }
         doc.insert(Yaml::String("rules".into()), Yaml::Sequence(merged));
@@ -301,12 +402,15 @@ mod tests {
         ];
         let p = plan(&nodes, CorePreference::Auto);
         let bridges = Bridges::from([("XH".to_string(), 17001)]);
-        let y = from_nodes(&nodes, &p, &bridges, &opts());
+        let mut o = opts();
+        o.local_password = "pw".into();
+        let y = from_nodes(&nodes, &p, &bridges, &o);
         let doc: Value = serde_yaml_ng::from_str(&y).unwrap();
         assert_eq!(doc["mixed-port"], 7890);
         assert_eq!(doc["external-controller"], "127.0.0.1:9097");
         let proxies = doc["proxies"].as_array().unwrap();
         assert_eq!(proxies[0]["type"], "socks5");
+        assert_eq!((proxies[0]["username"].as_str(), proxies[0]["password"].as_str()), (Some("kova"), Some("pw")), "the bridge needs Kova's login");
         assert_eq!(proxies[0]["port"], 17001);
         assert_eq!(proxies[1]["type"], "trojan");
         assert_eq!(doc["proxy-groups"][0]["proxies"][0], AUTO);
@@ -342,6 +446,108 @@ mod tests {
         assert_eq!(rules[0], "GEOSITE,ru-blocked,Sel");
         assert_eq!(*rules.last().unwrap(), "MATCH,DIRECT");
         assert!(!rules.contains(&"MATCH,Sel"));
+    }
+
+    #[test]
+    fn smart_routing_lists_come_before_the_catch_all() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let mut o = opts();
+        o.presets = vec![Preset::ProxyBlockedRu];
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        let at = |r: &str| rules.iter().position(|x| x.starts_with(r)).unwrap();
+        assert!(at("GEOSITE,ru-blocked") < at("RULE-SET,kova-learned-direct,DIRECT"));
+        assert!(at("RULE-SET,kova-learned-proxy,Proxy") < at("GEOSITE,private"));
+        assert!(at("RULE-SET,kova-learned-proxy-ip,Proxy,no-resolve") < at("GEOSITE,private"));
+        assert_eq!(doc["rule-providers"]["kova-learned-proxy-ip"]["behavior"], "ipcidr");
+        assert_eq!(doc["rule-providers"]["kova-learned-proxy"]["behavior"], "domain");
+        assert_eq!(*rules.last().unwrap(), "MATCH,DIRECT");
+        assert_eq!(doc["rule-providers"]["kova-learned-proxy"]["url"], "http://127.0.0.1:5000/t/kova-learned-proxy.txt");
+        assert_eq!(doc["listeners"][0]["proxy"], "DIRECT");
+        assert_eq!(doc["listeners"][1]["proxy"], "Proxy");
+        assert_eq!(doc["listeners"][1]["listen"], "127.0.0.1");
+
+        o.smart = None;
+        let plain: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert!(plain["rule-providers"].is_null() && plain["listeners"].is_null());
+    }
+
+    #[test]
+    fn smart_routing_keeps_a_clash_profiles_own_listeners() {
+        let raw = "proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+listeners:
+  - {name: mine, type: socks, port: 7000}
+rules:
+  - DOMAIN,mine.example,DIRECT
+  - MATCH,Sel
+";
+        let mut o = opts();
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let names: Vec<&str> = doc["listeners"].as_array().unwrap().iter().map(|l| l["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["mine", "kova-probe-direct", "kova-probe-proxy"]);
+        assert_eq!(doc["listeners"][2]["proxy"], "Sel");
+        assert_eq!(doc["listeners"][1]["users"], json!([{ "username": "kova", "password": "pw" }]), "probe ports need Kova's login");
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        // The profile's own rules still come first; learned sites only precede its catch-all.
+        let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
+        assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("MATCH,Sel"));
+        assert!(at("DOMAIN,mine.example,DIRECT") < at("RULE-SET,kova-learned-direct,DIRECT"));
+        assert_eq!(*rules.last().unwrap(), "MATCH,Sel");
+
+        // Allowed to correct the profile's rules: learned sites come before them.
+        o.smart_profile_rules = true;
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        let at = |r: &str| rules.iter().position(|x| *x == r).unwrap();
+        assert!(at("RULE-SET,kova-learned-proxy,Sel") < at("DOMAIN,mine.example,DIRECT"));
+    }
+
+    #[test]
+    fn own_rules_are_named_as_mihomo_logs_them() {
+        let mut o = opts();
+        o.presets = vec![Preset::DirectRu];
+        o.custom_rules = vec![Rule { kind: RuleKind::DomainSuffix, value: "example.org".into(), target: PROXY.into() }];
+        o.bypass_processes = vec!["xray.exe".into()];
+        let s = smart_scope(&o, false);
+        for k in ["GeoSite(category-ru)", "GeoIP(RU)"] {
+            assert!(s.preset_rules.contains(k), "{k} missing from {:?}", s.preset_rules);
+        }
+        assert!(s.user_rules.contains("DomainSuffix(example.org)"));
+        for k in ["IPCIDR(10.0.0.0/8)", "ProcessName(xray.exe)", "RuleSet(kova-learned-proxy)"] {
+            assert!(s.internal_rules.contains(k), "{k} missing from {:?}", s.internal_rules);
+        }
+        assert!(!s.user_rules.contains("GeoSite(category-games)"));
+    }
+
+    #[test]
+    fn android_uses_the_interface_it_is_given() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let mut o = opts();
+        o.tun.enabled = true;
+        o.tun_fd = Some(42);
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert_eq!(doc["tun"]["file-descriptor"], 42);
+        assert_eq!(doc["tun"]["auto-route"], false);
+        assert_eq!(doc["find-process-mode"], "off");
+        assert!(doc.get("authentication").is_none(), "no password, no login");
+
+        // Every app on the phone can reach the proxy port: it asks for Kova's login.
+        o.local_password = "pw".into();
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert_eq!(doc["authentication"], json!(["kova:pw"]));
+        assert_eq!(doc["skip-auth-prefixes"], json!([]));
+        o.tun_fd = None;
+        let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+        assert!(doc.get("authentication").is_none(), "the desktop system proxy can't send a login");
+        let saved: RuntimeOptions = serde_json::from_str(&serde_json::to_string(&o).unwrap()).unwrap();
+        assert_eq!(saved.tun_fd, None, "a descriptor is never stored");
     }
 
     #[test]

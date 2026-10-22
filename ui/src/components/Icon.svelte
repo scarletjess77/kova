@@ -5,6 +5,7 @@
     profiles: 'M12 3l9 5-9 5-9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5',
     connections: 'M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4',
     rules: 'M4 6h16M7 12h10M10 18h4',
+    menu: 'M4 7h16M4 12h16M4 17h16',
     logs: 'M4 5h16v14H4zM8 10l3 2-3 2M13 15h4',
     settings: 'M4 7h9M17 7h3M4 17h3M11 17h9M15 5v4M9 15v4',
     power: 'M12 3v8M6.3 7.3a8 8 0 1 0 11.4 0',
@@ -35,6 +36,7 @@
     folder: 'M3 6h6l2 2h10v11H3z',
     grip: 'M9 6h.01M15 6h.01M9 12h.01M15 12h.01M9 18h.01M15 18h.01',
     pulse: 'M3 12h4l3-8 4 16 3-8h4',
+    qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2z',
     heart: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z',
   } as const;
   export type IconName = keyof typeof ICONS;

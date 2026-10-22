@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { api, type ExitInfo, type Mode } from '../lib/api';
+  import { api, errText, type ExitInfo, type Mode } from '../lib/api';
   import { countryCode, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -21,7 +21,8 @@
   );
   // Running is not the same as protected: without the system proxy or a working TUN,
   // only apps pointed at the port by hand go through Kova.
-  let capturing = $derived(!!settings && (settings.system_proxy || s.tun_active));
+  // On a phone only the VPN captures traffic; there is no system proxy.
+  let capturing = $derived(!!settings && (s.tun_active || (!app.mobile && settings.system_proxy)));
   let chain = $derived.by(() => {
     const out: string[] = [];
     let name = mainGroup?.name;
@@ -51,20 +52,22 @@
   let exit = $state<ExitInfo | null>(null);
   let exitErr = $state<string | null>(null);
   let exitLoading = $state(false);
-  async function checkExit() {
+  async function checkExit(retry = false) {
     exitLoading = true;
     try {
       exit = await api.exitInfo();
       exitErr = null;
     } catch (e) {
       exit = null;
-      exitErr = String(e);
+      exitErr = errText(e);
+      // Right after connecting the route may still be settling: try once more.
+      if (retry) setTimeout(() => void checkExit(), 3000);
     }
     exitLoading = false;
   }
   $effect(() => {
     void s.running;
-    if (!s.busy) void checkExit();
+    if (!s.busy) void checkExit(true);
   });
 
   let connCount = $state(0);
@@ -85,14 +88,14 @@
 <div class="dash">
   <section class="card hero">
     <div class="hero-top">
-      <button class="power" class:on={s.running} class:busy={s.busy} onclick={() => app.toggleConnection()} disabled={!profile || s.busy}
+      <button class="power" class:on={s.running} class:busy={s.busy || app.toggling} onclick={() => app.toggleConnection()} disabled={!profile || s.busy || app.toggling}
         aria-pressed={s.running} aria-label={s.running ? t('Disconnect') : t('Connect')}><Icon name="power" /></button>
       <div class="hero-text">
         <div class="eyebrow">{t('Status')}</div>
         <div class="state" class:off={!s.running && !s.busy}>{s.busy ? (s.running ? t('Switching…') : t('Connecting…')) : s.running ? (capturing ? t('Protected') : t('Proxy only')) : t('Disconnected')}</div>
         {#if !profile}
           <p class="muted">{t('Add a subscription or share links to start.')}</p>
-          <div><button class="btn primary" onclick={() => { app.view = 'profiles'; app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button></div>
+          <div><button class="btn primary" onclick={() => { app.go('profiles'); app.importOpen = true; }}><Icon name="plus" />{t('Add profile')}</button></div>
         {:else if chain.length}
           <div class="route">
             {#each chain.slice(0, -1) as c (c)}<span>{c}</span><span class="sep">›</span>{/each}
@@ -134,6 +137,8 @@
             {/each}
           </div>
         </div>
+        <!-- On a phone the VPN captures everything; there is nothing to choose. -->
+        {#if !app.mobile}
         <div class="fld"><span class="lbl">{t('Capture traffic')}</span>
           <div class="togs">
             <div class="tog"><Icon name="monitor" /><span>{t('System proxy')}<small>{t('Apps that follow the system proxy')}</small></span>
@@ -144,6 +149,7 @@
                 onclick={() => app.saveSettings((x) => (x.core.tun.enabled = !x.core.tun.enabled))}></button></div>
           </div>
         </div>
+        {/if}
       </div>
     {/if}
   </section>
@@ -156,12 +162,13 @@
     </div>
     <dl class="kv">
       <dt>{t('Location')}</dt><dd>{exit ? [exit.city, exit.country].filter(Boolean).join(', ') : exitErr ? t('Could not check') : '…'}</dd>
+      {#if exitErr && !exit}<dt></dt><dd class="why selectable">{exitErr}</dd>{/if}
       <dt>{t('Network')}</dt><dd title={exit?.network}>{exit?.network || '—'}</dd>
       <dt>{t('Latency')}</dt><dd>{#if s.running && endNode}<Latency delay={app.delays[endNode]} />{:else}—{/if}</dd>
       {#if settings}<dt>DNS</dt><dd>{settings.core.dns.fake_ip ? 'Fake-IP' : 'Redir-host'} · {settings.core.dns.nameservers[0]?.replace(/^https:\/\//, '').replace(/\/dns-query$/, '') ?? '—'}</dd>{/if}
     </dl>
     <div class="foot">
-      <button class="btn" class:busy={exitLoading} onclick={checkExit} disabled={exitLoading}><Icon name="refresh" />{t('Check again')}</button>
+      <button class="btn" class:busy={exitLoading} onclick={() => checkExit()} disabled={exitLoading}><Icon name="refresh" />{t('Check again')}</button>
       {#if exit}<button class="btn ghost" onclick={() => app.run(() => navigator.clipboard.writeText(exit!.ip), t('IP copied'))}><Icon name="copy" />{t('Copy IP')}</button>{/if}
     </div>
   </section>
@@ -190,7 +197,7 @@
           </button>
         {/each}
       </div>
-      <button class="btn ghost more" onclick={() => (app.view = 'proxies')}>{t('All nodes and groups')}</button>
+      <button class="btn ghost more" onclick={() => app.go('proxies')}>{t('All nodes and groups')}</button>
     {:else}
       <p class="muted">{t('Nodes appear here once a profile is added.')}</p>
     {/if}
@@ -214,7 +221,8 @@
   .hero-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   .power { width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line-2); background: var(--sunk); color: var(--muted); display: grid; place-items: center; flex: none; position: relative; transition: background .2s, color .2s, border-color .2s; }
   .power :global(.i) { width: 36px; height: 36px; stroke-width: 2; }
-  .power:hover:not(:disabled) { border-color: var(--accent); color: var(--fg); }
+  /* Hover only with a mouse: on a touch screen it sticks after the tap. */
+  @media (hover: hover) { .power:not(.on):hover:not(:disabled) { border-color: var(--accent); color: var(--fg); } }
   .power:disabled { cursor: default; }
   .power.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
   .power.on::before { content: ''; position: absolute; inset: -7px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: .3; }
@@ -230,12 +238,26 @@
   .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 18px; border-top: 1px solid var(--line); }
   @container (max-width: 560px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
   .togs { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* Phone: the connection is the page. Big centred button, status beneath it. */
+  :global(.app.mobile) .hero { padding: 28px 18px 20px; }
+  :global(.app.mobile) .hero-top { flex-direction: column; align-items: center; text-align: center; gap: 18px; }
+  :global(.app.mobile) .hero-text { align-items: center; width: 100%; }
+  :global(.app.mobile) .power { width: 148px; height: 148px; }
+  :global(.app.mobile) .power :global(.i) { width: 52px; height: 52px; }
+  :global(.app.mobile) .state { font-size: 30px; }
+  :global(.app.mobile) .route, :global(.app.mobile) .hero-meta { justify-content: center; }
+  :global(.app.mobile) .hero-meta .chip { text-align: left; }
+  :global(.app.mobile) .hero-controls { grid-template-columns: minmax(0, 1fr); }
+  :global(.app.mobile) .hero-controls .seg { display: flex; }
+  :global(.app.mobile) .hero-controls .seg button { flex: 1; }
   .tog { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); }
   .tog :global(.i) { color: var(--muted); }
   .tog span { font-size: 13px; font-weight: 500; }
   .tog small { display: block; color: var(--faint); font-size: 11px; font-weight: 400; }
   .exit { display: flex; flex-direction: column; gap: 14px; }
   .ip { font: 500 22px var(--f-mono); letter-spacing: -.01em; }
+  .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
   .foot { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
   .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-left: auto; }
   .leg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
@@ -245,7 +267,7 @@
   .traffic-foot b { color: var(--fg); font-weight: 500; font-family: var(--f-mono); }
   .qs { display: flex; flex-direction: column; gap: 4px; }
   .qs button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: none; text-align: left; min-width: 0; }
-  .qs button:hover { background: var(--sunk); }
+  @media (hover: hover) { .qs button:hover { background: var(--sunk); } }
   .qs button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
   .qs .nm { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .qs .pr { color: var(--muted); font-size: 12px; font-weight: 400; }

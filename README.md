@@ -2,7 +2,7 @@
 
 A desktop VPN client for the **Mihomo** and **Xray** cores, written in Rust. It aims to replace v2rayN, Clash Verge Rev and similar clients with one app that runs either core, or both at once.
 
-Windows is the first target; Linux and macOS share the same code, and Android is planned.
+Windows is the first target; Linux and macOS share the same code, and an early Android app (arm64) comes with every release.
 
 By **scarletjess77** · [github.com/scarletjess77/kova](https://github.com/scarletjess77/kova)
 
@@ -36,6 +36,24 @@ npm run tauri build      # release build and installer
 ```
 
 Set `KOVA_DATA_DIR` to keep development data away from your real profile (`dev-data/` is ignored by git). On first launch Kova downloads any missing core.
+
+### Android (early)
+
+Each release has an APK (`Kova_<version>_android-arm64.apk`) next to the Windows installer. The same app runs on Android (arm64, Android 7+) through Tauri: the same interface, laid out for a phone, and the same engine. What differs:
+
+- **The VPN.** Android lets an app capture traffic only through its VpnService. The Kotlin part (`src-tauri/gen/android/app/src/main/java/app/kova/client/`) asks for permission, opens the VPN interface and hands its descriptor to Mihomo, which uses it as its TUN device. Kova's own traffic, the cores' included, is excluded from the VPN so it can reach the servers. There is no system proxy, TUN switch or Kova service on Android; the VPN covers all apps.
+- **The cores ship inside the APK** as `libmihomo.so` and `libxray.so`, because Android only runs programs that come with the app. `npm run android:cores` downloads Xray's Android build from its official release and checks its SHA-256, and builds Mihomo from its official source with Go (the `cmfa` build Clash Meta for Android uses, which doesn't need root); they are updated together with the app.
+- **HTTPS** uses the certificates the device trusts.
+- **Updates.** Settings → Updates finds a newer APK in the releases (betas too with **Get beta versions**) and opens it in the browser; Android asks to confirm the install. Releases are all signed with the same key, so each installs over the last and keeps your profiles.
+
+Requirements: Android SDK with platform 36 and NDK r28, JDK 17 or 21, Go, and the Rust target `aarch64-linux-android`. With `ANDROID_HOME`, `NDK_HOME` and `JAVA_HOME` set:
+
+```bash
+npm run android:build                      # release APK (unsigned unless KOVA_ANDROID_KEYSTORE is set)
+npm run android:cores && npx tauri android build --apk --target aarch64 --debug   # debug APK, installable as is
+```
+
+The APK is in `src-tauri/gen/android/app/build/outputs/apk/`.
 
 ## Tests
 
@@ -92,6 +110,20 @@ https://github.com/runetfreedom/russia-v2ray-rules-dat/releases/latest/download/
 
 You can also drop your own files into `cores`. They are used until the next scheduled update replaces them; to keep them, pick a source whose files you control.
 
+## Smart routing (beta)
+
+Rules → **Smart routing**, off by default. Kova learns sites that fail on their usual path and routes them the other way: a site that is blocked when going direct goes through the proxy, and a site that refuses the proxy (one that blocks foreign IPs) goes direct. It complements the routing presets: the lists cover known blocks, smart routing catches new ones, blocks of one ISP, and the extra domains a blocked site loads.
+
+How it decides, in Rule mode with Mihomo in front:
+
+1. **Suspects.** Mihomo reports every connection it could not open; Kova reads these warnings through the controller, whatever the log level. It also flags a direct HTTPS connection that sent its greeting and got nothing back for 5 seconds, which is how blocking that drops packets looks. Only connections that reached the catch-all rule count: a rule chosen on purpose, the user's or a preset's, is never second-guessed.
+2. **Check.** Mihomo gets two extra loopback ports that ignore the rules, one always direct and one always through the main group. Kova fetches the site both ways. It is learned only if the usual path fails twice, the other path works, and both paths can reach a known-good site (otherwise the internet or the proxy is simply down).
+3. **Apply.** Learned sites (the registrable domain, via the public suffix list) go into two rule lists that Mihomo fetches from Kova over loopback, right after your rules and presets. Mihomo reloads them on request, so nothing restarts; connections stuck on the failing path are closed so the page retries on the new route.
+
+**TUN mode.** Everything above works the same with TUN, also when Mihomo runs inside the Kova service: the checks and the lists use loopback, which TUN leaves alone. TUN also captures apps that connect to a bare IP address without a name (Telegram, voice chats, games). Such an address is learned when Mihomo could not connect to it directly and it is reachable through the proxy; the check opens a plain connection through the probe ports' SOCKS5 side, so it works whatever protocol the app speaks. Addresses are only learned toward the proxy, and private, special and fake-IP ranges never. Kova needs site names to learn sites, so keep **Sniff domains** or **Fake-IP** on (both are on by default).
+
+Learned sites are stored in `learned.json` in the data folder and expire after 30 days unless learned again. The list on the Rules page shows why each site was learned; **Keep** turns one into a rule of your own. The first visit to a newly blocked site still fails once; throttling (as opposed to blocking) is not detected yet.
+
 ## Status
 
 Working and tested on Windows 11:
@@ -112,7 +144,7 @@ Not done yet:
 - TUN without admin rights on Linux and macOS (Windows has the Kova service).
 - Linux and macOS: system-proxy code is written but untested.
 - Error messages from the engine are still English only; QR code import, global shortcuts, Xray JSON import.
-- Android (shared `kova-core`, VpnService, cores built as libraries).
+- Android: tested on one phone so far; no per-app VPN choice yet.
 - Code-signed installers (Windows SmartScreen warns until the installer is signed with a certificate).
 
 ## Releases and in-app updates
@@ -128,7 +160,7 @@ git tag v0.2.0
 git push origin HEAD v0.2.0
 ```
 
-The **Release** workflow builds and signs the installer and creates a draft release. Publish the draft on GitHub; installed copies see the update from then on. The **CI** workflow runs the tests on Windows, Linux and macOS for every push.
+The **Release** workflow builds and signs the Windows installer and the Android APK and creates a draft release. Publish the draft on GitHub; installed copies see the update from then on. The **CI** workflow runs the tests on Windows, Linux and macOS for every push.
 
 ## Privacy note
 

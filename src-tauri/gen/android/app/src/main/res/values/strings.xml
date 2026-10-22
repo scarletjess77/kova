@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">"Kova"</string>
+    <string name="main_activity_title">"Kova"</string>
+    <string name="vpn_on">VPN is on</string>
+    <string name="vpn_on_profile">Connected · %1$s</string>
+    <string name="vpn_waiting">Open Kova to connect</string>
+    <string name="disconnect">Disconnect</string>
+</resources>

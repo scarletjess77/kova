@@ -16,18 +16,20 @@
   const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
 </script>
 
-<aside class="side">
+<!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+{#if app.mobile && app.navOpen}<div class="scrim" onclick={() => app.closeNav()}></div>{/if}
+<aside class="side" class:open={app.navOpen}>
   <nav class="nav">
     {#each NAV as [id, label] (id)}
-      <button onclick={() => (app.view = id)} aria-current={app.view === id ? 'page' : undefined}>
+      <button onclick={() => app.go(id)} aria-current={app.view === id ? 'page' : undefined}>
         <Icon name={id === 'check' ? 'pulse' : id} />{label}
         {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
         {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
       </button>
     {/each}
   </nav>
-  {#if app.update}
-    <button class="update" onclick={() => (app.view = 'settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
+  {#if app.update && !app.mobile}
+    <button class="update" onclick={() => app.go('settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
   {/if}
   {#if app.activeProfile}
     <div class="sub-card">
@@ -47,7 +49,7 @@
   .side { border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; min-height: 0; overflow: auto; }
   .nav { display: flex; flex-direction: column; gap: 2px; }
   .nav button { display: flex; align-items: center; gap: 11px; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-weight: 500; text-align: left; white-space: nowrap; }
-  .nav button:hover { background: var(--sunk); color: var(--fg); }
+  @media (hover: hover) { .nav button:hover { background: var(--sunk); color: var(--fg); } }
   .nav button[aria-current='page'] { background: var(--accent-soft); color: var(--fg); }
   .badge { margin-left: auto; font: 500 11px var(--f-mono); color: var(--faint); }
   .update { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--accent-soft); color: var(--fg); font-size: 12.5px; font-weight: 500; text-align: left; }
@@ -56,4 +58,12 @@
   .sub-card { margin-top: auto; border: 1px solid var(--line); border-radius: var(--r); padding: 11px 12px; background: var(--panel); display: flex; flex-direction: column; gap: 7px; }
   .t { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .s { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+
+  /* Phone: the same list as a panel that slides in from the left, over the page. */
+  .scrim { position: fixed; inset: 0; background: rgb(0 0 0 / .5); z-index: 24; }
+  :global(.app.mobile) .side { position: fixed; top: 0; bottom: 0; left: 0; width: min(300px, 82vw); z-index: 25; background: var(--win); padding: 16px 12px; gap: 14px;
+    transform: translateX(-102%); transition: transform .2s ease; box-shadow: var(--shadow); }
+  :global(.app.mobile) .side.open { transform: none; }
+  :global(.app.mobile) .nav button { padding: 13px 12px; font-size: 15px; gap: 14px; }
+  :global(.app.mobile) .nav button :global(.i) { width: 20px; height: 20px; }
 </style>

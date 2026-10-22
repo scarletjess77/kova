@@ -48,6 +48,10 @@ impl Paths {
     pub fn runtime_dir(&self) -> PathBuf {
         self.root.join("runtime")
     }
+    /// Sites smart routing learned.
+    pub fn learned(&self) -> PathBuf {
+        self.root.join("learned.json")
+    }
     /// Marker written while Kova owns the system proxy, so a crash can be undone.
     pub fn proxy_marker(&self) -> PathBuf {
         self.runtime_dir().join("system-proxy.json")
@@ -72,7 +76,7 @@ pub fn temp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
 }
 
-fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
+pub(crate) fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
     match std::fs::read(path) {
         Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
             tracing::warn!("{} is unreadable ({e}); using defaults", path.display());
@@ -82,7 +86,7 @@ fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
     }
 }
 
-fn write_json<T: Serialize>(path: &Path, v: &T) -> Result<(), Error> {
+pub(crate) fn write_json<T: Serialize>(path: &Path, v: &T) -> Result<(), Error> {
     write_atomic(path, &serde_json::to_vec_pretty(v).expect("serialisable"))?;
     Ok(())
 }
@@ -120,6 +124,28 @@ pub struct Settings {
     pub check_updates: bool,
     /// Also update to beta versions (pre-releases). On by default in a beta build.
     pub beta_updates: bool,
+    /// Android: which apps go through the VPN.
+    pub vpn_apps: VpnApps,
+}
+
+/// Which apps the Android VPN covers, by package name.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VpnApps {
+    pub mode: VpnAppsMode,
+    pub apps: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VpnAppsMode {
+    /// Every app.
+    #[default]
+    All,
+    /// Only the listed apps.
+    Only,
+    /// Every app but the listed ones.
+    Except,
 }
 
 impl Default for Settings {
@@ -140,6 +166,7 @@ impl Default for Settings {
             check_sites: Vec::new(),
             check_updates: true,
             beta_updates: env!("CARGO_PKG_VERSION").contains('-'),
+            vpn_apps: VpnApps::default(),
         }
     }
 }
@@ -147,8 +174,12 @@ impl Default for Settings {
 impl Settings {
     pub fn load(paths: &Paths) -> Self {
         let mut s: Settings = read_json(&paths.settings());
-        if s.core.secret.is_empty() {
-            s.core.secret = uuid::Uuid::new_v4().simple().to_string();
+        if s.core.secret.is_empty() || s.core.local_password.is_empty() {
+            for v in [&mut s.core.secret, &mut s.core.local_password] {
+                if v.is_empty() {
+                    *v = uuid::Uuid::new_v4().simple().to_string();
+                }
+            }
             let _ = s.save(paths);
         }
         s

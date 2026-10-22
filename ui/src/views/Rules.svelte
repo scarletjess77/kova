@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import type { Preset, Rule, RuleKind } from '../lib/api';
+  import { api, type Learned, type Preset, type Rule, type RuleKind, type Suggestion } from '../lib/api';
+  import { fmtAgo } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
@@ -155,6 +156,61 @@
     }
   }
 
+  // Smart routing
+  let learned = $state<Learned[]>([]);
+  let suggestions = $state<Suggestion[]>([]);
+  const loadLearned = async () => {
+    learned = (await app.run(() => api.learnedSites())) ?? learned;
+    suggestions = (await app.run(() => api.smartSuggestions())) ?? suggestions;
+  };
+
+  // How Mihomo names a rule in its logs, to find which of the user's rules a
+  // suggestion is about.
+  const MIHOMO_NAME: Record<RuleKind, string> = {
+    domain: 'Domain', 'domain-suffix': 'DomainSuffix', 'domain-keyword': 'DomainKeyword', geosite: 'GeoSite',
+    geoip: 'GeoIP', 'ip-cidr': 'IPCIDR', 'process-name': 'ProcessName', match: 'Match',
+  };
+  const ruleKey = (r: Rule) => (r.value ? `${MIHOMO_NAME[r.kind]}(${r.value})` : MIHOMO_NAME[r.kind]);
+
+  /** Which rule sent the site the failing way, in words. */
+  function culprit(sg: Suggestion): string {
+    if (sg.origin === 'user') {
+      const i = rules.findIndex((r) => ruleKey(r) === sg.rule);
+      if (i >= 0) return t('your rule #{n} ({kind} {value})', { n: i + 1, kind: KIND_LABEL[rules[i].kind] ?? rules[i].kind, value: rules[i].value });
+      return t('one of your rules ({rule})', { rule: sg.rule });
+    }
+    return sg.origin === 'preset' ? t('a routing preset ({rule})', { rule: sg.rule }) : t('the subscription’s rule {rule}', { rule: sg.rule });
+  }
+
+  async function acceptSuggestion(sg: Suggestion) {
+    const saved = await app.run(() => api.acceptSuggestion(sg.domain), t('Exception added: {domain} now goes {way}', { domain: sg.domain, way: sg.route === 'proxy' ? t('through the proxy') : t('direct') }));
+    if (saved) app.settings = saved;
+    await loadLearned();
+  }
+
+  async function dismissSuggestion(sg: Suggestion) {
+    await app.run(() => api.dismissSuggestion(sg.domain));
+    await loadLearned();
+  }
+  $effect(() => { void app.learnedVersion; void loadLearned(); });
+  let REASON = $derived<Record<string, string>>({
+    timeout: t('no answer'), reset: t('connection reset'), tls: t('secure connection broken'), dns: t('name not resolved'),
+    'connect-failed': t('could not connect'), refused: t('access refused'),
+  });
+  async function forget(domain: string) {
+    await app.run(() => api.forgetLearned(domain), t('{domain} forgotten', { domain }));
+    await loadLearned();
+  }
+  async function keep(domain: string) {
+    const saved = await app.run(() => api.keepLearned(domain), t('{domain} moved to your rules', { domain }));
+    if (saved) app.settings = saved;
+    await loadLearned();
+  }
+  async function clearAll() {
+    await app.run(() => api.clearLearned(), t('Learned sites cleared'));
+    await loadLearned();
+  }
+
   const remove = (i: number) => app.saveSettings((x) => (x.core.custom_rules = x.core.custom_rules.filter((_, k) => k !== i)));
   const polClass = (t: string) => (t === 'DIRECT' ? 'direct' : t === 'REJECT' ? 'reject' : 'proxy');
 </script>
@@ -170,7 +226,7 @@
       {@const unavailable = p.needs === 'runetfreedom' && s.core.geodata.kind === 'default' && !s.core.presets.includes(p.id)}
       <div class="card preset">
         <div><div class="t">{p.title}</div><div class="d">{p.desc}</div>
-          {#if unavailable}<button class="link" onclick={() => (app.view = 'settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
+          {#if unavailable}<button class="link" onclick={() => app.go('settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
         <button class="switch" role="switch" aria-label={p.title} aria-checked={s.core.presets.includes(p.id)} disabled={unavailable} onclick={() => togglePreset(p.id)}></button>
       </div>
     {/each}
@@ -220,6 +276,72 @@
     </div>
   </section>
 
+  <section class="card smart">
+    <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">beta</span>
+      <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
+        onclick={() => app.saveSettings((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
+    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works: blocked sites through the proxy, sites that refuse the proxy direct. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>
+    {#if s.core.smart_routing && s.core.mode !== 'rule'}
+      <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
+    {:else if s.core.smart_routing && s.core.tun.enabled && !s.core.sniff && !s.core.dns.fake_ip}
+      <p class="hint warn-text">{t('In TUN mode Kova needs site names: turn on Sniff domains or Fake-IP in Settings, otherwise it can only learn IP addresses.')}</p>
+    {:else if s.core.smart_routing && isClash && !s.core.apply_rules_to_clash_profiles}
+      <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
+    {/if}
+    {#if suggestions.length}
+      <div class="eyebrow sugg-h">{t('Suggestions')}</div>
+      <div class="suggestions">
+        {#each suggestions as sg (sg.domain)}
+          <div class="sugg">
+            <div class="sugg-text">
+              <b class="mono">{sg.domain}</b>
+              <span>{sg.route === 'proxy'
+                ? t('is blocked direct ({why}), but {rule} sends it there. It opens through the proxy.', { why: REASON[sg.reason] ?? sg.reason, rule: culprit(sg) })
+                : t('doesn’t open through the proxy ({why}), but {rule} sends it there. It opens directly.', { why: REASON[sg.reason] ?? sg.reason, rule: culprit(sg) })}</span>
+            </div>
+            <div class="ops">
+              <button class="btn primary small-btn" onclick={() => acceptSuggestion(sg)}
+                title={sg.origin === 'user' ? t('Adds a rule for this site right above yours') : t('Adds a rule of your own for this site')}>{t('Add exception')}</button>
+              <button class="btn ghost small-btn" onclick={() => dismissSuggestion(sg)}>{t('Dismiss')}</button>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+    {#if s.core.smart_routing && isClash}
+      <div class="row-sw profile-rules">
+        <div><div class="t">{t('Also correct the subscription’s rules')}</div>
+          <div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div></div>
+        <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
+          onclick={() => app.saveSettings((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
+      </div>
+    {/if}
+    {#if learned.length}
+      <div class="twrap list">
+        <table>
+          <thead><tr><th>{t('Site')}</th><th>{t('Now goes')}</th><th>{t('Why')}</th><th>{t('Learned')}</th><th></th></tr></thead>
+          <tbody>
+            {#each learned as l (l.domain)}
+              <tr>
+                <td class="mono small selectable">{l.domain}</td>
+                <td><span class="pol {l.route === 'proxy' ? 'proxy' : 'direct'}">{l.route === 'proxy' ? t('Through the proxy') : t('Direct')}</span></td>
+                <td class="muted">{REASON[l.reason] ?? l.reason}</td>
+                <td class="muted">{fmtAgo(l.learned_at)}</td>
+                <td class="r"><div class="ops">
+                  <button class="btn ghost small-btn" onclick={() => keep(l.domain)} title={t('Make it one of your rules, kept for good')}>{t('Keep')}</button>
+                  <button class="x" onclick={() => forget(l.domain)} aria-label={t('Forget {domain}', { domain: l.domain })}><Icon name="x" /></button>
+                </div></td>
+              </tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+      <div class="actions gap"><button class="btn ghost danger" onclick={clearAll}>{t('Forget all')}</button></div>
+    {:else if s.core.smart_routing}
+      <p class="hint">{t('Nothing learned yet. A site appears here when Kova finds it works only the other way.')}</p>
+    {/if}
+  </section>
+
   <p class="hint order">{t('Order: your rules → presets → local network goes direct → everything else uses')} <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. {t('Global and Direct modes skip rules entirely.')}</p>
 {/if}
 
@@ -246,5 +368,17 @@
   .hint :global(.inline-grip) { width: 13px; height: 13px; stroke-width: 3; vertical-align: -2px; }
   .apply { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   .order { margin-top: 14px; }
+  .smart { margin-top: 12px; }
+  .profile-rules { margin: 4px 0 6px; }
+  .sugg-h { margin: 6px 0 8px; }
+  .suggestions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .sugg { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--sunk); }
+  .sugg-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; font-size: 13px; }
+  .sugg-text span { color: var(--muted); }
+  .smart .card-h { gap: 8px; }
+  .aside-sw { margin-left: auto; }
+  .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
+  .small-btn { height: 26px; padding: 0 9px; font-size: 12px; }
+  .gap { margin-top: 10px; }
   .order b { color: var(--fg); font-weight: 600; }
 </style>

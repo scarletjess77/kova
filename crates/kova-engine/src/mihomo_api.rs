@@ -90,8 +90,8 @@ pub struct ConnectionsSnapshot {
 
 impl Mihomo {
     pub fn new(port: u16, secret: &str) -> Self {
-        let http = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(15)).build().expect("client");
-        let stream_http = reqwest::Client::builder().no_proxy().build().expect("client");
+        let http = crate::fetch::builder().no_proxy().timeout(Duration::from_secs(15)).build().expect("client");
+        let stream_http = crate::fetch::builder().no_proxy().build().expect("client");
         Self { base: format!("http://127.0.0.1:{port}"), secret: secret.to_string(), http, stream_http }
     }
 
@@ -226,6 +226,12 @@ impl Mihomo {
 
     pub async fn close_all(&self) -> Result<(), Error> {
         self.req(&self.http, reqwest::Method::DELETE, "/connections").send().await?;
+        Ok(())
+    }
+
+    /// Make Mihomo fetch a rule provider again.
+    pub async fn update_rule_provider(&self, name: &str) -> Result<(), Error> {
+        self.req(&self.http, reqwest::Method::PUT, &format!("/providers/rules/{}", seg(name))).send().await?.error_for_status()?;
         Ok(())
     }
 
