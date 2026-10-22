@@ -1,9 +1,11 @@
 <script lang="ts">
   import { checkPermissions, Format, requestPermissions, scan } from '@tauri-apps/plugin-barcode-scanner';
+  import qrcode from 'qrcode-generator';
+  import { onDestroy } from 'svelte';
   import { readText } from '@tauri-apps/plugin-clipboard-manager';
   import { open } from '@tauri-apps/plugin-dialog';
   import { invoke } from '@tauri-apps/api/core';
-  import { api } from '../lib/api';
+  import { api, errText } from '../lib/api';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
@@ -11,8 +13,26 @@
 
   let { onclose }: { onclose: () => void } = $props();
 
-  type Tab = 'link' | 'clip' | 'file' | 'qr';
-  let tab = $state<Tab>('link');
+  type Tab = 'link' | 'clip' | 'file' | 'qr' | 'device';
+  // A TV remote can't type a link comfortably: start with another device.
+  let tab = $state<Tab>(app.tv ? 'device' : 'link');
+
+  // "From another device": a page on the local network that adds what is pasted there.
+  let receiving = $state<{ url: string; svg: string } | null>(null);
+  let receiveError = $state<string | null>(null);
+  const startCount = app.profiles.length;
+  $effect(() => {
+    if (tab !== 'device' || receiving || receiveError) return;
+    api.receiveStart().then((r) => {
+      const qr = qrcode(0, 'M');
+      qr.addData(r.url);
+      qr.make();
+      receiving = { url: r.url, svg: qr.createSvgTag({ cellSize: 4, margin: 2, scalable: true }) };
+    }, (e) => (receiveError = errText(e)));
+  });
+  // Close once the other device added a profile; stop serving the page on the way out.
+  $effect(() => { if (receiving && app.profiles.length > startCount) onclose(); });
+  onDestroy(() => { if (receiving) void api.receiveStop(); });
   let input = $state('');
   let name = $state('');
   let busy = $state(false);
@@ -66,8 +86,9 @@
   <div class="seg" role="group" aria-label={t('Import from')}>
     <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>{t('Link')}</button>
     <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>{t('Clipboard')}</button>
-    {#if app.mobile}<button aria-pressed={tab === 'qr'} onclick={() => (tab = 'qr')}>{t('QR code')}</button>
-    {:else}<button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>{/if}
+    {#if app.mobile && app.camera}<button aria-pressed={tab === 'qr'} onclick={() => (tab = 'qr')}>{t('QR code')}</button>{/if}
+    {#if !app.mobile}<button aria-pressed={tab === 'file'} onclick={() => (tab = 'file')}>{t('File')}</button>{/if}
+    <button aria-pressed={tab === 'device'} onclick={() => (tab = 'device')}>{t('Another device')}</button>
   </div>
 
   {#if tab === 'link'}
@@ -91,6 +112,20 @@
         <b>{t('The clipboard is empty')}</b><span>{t('Copy a subscription URL or share links, then check again.')}</span>
       {/if}
       <button class="btn ghost" onclick={loadClipboard}><Icon name="refresh" />{t('Check again')}</button>
+    </div>
+  {:else if tab === 'device'}
+    <div class="drop">
+      {#if receiving}
+        <!-- Dark on light in either theme, so any phone camera reads it. -->
+        <div class="qrbox" aria-label={t('QR code of the page')}>{@html receiving.svg}</div>
+        <b>{t('Scan this with your phone')}</b>
+        <span>{t('It opens a page where you paste the subscription; Kova adds it here. The phone must be on the same Wi-Fi. The page works once and for 10 minutes.')}</span>
+        <span class="mono small selectable">{receiving.url}</span>
+      {:else if receiveError}
+        <b>{t('Not available')}</b><span>{receiveError}</span>
+      {:else}
+        <span>{t('Starting…')}</span>
+      {/if}
     </div>
   {:else if tab === 'qr'}
     <div class="drop">
@@ -131,6 +166,8 @@
 </Modal>
 
 <style>
+  .qrbox { width: 200px; height: 200px; padding: 8px; border-radius: 10px; background: #fff; }
+  .qrbox :global(svg) { width: 100%; height: 100%; display: block; }
   .drop { border: 1.5px dashed var(--line-2); border-radius: var(--r); padding: 24px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .drop :global(.i) { width: 26px; height: 26px; color: var(--faint); }
   .drop b { color: var(--fg); font-weight: 600; }

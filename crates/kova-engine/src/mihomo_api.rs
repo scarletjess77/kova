@@ -183,6 +183,13 @@ impl Mihomo {
         Ok(v.as_object().map(|m| m.iter().filter_map(|(k, d)| d.as_u64().map(|d| (k.clone(), d as u32))).collect()).unwrap_or_default())
     }
 
+    /// Resolve `name` the way Mihomo resolves for traffic: its addresses (fake ones in
+    /// Fake-IP mode).
+    pub async fn dns_query(&self, name: &str) -> Result<Vec<String>, Error> {
+        let v = self.json(&format!("/dns/query?name={name}&type=A")).await?;
+        Ok(v["Answer"].as_array().map(|a| a.iter().filter_map(|x| x["data"].as_str().map(str::to_string)).collect()).unwrap_or_default())
+    }
+
     pub async fn connections(&self) -> Result<ConnectionsSnapshot, Error> {
         let v = self.json("/connections").await?;
         let conns = v["connections"].as_array().cloned().unwrap_or_default();

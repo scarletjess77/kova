@@ -454,8 +454,21 @@ async fn switches_away_from_a_dead_node() {
 
     engine.select(PROXY, "Live").await.unwrap();
     assert_eq!(engine.check_node().await, None, "a working node was replaced");
+
+    // Diagnostics on a working connection: every step passes except routing apps, as
+    // tests never set the system proxy.
+    let steps = engine.diagnose().await;
+    let state = |id: &str| steps.iter().find(|c| c.id == id).map(|c| c.state).unwrap_or_else(|| panic!("no {id} step"));
+    use kova_engine::diag::State;
+    for id in ["profile", "cores", "internet", "running", "node", "dns", "through"] {
+        assert_eq!(state(id), State::Ok, "{id}: {steps:?}");
+    }
+    assert_eq!(state("capture"), State::Warn);
     engine.select(PROXY, "Dead").await.unwrap();
     assert_eq!(engine.check_node().await, None, "one failed check is not enough");
+    let steps = engine.diagnose().await;
+    let node = steps.iter().find(|c| c.id == "node").unwrap();
+    assert_eq!((node.state, node.fix), (kova_engine::diag::State::Fail, Some("switch-node")), "{steps:?}");
     assert_eq!(engine.check_node().await, Some(("Dead".to_string(), "Live".to_string())));
     assert_eq!(engine.current_node().await.as_deref(), Some("Live"));
 
