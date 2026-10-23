@@ -1,0 +1,35 @@
+name: Bug report
+description: Something doesn't work as expected
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Never paste subscription links, server addresses or keys here. Replace them with placeholders.
+  - type: input
+    id: version
+    attributes:
+      label: Kova version
+      description: Settings → Updates
+      placeholder: 0.1.7
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: System
+      options: [Windows, Android phone, Android TV, Linux, macOS]
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What was done, what was expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: diagnose
+    attributes:
+      label: "What's wrong?" result and logs
+      description: The result of "What's wrong?" on the dashboard, and the relevant lines from Logs, with addresses removed.
+      render: text
