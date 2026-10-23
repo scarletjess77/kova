@@ -86,8 +86,9 @@ textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .search .input { padding-left: 30px; width: 220px; }
 select.input { padding-right: 6px; }
 
-.seg { display: inline-flex; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
-.seg button { border: 0; background: none; padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap; }
+/* Wraps onto a second row rather than overflowing a narrow card or phone screen. */
+.seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { flex: 1 1 auto; border: 0; background: none; padding: 5px 12px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--muted); white-space: nowrap; }
 .seg button[aria-pressed='true'] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
 
 .switch { position: relative; width: 36px; height: 20px; border-radius: 20px; border: 0; background: var(--line-2); flex: none; transition: background .15s; padding: 0; }
