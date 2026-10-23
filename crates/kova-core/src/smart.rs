@@ -321,7 +321,7 @@ mod tests {
     fn reads_opened_connections_and_their_rule() {
         let o = parse_opened("[TCP] 127.0.0.1:62890(curl.exe) --> modrinth.com:443 match GeoSite(category-games) using DIRECT").unwrap();
         assert_eq!(o, Opened { direct: true, rule: "GeoSite(category-games)".into(), host: "modrinth.com".into(), port: 443 });
-        let p = parse_opened("[TCP] 198.18.0.1:5000(Code Helper.exe) --> x.com:443 match Match using Remnawave[🇵🇱 hysteria-pl]").unwrap();
+        let p = parse_opened("[TCP] 198.18.0.1:5000(Code Helper.exe) --> x.com:443 match Match using Provider[🇵🇱 node-pl]").unwrap();
         assert!(!p.direct && p.rule == CATCH_ALL);
         assert!(parse_opened("[TCP] 127.0.0.1:1 --> ads.example:443 match GeoSite(category-ads-all) using REJECT").is_none());
         assert!(parse_opened("[TCP] dial DIRECT (match Match/) a --> b.com:443 error: x").is_none());
