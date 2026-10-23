@@ -83,7 +83,7 @@
 </script>
 
 <Modal title={t('Add profile')} {onclose}>
-  <div class="seg" role="group" aria-label={t('Import from')}>
+  <div class="seg tabs" role="group" aria-label={t('Import from')}>
     <button aria-pressed={tab === 'link'} onclick={() => (tab = 'link')}>{t('Link')}</button>
     <button aria-pressed={tab === 'clip'} onclick={() => (tab = 'clip')}>{t('Clipboard')}</button>
     {#if app.mobile && app.camera && !app.tv}<button aria-pressed={tab === 'qr'} onclick={() => (tab = 'qr')}>{t('QR code')}</button>{/if}
@@ -174,4 +174,6 @@
   .small { font-size: 12px; word-break: break-all; }
   .fmt { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
   textarea { font-size: 12.5px; }
+  /* On a phone the four tabs sit two by two rather than three and one. */
+  @media (max-width: 520px) { .tabs button { flex-basis: 40%; } }
 </style>
