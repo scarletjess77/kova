@@ -307,13 +307,13 @@
             <button class="switch" role="switch" aria-label={t('Connect on launch')} aria-checked={s.connect_on_launch} onclick={() => toggle((x) => x.connect_on_launch, (x, v) => (x.connect_on_launch = v))}></button></div>
         </div>
         <div class="form gap">
-          <div class="fld"><span class="lbl">{t('Theme')}</span>
+          <div class="fld full"><span class="lbl">{t('Theme')}</span>
             <div class="seg" role="group" aria-label={t('Theme')}>
               {#each [['dark', t('Dark')], ['light', t('Light')], ['system', t('Match system')]] as [v, l] (v)}
                 <button aria-pressed={s.theme === v} onclick={() => set((x) => (x.theme = v as Settings['theme']))}>{l}</button>
               {/each}
             </div></div>
-          <div class="fld"><span class="lbl">{t('Language')}</span>
+          <div class="fld full"><span class="lbl">{t('Language')}</span>
             <!-- Language names stay in their own language, so they can be found whatever is shown. -->
             <div class="seg" role="group" aria-label={t('Language')}>
               {#each [['system', t('Match system')], ['en', 'English'], ['ru', 'Русский']] as [v, l] (v)}
