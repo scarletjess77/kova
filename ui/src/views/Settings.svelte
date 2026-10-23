@@ -6,6 +6,7 @@
   import { fmtAgo, fmtBytes, notesHtml } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
+  import { THEMES } from '../lib/themes';
   import AppPicker from '../components/AppPicker.svelte';
   import Donate from '../components/Donate.svelte';
   import Icon from '../components/Icon.svelte';
@@ -308,9 +309,15 @@
         </div>
         <div class="form gap">
           <div class="fld full"><span class="lbl">{t('Theme')}</span>
-            <div class="seg" role="group" aria-label={t('Theme')}>
-              {#each [['dark', t('Dark')], ['light', t('Light')], ['system', t('Match system')]] as [v, l] (v)}
-                <button aria-pressed={s.theme === v} onclick={() => set((x) => (x.theme = v as Settings['theme']))}>{l}</button>
+            <!-- Each preview carries its own data-theme, so it shows that theme's colours. -->
+            <div class="themes" role="radiogroup" aria-label={t('Theme')}>
+              <button class="th" role="radio" aria-checked={s.theme === 'system'} onclick={() => set((x) => (x.theme = 'system'))}>
+                <span class="sw split"><span data-theme="dark"><i></i></span><span data-theme="light"><i></i></span></span>{t('Match system')}
+              </button>
+              {#each THEMES as th (th.id)}
+                <button class="th" role="radio" aria-checked={s.theme === th.id} onclick={() => set((x) => (x.theme = th.id))}>
+                  <span class="sw" data-theme={th.id}><i></i><b></b></span>{th.label()}
+                </button>
               {/each}
             </div></div>
           <div class="fld full"><span class="lbl">{t('Language')}</span>
@@ -420,4 +427,14 @@
   .svc .d { font-size: 12px; color: var(--muted); }
   .led { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
+  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+  .th { display: flex; flex-direction: column; gap: 7px; padding: 6px 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--sunk); font-size: 12.5px; font-weight: 500; color: var(--muted); text-align: center; }
+  .th[aria-checked='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--fg); }
+  /* A tiny window: the theme's background, a card, and its accent. */
+  .sw { position: relative; display: block; height: 46px; border-radius: 6px; background: var(--win); border: 1px solid var(--line); overflow: hidden; }
+  .sw i { position: absolute; left: 8px; right: 30px; top: 9px; bottom: 9px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); }
+  .sw b { position: absolute; right: 8px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--accent); }
+  .sw.split { display: flex; }
+  .sw.split > span { position: relative; flex: 1; background: var(--win); }
+  .sw.split i { right: 8px; }
 </style>

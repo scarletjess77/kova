@@ -2,8 +2,10 @@
 @import '@fontsource/unbounded/700.css';
 @import '@fontsource-variable/jetbrains-mono';
 
-/* Dark-first and monochrome: graphite neutrals, near-white emphasis, colour only for state. */
-:root {
+/* Dark-first and monochrome: graphite neutrals, near-white emphasis, colour only for state.
+   Each theme is a `data-theme` value (lib/themes.ts lists them); the theme picker's
+   previews set it on themselves, so these are not tied to :root. */
+:root, [data-theme='dark'] {
   --bg: #09090a; --win: #101012; --panel: #17171a; --sunk: #0c0c0e; --line: #242428; --line-2: #323238;
   --fg: #ededef; --muted: #9b9ba3; --faint: #606068;
   --accent: #f2f2f4; --accent-fg: #111113; --accent-soft: #232327;
@@ -16,13 +18,98 @@
   --r: 10px;
   color-scheme: dark;
 }
-:root[data-theme='light'] {
+[data-theme='light'] {
   --bg: #e6e6e9; --win: #f7f7f8; --panel: #ffffff; --sunk: #f0f0f2; --line: #dddde1; --line-2: #c8c8ce;
   --fg: #141416; --muted: #5d5d65; --faint: #8d8d95;
   --accent: #17171a; --accent-fg: #ffffff; --accent-soft: #e9e9ec;
   --upload: #9a9aa2;
   --ok: #2c7a4e; --ok-soft: #e0efe6; --warn: #8c620e; --warn-soft: #f4ebd3; --bad: #b23a32; --bad-soft: #f6e0de;
   --shadow: 0 1px 2px rgb(20 20 24 / .06), 0 14px 44px rgb(20 20 24 / .12);
+  color-scheme: light;
+}
+
+/* Monochrome variants. */
+[data-theme='oled'] {
+  --bg: #000000; --win: #000000; --panel: #0b0b0c; --sunk: #000000; --line: #1d1d20; --line-2: #2c2c30;
+  --fg: #f2f2f3; --muted: #9a9aa2; --faint: #5c5c64;
+  --accent: #f2f2f4; --accent-fg: #000000; --accent-soft: #19191c;
+  --upload: #707078;
+  --ok: #74c79a; --ok-soft: #0e1c14; --warn: #d9b061; --warn-soft: #221c0e; --bad: #e5756c; --bad-soft: #240f0e;
+  --shadow: 0 0 0 1px #1d1d20, 0 18px 50px rgb(0 0 0 / .8);
+  color-scheme: dark;
+}
+[data-theme='dim'] {
+  --bg: #1a1b1f; --win: #1f2024; --panel: #26272c; --sunk: #1b1c20; --line: #33343a; --line-2: #42434a;
+  --fg: #e4e4e8; --muted: #a2a3ab; --faint: #6e6f78;
+  --accent: #e8e8ec; --accent-fg: #1f2024; --accent-soft: #303137;
+  --upload: #7c7d86;
+  --ok: #7fc9a0; --ok-soft: #22332a; --warn: #dcb468; --warn-soft: #3a3322; --bad: #e78077; --bad-soft: #3d2523;
+  --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 18px 50px rgb(0 0 0 / .4);
+  color-scheme: dark;
+}
+[data-theme='warm'] {
+  --bg: #e9e2d6; --win: #f5f0e7; --panel: #fbf8f2; --sunk: #efe9de; --line: #e0d8ca; --line-2: #cdc2b0;
+  --fg: #2a241c; --muted: #6b6155; --faint: #9a8f80;
+  --accent: #2a241c; --accent-fg: #fbf8f2; --accent-soft: #ebe4d7;
+  --upload: #a39886;
+  --ok: #3d7a4a; --ok-soft: #e3eddc; --warn: #8f6512; --warn-soft: #f3e7cc; --bad: #b0412f; --bad-soft: #f5dfd8;
+  --shadow: 0 1px 2px rgb(60 40 20 / .07), 0 14px 44px rgb(60 40 20 / .12);
+  color-scheme: light;
+}
+[data-theme='contrast'] {
+  --bg: #000000; --win: #000000; --panel: #000000; --sunk: #000000; --line: #8a8a8a; --line-2: #bdbdbd;
+  --fg: #ffffff; --muted: #dadada; --faint: #ababab;
+  --accent: #ffffff; --accent-fg: #000000; --accent-soft: #262626;
+  --upload: #bdbdbd;
+  --ok: #5df09a; --ok-soft: #002a12; --warn: #ffd25e; --warn-soft: #2e2400; --bad: #ff7a70; --bad-soft: #330b08;
+  --shadow: 0 0 0 1px #8a8a8a;
+  color-scheme: dark;
+}
+
+/* Named palettes, from their published colours. */
+[data-theme='nord'] {
+  --bg: #242933; --win: #2e3440; --panel: #3b4252; --sunk: #292e39; --line: #434c5e; --line-2: #4c566a;
+  --fg: #eceff4; --muted: #b4bccb; --faint: #7b8598;
+  --accent: #88c0d0; --accent-fg: #2e3440; --accent-soft: #3d4b5c;
+  --upload: #81a1c1;
+  --ok: #a3be8c; --ok-soft: #3a4640; --warn: #ebcb8b; --warn-soft: #4a4537; --bad: #bf616a; --bad-soft: #4b3940;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 18px 50px rgb(0 0 0 / .35);
+  color-scheme: dark;
+}
+[data-theme='catppuccin'] {
+  --bg: #11111b; --win: #1e1e2e; --panel: #282839; --sunk: #181825; --line: #313244; --line-2: #45475a;
+  --fg: #cdd6f4; --muted: #a6adc8; --faint: #6c7086;
+  --accent: #cba6f7; --accent-fg: #1e1e2e; --accent-soft: #383250;
+  --upload: #89b4fa;
+  --ok: #a6e3a1; --ok-soft: #26352d; --warn: #f9e2af; --warn-soft: #3b3730; --bad: #f38ba8; --bad-soft: #402838;
+  --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 18px 50px rgb(0 0 0 / .45);
+  color-scheme: dark;
+}
+[data-theme='dracula'] {
+  --bg: #191a21; --win: #21222c; --panel: #282a36; --sunk: #1d1e26; --line: #343746; --line-2: #44475a;
+  --fg: #f8f8f2; --muted: #bfc1d0; --faint: #6272a4;
+  --accent: #bd93f9; --accent-fg: #21222c; --accent-soft: #3a3350;
+  --upload: #ff79c6;
+  --ok: #50fa7b; --ok-soft: #1f3a2a; --warn: #f1fa8c; --warn-soft: #3a3c2a; --bad: #ff5555; --bad-soft: #43262c;
+  --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 18px 50px rgb(0 0 0 / .45);
+  color-scheme: dark;
+}
+[data-theme='gruvbox'] {
+  --bg: #1d2021; --win: #282828; --panel: #32302f; --sunk: #222222; --line: #3c3836; --line-2: #504945;
+  --fg: #ebdbb2; --muted: #bdae93; --faint: #7c6f64;
+  --accent: #fabd2f; --accent-fg: #282828; --accent-soft: #45392a;
+  --upload: #83a598;
+  --ok: #b8bb26; --ok-soft: #34361e; --warn: #fe8019; --warn-soft: #45301e; --bad: #fb4934; --bad-soft: #47231f;
+  --shadow: 0 1px 2px rgb(0 0 0 / .35), 0 18px 50px rgb(0 0 0 / .45);
+  color-scheme: dark;
+}
+[data-theme='solarized'] {
+  --bg: #eee8d5; --win: #fdf6e3; --panel: #fffbef; --sunk: #f5eedb; --line: #e6dfcb; --line-2: #d3cbb4;
+  --fg: #073642; --muted: #586e75; --faint: #93a1a1;
+  --accent: #268bd2; --accent-fg: #fdf6e3; --accent-soft: #e3e8dc;
+  --upload: #2aa198;
+  --ok: #859900; --ok-soft: #edf0d2; --warn: #b58900; --warn-soft: #f5ead0; --bad: #dc322f; --bad-soft: #f8e1d7;
+  --shadow: 0 1px 2px rgb(7 54 66 / .06), 0 14px 44px rgb(7 54 66 / .1);
   color-scheme: light;
 }
 
