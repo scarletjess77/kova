@@ -5,6 +5,7 @@ import { friendly } from './errors';
 import { enableTvNavigation } from './tvnav';
 import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo } from './api';
 import { i18n, resolveLang, t, tn } from './i18n.svelte';
+import { resolveTheme } from './themes';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
 export interface LogLine { id: number; time: string; source: string; level: string; message: string }
@@ -278,10 +279,9 @@ class AppState {
 
   /** Apply the theme and language settings to the page. */
   applyTheme() {
-    const theme = this.settings?.theme ?? 'dark';
-    const light = theme === 'light' || (theme === 'system' && matchMedia('(prefers-color-scheme: light)').matches);
-    if (light) document.documentElement.setAttribute('data-theme', 'light');
-    else document.documentElement.removeAttribute('data-theme');
+    const theme = resolveTheme(this.settings?.theme);
+    if (theme.id === 'dark') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', theme.id);
     i18n.lang = resolveLang(this.settings?.language, this.systemLang);
     document.documentElement.lang = i18n.lang;
   }

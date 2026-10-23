@@ -2415,7 +2415,7 @@ dependencies = [
 
 [[package]]
 name = "kova"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "kova-core",
  "kova-engine",
@@ -2446,7 +2446,7 @@ dependencies = [
 
 [[package]]
 name = "kova-core"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "base64 0.23.1",
  "indexmap 2.14.2",
@@ -2461,7 +2461,7 @@ dependencies = [
 
 [[package]]
 name = "kova-engine"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "flate2",
  "futures-util",
@@ -2485,7 +2485,7 @@ dependencies = [
 
 [[package]]
 name = "kova-service"
-version = "0.1.8"
+version = "0.1.9"
 dependencies = [
  "kova-core",
  "kova-engine",

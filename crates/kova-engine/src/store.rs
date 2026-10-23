@@ -94,10 +94,22 @@ pub(crate) fn write_json<T: Serialize>(path: &Path, v: &T) -> Result<(), Error> 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Theme {
-    #[default]
-    Dark,
     Light,
     System,
+    Oled,
+    Dim,
+    Warm,
+    Contrast,
+    Nord,
+    Catppuccin,
+    Dracula,
+    Gruvbox,
+    Solarized,
+    /// Last, because it also stands in for a theme a later version added, so the
+    /// settings still load after going back to an older Kova.
+    #[default]
+    #[serde(other)]
+    Dark,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -258,4 +270,16 @@ impl ProfileIndex {
 
 pub fn now() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Theme;
+
+    #[test]
+    fn unknown_theme_loads_as_dark() {
+        assert_eq!(serde_json::from_str::<Theme>("\"nord\"").unwrap(), Theme::Nord);
+        assert_eq!(serde_json::from_str::<Theme>("\"dark\"").unwrap(), Theme::Dark);
+        assert_eq!(serde_json::from_str::<Theme>("\"aurora\"").unwrap(), Theme::Dark);
+    }
 }
