@@ -2,14 +2,16 @@
   import { api } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
+  import { resolveTheme } from '../lib/themes';
   import Donate from './Donate.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
 
   let donateOpen = $state(false);
 
+  // Flips between plain dark and light; Settings has the other themes.
   function toggleTheme() {
-    const light = document.documentElement.dataset.theme === 'light';
+    const light = resolveTheme(app.settings?.theme).light;
     void app.saveSettings((s) => (s.theme = light ? 'dark' : 'light'));
   }
 </script>
