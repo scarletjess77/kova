@@ -284,7 +284,8 @@ pub fn to_clash(n: &Node) -> Value {
         if t.insecure {
             put(&mut m, "skip-cert-verify", true.into());
         }
-        let fp = t.fingerprint.clone().or_else(|| t.reality.as_ref().map(|_| "chrome".to_string()));
+        // Reality needs one; Russian DPI holds Chrome's more often than Firefox's.
+        let fp = t.fingerprint.clone().or_else(|| t.reality.as_ref().map(|_| "firefox".to_string()));
         if let Some(fp) = fp {
             if !matches!(n.protocol, Protocol::Hysteria2 { .. } | Protocol::Tuic { .. }) {
                 put(&mut m, "client-fingerprint", fp.into());
