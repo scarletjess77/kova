@@ -44,6 +44,9 @@ fn base(opts: &RuntimeOptions) -> Value {
         "external-controller": format!("127.0.0.1:{}", opts.controller_port),
         "secret": opts.secret,
         "geodata-mode": true,
+        // Phones and TV boxes: read the routing data from disk instead of holding all of
+        // it (some 90 MB for the Russian lists) in memory.
+        "geodata-loader": if opts.tun_fd.is_some() { "memconservative" } else { "standard" },
         "geo-auto-update": !opts.without_geodata,
         "geo-update-interval": 24,
         "geox-url": geox_url(opts),
