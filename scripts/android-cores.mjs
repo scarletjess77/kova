@@ -72,6 +72,16 @@ function fromZip(zip, name) {
 /** A pinned release's source, cloned once and checked against the pinned commit. */
 function source(name, repo, tag, commit) {
   const src = join(root, 'target', 'android-src', `${name}-${tag}`);
+  // CI's Rust cache can bring back this folder without all of its files: use it only
+  // when it is a complete checkout of the pinned commit.
+  const complete = () => {
+    try {
+      return existsSync(join(src, 'go.mod')) && execFileSync('git', ['rev-parse', 'HEAD'], { cwd: src, encoding: 'utf8' }).trim() === commit;
+    } catch {
+      return false;
+    }
+  };
+  if (existsSync(src) && !complete()) rmSync(src, { recursive: true, force: true });
   if (!existsSync(src)) {
     // Into a temporary folder first: an interrupted clone must not be mistaken for a
     // finished one next time.
@@ -118,7 +128,9 @@ async function xray(abi) {
   if (abi !== 'arm64-v8a') {
     const { tag, commit } = PINNED.xray;
     const src = source('xray', 'XTLS/Xray-core', tag, commit);
-    goBuild(join(src, 'main'), abi, ['-ldflags', '-s -w -buildid='], join(jniLibs, abi, 'libxray.so'));
+    // As in Xray's own Android build: a dependency (wlynxg/anet) links to a part of
+    // Go's net package that newer Go no longer lets outside code reach by default.
+    goBuild(join(src, 'main'), abi, ['-ldflags', '-s -w -buildid= -checklinkname=0'], join(jniLibs, abi, 'libxray.so'));
     console.log(`${abi}/libxray.so: XTLS/Xray-core ${tag}, built from source`);
     return;
   }
