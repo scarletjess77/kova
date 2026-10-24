@@ -54,7 +54,8 @@ fn stream(n: &Node) -> Value {
                         "realitySettings".into(),
                         json!({
                             "serverName": sni,
-                            "fingerprint": t.fingerprint.clone().unwrap_or_else(|| "chrome".into()),
+                            // Russian DPI holds Chrome's fingerprint more often than Firefox's.
+                            "fingerprint": t.fingerprint.clone().unwrap_or_else(|| "firefox".into()),
                             "publicKey": r.public_key,
                             "shortId": r.short_id.clone().unwrap_or_default(),
                             "spiderX": r.spider_x.clone().unwrap_or_default(),

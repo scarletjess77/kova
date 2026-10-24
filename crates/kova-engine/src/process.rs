@@ -80,6 +80,10 @@ impl CoreProcess {
         for (k, v) in envs {
             std_cmd.env(k, v);
         }
+        // Phones and TV boxes are short of memory: past this the Go cores collect garbage
+        // sooner instead of growing. A soft limit, so a busy core can still go over it.
+        #[cfg(target_os = "android")]
+        std_cmd.env("GOMEMLIMIT", "96MiB");
         hide_window(&mut std_cmd);
         #[cfg(unix)]
         if let Some(fd) = fd {
