@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kova guide</title>
+<meta name="description" content="How to use Kova: add a subscription, connect, send Russian sites direct, fix problems.">
+<link rel="icon" href="icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;700&display=swap">
+<style>
+/* Same tokens as index.html: graphite neutrals, near-white emphasis, colour only for state. */
+:root {
+  --bg: #09090a; --panel: #17171a; --sunk: #0c0c0e; --line: #242428; --line-2: #323238;
+  --fg: #ededef; --muted: #9b9ba3; --faint: #6c6c75;
+  --accent: #f2f2f4; --accent-fg: #111113; --accent-soft: #232327;
+  --ok: #74c79a; --ok-soft: #16241c; --warn: #d9b061; --warn-soft: #2a2416;
+  --head-bg: rgb(9 9 10 / .82);
+  --f-display: 'Unbounded', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Onest', 'Segoe UI', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f4f6; --panel: #ffffff; --sunk: #f0f0f2; --line: #e1e1e5; --line-2: #c8c8ce;
+    --fg: #141416; --muted: #5d5d65; --faint: #85858d;
+    --accent: #17171a; --accent-fg: #ffffff; --accent-soft: #e9e9ec;
+    --ok: #2c7a4e; --ok-soft: #e0efe6; --warn: #8c620e; --warn-soft: #f4ebd3;
+    --head-bg: rgb(244 244 246 / .84);
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 var(--f-ui); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 16px; }
+
+.top { position: sticky; top: 0; z-index: 5; background: var(--head-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.top-in { display: flex; align-items: center; gap: 12px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 9px; font: 700 17px var(--f-display); text-decoration: none; }
+.brand img { width: 26px; height: 26px; border-radius: 7px; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); font: 600 13px var(--f-ui); padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 9px; border: 1px solid var(--line-2); text-decoration: none; font-size: 14px; font-weight: 500; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 40px; padding: 40px 16px 80px; }
+.toc { position: sticky; top: 84px; align-self: start; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.toc a { color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 8px; }
+.toc a:hover { color: var(--fg); background: var(--accent-soft); }
+@media (max-width: 820px) { .layout { grid-template-columns: minmax(0, 1fr); padding-top: 24px; } .toc { position: static; } }
+
+h1 { font: 700 clamp(28px, 5vw, 40px)/1.15 var(--f-display); margin: 0 0 12px; letter-spacing: -.5px; }
+.lede { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 680px; }
+section { padding-top: 12px; margin-bottom: 36px; scroll-margin-top: 76px; }
+h2 { font: 600 21px/1.3 var(--f-display); margin: 0 0 12px; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font: 500 14px var(--f-mono); color: var(--faint); }
+h3 { font-size: 16px; margin: 18px 0 6px; }
+p, li { max-width: 720px; }
+ol, ul { padding-left: 22px; }
+li { margin: 4px 0; }
+/* What to press in the app, shown like its buttons. */
+.ui { display: inline-block; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); font-size: .92em; font-weight: 500; white-space: nowrap; }
+code { font: .9em var(--f-mono); background: var(--sunk); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.note { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 14px 16px; margin: 14px 0; max-width: 720px; }
+.note.tip { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-soft); }
+.note.warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-soft); }
+.note b:first-child { display: block; margin-bottom: 2px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; max-width: 760px; margin: 12px 0; }
+.card { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 13px 15px; }
+.card b { display: block; margin-bottom: 3px; }
+.card span { color: var(--muted); font-size: 14.5px; }
+table { border-collapse: collapse; width: 100%; max-width: 760px; font-size: 15px; margin: 10px 0; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 13.5px; }
+.table-scroll { overflow-x: auto; }
+footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px; padding: 24px 0 40px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="./"><img src="icon.png" alt="">Kova</a>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" data-lang="ru" aria-pressed="false">RU</button>
+    </div>
+    <a class="btn primary" href="./#download" data-en="Download" data-ru="Скачать">Download</a>
+  </div>
+</header>
+
+<!-- ======================= English ======================= -->
+<div class="wrap layout" data-l="en">
+  <nav class="toc" aria-label="Contents">
+    <a href="#en-install">1. Install</a>
+    <a href="#en-add">2. Add a subscription</a>
+    <a href="#en-connect">3. Connect</a>
+    <a href="#en-capture">4. Which apps go through Kova</a>
+    <a href="#en-russia">5. Russian sites direct (GeoSite RU)</a>
+    <a href="#en-rules">6. Your own rules</a>
+    <a href="#en-smart">7. Smart routing</a>
+    <a href="#en-trouble">8. When something doesn't work</a>
+    <a href="#en-settings">9. Updates and settings</a>
+    <a href="#en-faq">10. Questions</a>
+  </nav>
+  <main>
+    <h1>How to use Kova</h1>
+    <p class="lede">From installing to a working connection in five minutes, then the settings worth knowing. No experience needed.</p>
+
+    <section id="en-install">
+      <h2><span class="n">01</span>Install</h2>
+      <p>Download Kova from the <a href="./#download">download section</a>:</p>
+      <ul>
+        <li><b>Windows</b>: run the installer and approve the admin prompt once. If Windows shows “Windows protected your PC”, click <span class="ui">More info</span> → <span class="ui">Run anyway</span>; the installer is safe, it is just not signed with a paid certificate yet.</li>
+        <li><b>Android phone</b>: take the <code>arm64</code> APK. Android asks to allow installing from the browser; allow it. A Google Play Protect window may appear: press <span class="ui">Scan</span> and the install continues.</li>
+        <li><b>Android TV and old phones</b>: take the <code>armv7</code> APK (it works on 32-bit devices too).</li>
+        <li><b>Linux</b>: <code>.deb</code> or <code>.AppImage</code>. <b>macOS</b>: the <code>.dmg</code> for Apple silicon or Intel.</li>
+      </ul>
+    </section>
+
+    <section id="en-add">
+      <h2><span class="n">02</span>Add a subscription</h2>
+      <p>A subscription is the link the VPN provider gives (it usually starts with <code>https://</code>). Single server links like <code>vless://</code> work too.</p>
+      <ol>
+        <li>Open <span class="ui">Profiles</span> → <span class="ui">Add profile</span>.</li>
+        <li>Choose how to add it:
+          <ul>
+            <li><span class="ui">Link</span>: paste the subscription address.</li>
+            <li><span class="ui">Clipboard</span>: if the link is already copied. On a computer, <code>Ctrl+V</code> anywhere in Kova does the same.</li>
+            <li><span class="ui">QR code</span> (phone): point the camera at a QR code.</li>
+            <li><span class="ui">File</span> (computer): a <code>.yaml</code> or <code>.json</code> config.</li>
+            <li><span class="ui">Another device</span>: send a profile to a TV or phone on the same Wi-Fi: open this tab on the TV, then open the address it shows on the phone and paste the link there.</li>
+          </ul>
+        </li>
+        <li>Press <span class="ui">Import</span>. The profile appears with its servers, traffic left and expiry date.</li>
+      </ol>
+      <p>Subscriptions update themselves. To update now: <span class="ui">Profiles</span> → <span class="ui">Update all</span>.</p>
+    </section>
+
+    <section id="en-connect">
+      <h2><span class="n">03</span>Connect</h2>
+      <ol>
+        <li>On <span class="ui">Dashboard</span>, press the big round button. It turns white and shows <b>Protected</b>.</li>
+        <li>To change the server, pick one in <span class="ui">Quick switch</span> below, or open <span class="ui">Proxies</span> → <span class="ui">Test latency</span> and choose one with a low number of ms (green).</li>
+        <li>The <b>Exit point</b> card shows the country and address sites now see.</li>
+      </ol>
+      <p><b>Routing mode</b> on the Dashboard:</p>
+      <div class="cards">
+        <div class="card"><b>Rule</b><span>Recommended. The rules decide: blocked sites through the server, the rest as configured.</span></div>
+        <div class="card"><b>Global</b><span>Everything goes through the server.</span></div>
+        <div class="card"><b>Direct</b><span>Nothing goes through the server; Kova stays on.</span></div>
+      </div>
+      <div class="note tip"><b>Tip</b>Turn on <span class="ui">Settings</span> → <span class="ui">Switch away from a dead node</span>: if the chosen server stops answering, Kova moves to the fastest working one and says so.</div>
+    </section>
+
+    <section id="en-capture">
+      <h2><span class="n">04</span>Which apps go through Kova</h2>
+      <h3>On a computer</h3>
+      <div class="cards">
+        <div class="card"><b>System proxy</b><span>On by default. Browsers, Telegram, Discord and most programs. Games usually ignore it.</span></div>
+        <div class="card"><b>TUN mode</b><span>Everything, including games and voice (UDP). On Windows it needs the Kova service once.</span></div>
+      </div>
+      <p>To turn on TUN on Windows: <span class="ui">Dashboard</span> → <span class="ui">TUN mode</span>. It needs the <b>Kova service</b>: the installer sets it up, otherwise use <span class="ui">Settings</span> → <span class="ui">TUN mode</span> → <span class="ui">Install</span> and approve the admin prompt once. Kova itself never runs as administrator.</p>
+      <h3>On Android</h3>
+      <p>Kova works as a VPN: Android asks for permission on the first connect. By default every app goes through it. To choose apps: <span class="ui">Settings</span> → <span class="ui">Apps through the VPN</span> (only the chosen ones, or all except the chosen ones). There is also a quick-settings tile and a home-screen widget for one-tap connecting.</p>
+    </section>
+
+    <section id="en-russia">
+      <h2><span class="n">05</span>Russian sites direct (GeoSite RU)</h2>
+      <p>Russian services (banks, Gosuslugi, marketplaces) often refuse foreign addresses, and there is no need to send them through a server abroad. Kova sends them direct with two steps.</p>
+      <p><b>What are GeoSite and GeoIP?</b> Two lists Kova downloads: <b>GeoSite</b> groups site names by topic or country (for example <code>category-ru</code>: Russian sites), <b>GeoIP</b> groups addresses by country (<code>RU</code>: Russian networks). Rules use these lists instead of thousands of single sites.</p>
+      <h3>Step 1. Choose the Russian lists</h3>
+      <ol>
+        <li><span class="ui">Settings</span> → <span class="ui">Routing data</span>.</li>
+        <li>Select <span class="ui">Russia</span>. Kova downloads the lists (about 90 MB) and keeps them up to date. <span class="ui">Update now</span> fetches them again.</li>
+      </ol>
+      <h3>Step 2. Turn on a preset</h3>
+      <p>Open <span class="ui">Rules</span> → <b>Routing presets</b> and choose <b>one</b> of these:</p>
+      <div class="table-scroll"><table>
+        <tr><th>Preset</th><th>What it does</th><th>When to choose</th></tr>
+        <tr><td><b>Direct for Russian sites</b></td><td>Russian sites and Russian networks go direct, everything else through the server.</td><td>The usual choice.</td></tr>
+        <tr><td><b>Only blocked sites through the proxy</b></td><td>Only sites blocked in Russia go through the server, everything else direct. Needs the <b>Russia</b> lists from step 1.</td><td>To save server traffic and keep the usual speed for everything else.</td></tr>
+        <tr><td><b>Block ads and trackers</b></td><td>Blocks ad and tracking sites.</td><td>Optional, works with either of the above.</td></tr>
+      </table></div>
+      <div class="note"><b>Clash subscriptions</b>If the subscription already has its own rules, keep <span class="ui">Apply to imported Clash profiles</span> on (in <span class="ui">Rules</span>) so the presets and your rules come first.</div>
+    </section>
+
+    <section id="en-rules">
+      <h2><span class="n">06</span>Your own rules</h2>
+      <p><span class="ui">Rules</span> → <b>Your rules</b>: choose a type, type a value, choose where it goes (<b>Proxy</b>, <b>Direct</b> or block) and press <span class="ui">Add rule</span>. Your rules are checked first.</p>
+      <div class="table-scroll"><table>
+        <tr><th>Type</th><th>Example</th><th>Meaning</th></tr>
+        <tr><td>Domain and subdomains</td><td><code>youtube.com</code></td><td>The site and all its subdomains.</td></tr>
+        <tr><td>Exact domain</td><td><code>api.github.com</code></td><td>Only that one address.</td></tr>
+        <tr><td>Domain contains</td><td><code>google</code></td><td>Any site with this word in its name.</td></tr>
+        <tr><td>Geosite list</td><td><code>category-ru</code>, <code>youtube</code></td><td>A whole list from GeoSite.</td></tr>
+        <tr><td>Country (GeoIP)</td><td><code>RU</code>, <code>DE</code></td><td>All addresses of a country.</td></tr>
+        <tr><td>IP range</td><td><code>203.0.113.0/24</code></td><td>A block of addresses.</td></tr>
+        <tr><td>App (process name)</td><td><code>steam.exe</code></td><td>A program on the computer. <span class="ui">Route an app…</span> picks it from a list.</td></tr>
+      </table></div>
+      <p>Example: to watch YouTube through the server while everything Russian goes direct, add <b>Geosite list</b> <code>youtube</code> → <b>Proxy</b>.</p>
+    </section>
+
+    <section id="en-smart">
+      <h2><span class="n">07</span>Smart routing</h2>
+      <p><span class="ui">Rules</span> → <span class="ui">Smart routing</span> (beta, off by default). Kova notices sites that fail on their usual route, checks them both ways and sends each one the way that works: a newly blocked site through the server, a site that refuses foreign addresses direct. The list below the switch shows what was learned and why; <span class="ui">Keep</span> turns one into a permanent rule. Learned sites are forgotten after 30 days unless they fail again.</p>
+    </section>
+
+    <section id="en-trouble">
+      <h2><span class="n">08</span>When something doesn't work</h2>
+      <ol>
+        <li><b><span class="ui">What's wrong?</span></b> on the Dashboard checks everything step by step (internet, core, server, DNS, capture) and says what to fix.</li>
+        <li><b><span class="ui">Site check</span></b> opens popular sites both directly and through Kova, so it is clear what is blocked and whether the server helps. There are also the <b>Privacy check</b> (does the real address or DNS leak) and the <b>Speed test</b>.</li>
+        <li>Try another server: <span class="ui">Proxies</span> → <span class="ui">Test latency</span>.</li>
+        <li>Update the subscription: <span class="ui">Profiles</span> → <span class="ui">Update all</span>.</li>
+        <li><span class="ui">Logs</span> shows every connection and error, useful to send to support.</li>
+      </ol>
+      <div class="note warn"><b>Games with ExitLag or similar boosters</b>With TUN mode on, the game's traffic goes into Kova before the booster sees it. While playing with a booster, turn TUN off and keep only the System proxy, or let Kova carry the game instead (an <b>App</b> rule for the game → <b>Proxy</b>).</div>
+    </section>
+
+    <section id="en-settings">
+      <h2><span class="n">09</span>Updates and settings</h2>
+      <ul>
+        <li><b>Updates</b>: Kova checks for new versions itself. <span class="ui">Settings</span> → <span class="ui">Updates</span> → <span class="ui">Check now</span>. Updates are signed, so only genuine Kova versions install.</li>
+        <li><b>Start with the computer</b>: <span class="ui">Launch at sign-in</span>, <span class="ui">Start in the tray</span> and <span class="ui">Connect on launch</span>.</li>
+        <li><b>Look</b>: <span class="ui">Settings</span> → <b>Theme</b> (11 themes, from OLED black to Nord and Dracula) and <b>Language</b> (English or Russian).</li>
+      </ul>
+    </section>
+
+    <section id="en-faq">
+      <h2><span class="n">10</span>Questions</h2>
+      <h3>GitHub is blocked where I live. Will Kova work?</h3>
+      <p>Yes. The cores and routing lists come with the installer, and anything missing is downloaded through the server once connected.</p>
+      <h3>Is it free? Does it collect data?</h3>
+      <p>Kova is free and open source, with no accounts, ads or tracking. The servers come from a VPN provider; Kova only connects to them.</p>
+      <h3>Where are my profiles stored?</h3>
+      <p>Only on the device. Updating Kova keeps them.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ======================= Русский ======================= -->
+<div class="wrap layout" data-l="ru" hidden>
+  <nav class="toc" aria-label="Содержание">
+    <a href="#ru-install">1. Установка</a>
+    <a href="#ru-add">2. Добавить подписку</a>
+    <a href="#ru-connect">3. Подключение</a>
+    <a href="#ru-capture">4. Какие программы идут через Kova</a>
+    <a href="#ru-russia">5. Российские сайты напрямую (GeoSite RU)</a>
+    <a href="#ru-rules">6. Свои правила</a>
+    <a href="#ru-smart">7. Умная маршрутизация</a>
+    <a href="#ru-trouble">8. Если что-то не работает</a>
+    <a href="#ru-settings">9. Обновления и настройки</a>
+    <a href="#ru-faq">10. Вопросы</a>
+  </nav>
+  <main>
+    <h1>Как пользоваться Kova</h1>
+    <p class="lede">От установки до рабочего подключения за пять минут, а потом настройки, которые стоит знать. Опыт не нужен.</p>
+
+    <section id="ru-install">
+      <h2><span class="n">01</span>Установка</h2>
+      <p>Скачайте Kova в <a href="./#download">разделе загрузки</a>:</p>
+      <ul>
+        <li><b>Windows</b>: запустите установщик и один раз подтвердите запрос администратора. Если Windows пишет «Система Windows защитила ваш компьютер», нажмите <span class="ui">Подробнее</span> → <span class="ui">Выполнить в любом случае</span>: установщик безопасен, он просто пока не подписан платным сертификатом.</li>
+        <li><b>Телефон на Android</b>: берите APK <code>arm64</code>. Android попросит разрешить установку из браузера — разрешите. Может появиться окно Google Play Защиты: нажмите <span class="ui">Проверить</span>, и установка продолжится.</li>
+        <li><b>Android TV и старые телефоны</b>: берите APK <code>armv7</code> (он работает и на 32-битных устройствах).</li>
+        <li><b>Linux</b>: <code>.deb</code> или <code>.AppImage</code>. <b>macOS</b>: <code>.dmg</code> для Apple silicon или Intel.</li>
+      </ul>
+    </section>
+
+    <section id="ru-add">
+      <h2><span class="n">02</span>Добавить подписку</h2>
+      <p>Подписка — это ссылка, которую выдаёт VPN-сервис (обычно начинается с <code>https://</code>). Ссылки на отдельные серверы вроде <code>vless://</code> тоже подходят.</p>
+      <ol>
+        <li>Откройте <span class="ui">Профили</span> → <span class="ui">Добавить профиль</span>.</li>
+        <li>Выберите способ:
+          <ul>
+            <li><span class="ui">Ссылка</span>: вставьте адрес подписки.</li>
+            <li><span class="ui">Буфер обмена</span>: если ссылка уже скопирована. На компьютере то же самое делает <code>Ctrl+V</code> в любом месте Kova.</li>
+            <li><span class="ui">QR-код</span> (телефон): наведите камеру на QR-код.</li>
+            <li><span class="ui">Файл</span> (компьютер): конфиг <code>.yaml</code> или <code>.json</code>.</li>
+            <li><span class="ui">Другое устройство</span>: передать профиль на телевизор или телефон в той же сети Wi-Fi — откройте эту вкладку на телевизоре, затем откройте на телефоне показанный адрес и вставьте туда ссылку.</li>
+          </ul>
+        </li>
+        <li>Нажмите <span class="ui">Импортировать</span>. Появится профиль с серверами, остатком трафика и датой окончания.</li>
+      </ol>
+      <p>Подписки обновляются сами. Обновить сейчас: <span class="ui">Профили</span> → <span class="ui">Обновить все</span>.</p>
+    </section>
+
+    <section id="ru-connect">
+      <h2><span class="n">03</span>Подключение</h2>
+      <ol>
+        <li>На <span class="ui">Главной</span> нажмите большую круглую кнопку. Она станет белой, появится надпись <b>Защищено</b>.</li>
+        <li>Чтобы сменить сервер, выберите его в <span class="ui">Быстрый выбор</span> ниже или откройте <span class="ui">Прокси</span> → <span class="ui">Проверить задержку</span> и выберите сервер с меньшим числом мс (зелёным).</li>
+        <li>Карточка <b>Точка выхода</b> показывает страну и адрес, которые теперь видят сайты.</li>
+      </ol>
+      <p><b>Режим маршрутизации</b> на Главной:</p>
+      <div class="cards">
+        <div class="card"><b>По правилам</b><span>Рекомендуется. Решают правила: заблокированное — через сервер, остальное — как настроено.</span></div>
+        <div class="card"><b>Глобальный</b><span>Всё идёт через сервер.</span></div>
+        <div class="card"><b>Напрямую</b><span>Ничего не идёт через сервер, Kova остаётся включённой.</span></div>
+      </div>
+      <div class="note tip"><b>Совет</b>Включите <span class="ui">Настройки</span> → <span class="ui">Уходить с неработающего сервера</span>: если выбранный сервер перестанет отвечать, Kova сама перейдёт на самый быстрый рабочий и сообщит об этом.</div>
+    </section>
+
+    <section id="ru-capture">
+      <h2><span class="n">04</span>Какие программы идут через Kova</h2>
+      <h3>На компьютере</h3>
+      <div class="cards">
+        <div class="card"><b>Системный прокси</b><span>Включён по умолчанию. Браузеры, Telegram, Discord и большинство программ. Игры его обычно не используют.</span></div>
+        <div class="card"><b>Режим TUN</b><span>Всё, включая игры и голосовую связь (UDP). На Windows один раз нужна служба Kova.</span></div>
+      </div>
+      <p>Включить TUN на Windows: <span class="ui">Главная</span> → <span class="ui">Режим TUN</span>. Для него нужна <b>служба Kova</b>: её ставит установщик, а если её нет — <span class="ui">Настройки</span> → <span class="ui">Режим TUN</span> → <span class="ui">Установить</span> и один раз подтвердите запрос администратора. Сама Kova никогда не работает от имени администратора.</p>
+      <h3>На Android</h3>
+      <p>Kova работает как VPN: при первом подключении Android попросит разрешение. По умолчанию через неё идут все приложения. Выбрать приложения: <span class="ui">Настройки</span> → <span class="ui">Приложения через VPN</span> (только выбранные или все, кроме выбранных). Есть плитка в шторке и виджет на главный экран для подключения одним касанием.</p>
+    </section>
+
+    <section id="ru-russia">
+      <h2><span class="n">05</span>Российские сайты напрямую (GeoSite RU)</h2>
+      <p>Российские сервисы (банки, Госуслуги, маркетплейсы) часто не пускают с иностранных адресов, и гнать их через сервер за границей незачем. Kova отправит их напрямую в два шага.</p>
+      <p><b>Что такое GeoSite и GeoIP?</b> Два списка, которые скачивает Kova: <b>GeoSite</b> — сайты, сгруппированные по темам и странам (например, <code>category-ru</code> — российские сайты), <b>GeoIP</b> — адреса по странам (<code>RU</code> — российские сети). Правила используют эти списки вместо тысяч отдельных сайтов.</p>
+      <h3>Шаг 1. Выберите российские списки</h3>
+      <ol>
+        <li><span class="ui">Настройки</span> → <span class="ui">Геобазы</span>.</li>
+        <li>Выберите <span class="ui">Россия</span>. Kova скачает списки (около 90 МБ) и будет сама их обновлять. <span class="ui">Обновить сейчас</span> скачивает их заново.</li>
+      </ol>
+      <h3>Шаг 2. Включите готовый набор</h3>
+      <p>Откройте <span class="ui">Правила</span> → <b>Готовые наборы</b> и выберите <b>один</b> из них:</p>
+      <div class="table-scroll"><table>
+        <tr><th>Набор</th><th>Что делает</th><th>Когда выбирать</th></tr>
+        <tr><td><b>Российские сайты напрямую</b></td><td>Российские сайты и сети — напрямую, всё остальное — через сервер.</td><td>Обычный выбор.</td></tr>
+        <tr><td><b>Только заблокированные сайты через прокси</b></td><td>Через сервер идут только сайты, заблокированные в России, остальное — напрямую. Нужны списки <b>Россия</b> из шага 1.</td><td>Чтобы экономить трафик сервера и не терять скорость на остальном.</td></tr>
+        <tr><td><b>Блокировать рекламу и трекеры</b></td><td>Блокирует рекламные и следящие сайты.</td><td>По желанию, работает вместе с любым из наборов выше.</td></tr>
+      </table></div>
+      <div class="note"><b>Подписки Clash</b>Если в подписке уже есть свои правила, оставьте включённым <span class="ui">Применять к импортированным профилям Clash</span> (в <span class="ui">Правилах</span>), чтобы наборы и ваши правила проверялись первыми.</div>
+    </section>
+
+    <section id="ru-rules">
+      <h2><span class="n">06</span>Свои правила</h2>
+      <p><span class="ui">Правила</span> → <b>Ваши правила</b>: выберите тип, введите значение, выберите, куда направить (<b>Прокси</b>, <b>Напрямую</b> или заблокировать), и нажмите <span class="ui">Добавить правило</span>. Ваши правила проверяются первыми.</p>
+      <div class="table-scroll"><table>
+        <tr><th>Тип</th><th>Пример</th><th>Значение</th></tr>
+        <tr><td>Домен и поддомены</td><td><code>youtube.com</code></td><td>Сайт и все его поддомены.</td></tr>
+        <tr><td>Точный домен</td><td><code>api.github.com</code></td><td>Только этот адрес.</td></tr>
+        <tr><td>Домен содержит</td><td><code>google</code></td><td>Любой сайт с этим словом в имени.</td></tr>
+        <tr><td>Список geosite</td><td><code>category-ru</code>, <code>youtube</code></td><td>Целый список из GeoSite.</td></tr>
+        <tr><td>Страна (GeoIP)</td><td><code>RU</code>, <code>DE</code></td><td>Все адреса страны.</td></tr>
+        <tr><td>Диапазон IP</td><td><code>203.0.113.0/24</code></td><td>Блок адресов.</td></tr>
+        <tr><td>Приложение (имя процесса)</td><td><code>steam.exe</code></td><td>Программа на компьютере. <span class="ui">Маршрут для программы…</span> выбирает её из списка.</td></tr>
+      </table></div>
+      <p>Пример: чтобы YouTube шёл через сервер, а всё российское — напрямую, добавьте <b>Список geosite</b> <code>youtube</code> → <b>Прокси</b>.</p>
+    </section>
+
+    <section id="ru-smart">
+      <h2><span class="n">07</span>Умная маршрутизация</h2>
+      <p><span class="ui">Правила</span> → <span class="ui">Умная маршрутизация</span> (бета, по умолчанию выключена). Kova замечает сайты, которые не открываются обычным путём, проверяет их обоими способами и направляет туда, где работает: новый заблокированный сайт — через сервер, сайт, который не пускает иностранные адреса, — напрямую. Список под переключателем показывает, что и почему выучено; <span class="ui">Оставить</span> превращает запись в постоянное правило. Выученные сайты забываются через 30 дней, если снова не начнут сбоить.</p>
+    </section>
+
+    <section id="ru-trouble">
+      <h2><span class="n">08</span>Если что-то не работает</h2>
+      <ol>
+        <li><b><span class="ui">Что не так?</span></b> на Главной проверяет всё по шагам (интернет, ядро, сервер, DNS, перехват) и говорит, что исправить.</li>
+        <li><b><span class="ui">Проверка сайтов</span></b> открывает популярные сайты напрямую и через Kova — видно, что заблокировано и помогает ли сервер. Там же <b>Проверка приватности</b> (не утекает ли настоящий адрес или DNS) и <b>Тест скорости</b>.</li>
+        <li>Попробуйте другой сервер: <span class="ui">Прокси</span> → <span class="ui">Проверить задержку</span>.</li>
+        <li>Обновите подписку: <span class="ui">Профили</span> → <span class="ui">Обновить все</span>.</li>
+        <li><span class="ui">Журнал</span> показывает все соединения и ошибки — его удобно отправить в поддержку.</li>
+      </ol>
+      <div class="note warn"><b>Игры с ExitLag и похожими бустерами</b>Когда включён режим TUN, трафик игры попадает в Kova раньше, чем его увидит бустер. Пока играете с бустером, выключите TUN и оставьте только системный прокси — или пусть игру ведёт Kova (правило <b>Приложение</b> для игры → <b>Прокси</b>).</div>
+    </section>
+
+    <section id="ru-settings">
+      <h2><span class="n">09</span>Обновления и настройки</h2>
+      <ul>
+        <li><b>Обновления</b>: Kova сама проверяет новые версии. <span class="ui">Настройки</span> → <span class="ui">Обновления</span> → <span class="ui">Проверить сейчас</span>. Обновления подписаны, поэтому устанавливаются только настоящие версии Kova.</li>
+        <li><b>Запуск вместе с компьютером</b>: <span class="ui">Запускать при входе в систему</span>, <span class="ui">Запускать свёрнутой в трей</span> и <span class="ui">Подключаться при запуске</span>.</li>
+        <li><b>Внешний вид</b>: <span class="ui">Настройки</span> → <b>Тема</b> (11 тем, от чёрной OLED до Nord и Dracula) и <b>Язык</b> (русский или английский).</li>
+      </ul>
+    </section>
+
+    <section id="ru-faq">
+      <h2><span class="n">10</span>Вопросы</h2>
+      <h3>У меня заблокирован GitHub. Kova заработает?</h3>
+      <p>Да. Ядра и списки маршрутизации идут вместе с установщиком, а всё недостающее скачивается через сервер после подключения.</p>
+      <h3>Это бесплатно? Kova собирает данные?</h3>
+      <p>Kova бесплатна и с открытым кодом: без аккаунтов, рекламы и слежки. Серверы даёт VPN-сервис, Kova только подключается к ним.</p>
+      <h3>Где хранятся мои профили?</h3>
+      <p>Только на устройстве. При обновлении Kova они сохраняются.</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap"><a href="./">Kova</a> · <a href="https://github.com/scarletjess77/kova">GitHub</a></div>
+</footer>
+
+<script>
+  // Same language choice as the main page (stored under the same key).
+  function setLang(next, remember) {
+    document.documentElement.lang = next;
+    for (const el of document.querySelectorAll('[data-l]')) el.hidden = el.dataset.l !== next;
+    for (const b of document.querySelectorAll('[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === next));
+    for (const el of document.querySelectorAll('[data-en]')) el.textContent = el.dataset[next];
+    document.title = next === 'ru' ? 'Руководство Kova' : 'Kova guide';
+    if (remember) { try { localStorage.setItem('kova-lang', next); } catch (e) { /* private window */ } }
+  }
+  for (const b of document.querySelectorAll('[data-lang]')) b.addEventListener('click', () => setLang(b.dataset.lang, true));
+  let saved = null;
+  try { saved = localStorage.getItem('kova-lang'); } catch (e) { /* storage blocked */ }
+  setLang(saved === 'ru' || saved === 'en' ? saved : (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en', false);
+</script>
+</body>
+</html>
