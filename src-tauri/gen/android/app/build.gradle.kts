@@ -55,10 +55,11 @@ android {
             if (keystore != null) {
                 signingConfig = signingConfigs.getByName("release")
             }
-            // Tauri finds the plugin's commands and the VPN service by reflection, which
-            // shrinking would break; the Kotlin part is small anyway.
+            // Shrinks the libraries (Kotlin, AndroidX, Material, Jackson) to what is used.
+            // Tauri finds plugin commands by reflection: its rules and proguard-rules.pro
+            // keep those, and all of Kova's own classes.
             optimization {
-               enable = false
+               enable = true
             }
             proguardFiles(
                 *fileTree(".") {
