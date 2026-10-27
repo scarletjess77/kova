@@ -16,11 +16,21 @@ pub fn mihomo_path() -> PathBuf {
     Path::new(DIR).join("mihomo")
 }
 
-/// The copy, if it is there and owned by root (so it still has its capability).
+/// The copy, if it is there, owned by root and still carries its capabilities.
 pub fn granted() -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let p = mihomo_path();
-    std::fs::metadata(&p).ok().filter(|m| m.is_file() && m.uid() == 0).map(|_| p)
+    std::fs::metadata(&p).ok().filter(|m| m.is_file() && m.uid() == 0 && has_caps(&p)).map(|_| p)
+}
+
+/// Whether `path` has file capabilities (the `security.capability` attribute setcap
+/// writes; a changed file loses it).
+fn has_caps(path: &Path) -> bool {
+    use std::os::unix::ffi::OsStrExt;
+    let Ok(file) = std::ffi::CString::new(path.as_os_str().as_bytes()) else { return false };
+    // SAFETY: both strings are NUL-terminated; a null buffer of size 0 only asks for the
+    // attribute's length.
+    unsafe { libc::getxattr(file.as_ptr(), c"security.capability".as_ptr(), std::ptr::null_mut(), 0) > 0 }
 }
 
 pub fn is_root() -> bool {
@@ -60,8 +70,16 @@ pub fn grant(mihomo: &Path) -> Result<(), Error> {
     if !mihomo.exists() {
         return Err(Error::Other("mihomo is not installed".into()));
     }
-    let script = format!("set -e; install -D -m 0755 -o root -g root \"$1\" {target}; setcap {CAPS} {target}", target = mihomo_path().display());
-    as_root(&script, &[&mihomo.to_string_lossy()])
+    // A copy without its capability would only look granted: take it away on failure.
+    let script = format!(
+        "set -e; install -D -m 0755 -o root -g root \"$1\" {target}; setcap {CAPS} {target} || {{ rm -f {target}; exit 1; }}",
+        target = mihomo_path().display()
+    );
+    as_root(&script, &[&mihomo.to_string_lossy()])?;
+    if granted().is_none() {
+        return Err(Error::Other("the network rights didn't stick (setcap); is the folder on a file system without capabilities?".into()));
+    }
+    Ok(())
 }
 
 /// Remove the copy.

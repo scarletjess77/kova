@@ -803,7 +803,10 @@ impl Engine {
 
     /// The configs written for the cores hold the servers' keys in plain text, which the
     /// cores need while they run; take them away once they stop. Kept: the cores' own
-    /// caches next to them.
+    /// caches next to them, including the server lists Mihomo downloads for a profile's
+    /// proxy providers. Mihomo starts from those when the provider can't be reached, so
+    /// removing them could leave such a profile with no servers; like the rest of the
+    /// data folder they are readable by this user only.
     fn remove_run_configs(&self) {
         for sub in ["main", "tester", "check"] {
             let dir = self.paths.runtime_dir().join(sub);

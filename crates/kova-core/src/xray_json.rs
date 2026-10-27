@@ -48,6 +48,16 @@ pub fn parse(doc: &Value) -> (Vec<Node>, Vec<String>) {
     let mut warnings = Vec::new();
     for config in configs {
         let remarks = s(config, "remarks");
+        // What Kova's own settings do instead, said once per config rather than dropped
+        // silently: the provider's fragment (Anti-DPI) and mux.
+        let label = remarks.clone().unwrap_or_else(|| "a server".into());
+        let outbounds = config.get("outbounds").and_then(Value::as_array).cloned().unwrap_or_default();
+        if outbounds.iter().any(|o| o.get("settings").and_then(|s| s.get("fragment")).is_some()) {
+            warnings.push(format!("{label}: the provider's fragment setting isn't used; Settings → Anti-DPI does the same"));
+        }
+        if outbounds.iter().any(|o| o.get("mux").and_then(|m| m.get("enabled")).and_then(Value::as_bool) == Some(true)) {
+            warnings.push(format!("{label}: the provider's mux setting isn't used"));
+        }
         let proxies: Vec<&Value> = config
             .get("outbounds")
             .and_then(Value::as_array)
@@ -57,6 +67,9 @@ pub fn parse(doc: &Value) -> (Vec<Node>, Vec<String>) {
             .collect();
         for o in &proxies {
             let tag = s(o, "tag").unwrap_or_else(|| "proxy".into());
+            if let Some(via) = o.get("streamSettings").and_then(|st| st.get("sockopt")).and_then(|so| s(so, "dialerProxy")) {
+                warnings.push(format!("{label}: connects straight to the server, not through {via} as the provider chained it"));
+            }
             // One server per config is the usual case: it takes the config's name.
             let name = match (&remarks, proxies.len()) {
                 (Some(r), 1) => r.clone(),
@@ -260,6 +273,22 @@ mod tests {
         let x = &nodes[1];
         assert!(matches!(&x.transport, Transport::Xhttp { path, mode: Some(m), .. } if path == "/xh" && m == "auto"));
         assert_eq!(x.tls.as_ref().unwrap().reality.as_ref().unwrap().public_key, "PUB2", "the newer `password` name");
+    }
+
+    #[test]
+    fn provider_settings_kova_does_not_use_are_reported() {
+        let doc = json!([{
+            "remarks": "Chained",
+            "outbounds": [
+                { "tag": "proxy", "protocol": "trojan", "mux": { "enabled": true },
+                  "settings": { "servers": [{ "address": "203.0.113.5", "port": 443, "password": "x" }] },
+                  "streamSettings": { "network": "tcp", "security": "tls", "sockopt": { "dialerProxy": "frag" } } },
+                { "tag": "frag", "protocol": "freedom", "settings": { "fragment": { "packets": "tlshello" } } }
+            ]
+        }]);
+        let (nodes, warnings) = parse(&doc);
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(warnings.len(), 3, "{warnings:?}");
     }
 
     #[test]

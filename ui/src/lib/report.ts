@@ -23,7 +23,7 @@ export async function buildReport(checks?: Check[] | null): Promise<string> {
   const p = app.activeProfile;
   const lines = [
     `Kova ${version} · ${app.platform || 'unknown'}${app.tv ? ' (TV)' : ''}`,
-    `Status: ${s.running ? 'connected' : 'not connected'}${s.core ? ` · ${s.core}${s.sidecar ? ' + xray bridge' : ''}` : ''}${s.tun_active ? ' · TUN' : ''}`,
+    `Status: ${s.running ? 'connected' : 'not connected'}${s.core ? ` · ${s.core}${s.bridged.length ? ' + xray bridge' : ''}${set?.core.anti_dpi && s.sidecar ? ' · anti-DPI' : ''}` : ''}${s.tun_active ? ' · TUN' : ''}`,
   ];
   if (s.error) lines.push(`Error: ${s.error}`);
   if (s.warning) lines.push(`Warning: ${s.warning}`);

@@ -105,7 +105,7 @@ On a Remnawave subscription page, add Kova to `app-config.json` for each platfor
 }
 ```
 
-**Formats Kova reads:** a Clash/Mihomo config (kept as it is), sing-box JSON, Xray JSON (one config or a list of them, as panels send it for v2rayNG or Happ), and plain or base64 share links. A panel picks the format by User-Agent: Kova asks as `clash.meta`, and a profile's User-Agent can be changed in Profiles to get another format.
+**Formats Kova reads:** a Clash/Mihomo config (kept as it is), sing-box JSON, Xray JSON (one config or a list of them, as panels send it for v2rayNG or Happ), and plain or base64 share links. From Xray JSON Kova takes each server and its transport and security; the provider's fragment, mux and outbound chains aren't used (Kova's Anti-DPI replaces fragment), and the profile lists what was left out. A panel picks the format by User-Agent: Kova asks as `clash.meta`, and a profile's User-Agent can be changed in Profiles to get another format.
 
 **Headers Kova reads:** `subscription-userinfo` (traffic and expiry), `profile-title`, `profile-update-interval`, `profile-web-page-url` or `support-url` (the Provider button) and `announce` (a message shown on the Dashboard; plain text or `base64:`).
 

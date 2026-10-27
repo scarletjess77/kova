@@ -21,6 +21,18 @@ fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
+/// A free port whose next one is free too: Xray in front also listens on the port above
+/// the proxy port. Taken from below the range the system hands out for outgoing
+/// connections (49152+ on Windows, 32768+ on Linux), where the other tests' connections
+/// could take the second port before Xray does.
+fn free_port_pair() -> u16 {
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() as u16;
+    (0..6000u16)
+        .map(|i| 20000 + (seed.wrapping_add(i * 2)) % 12000)
+        .find(|&p| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() && std::net::TcpListener::bind(("127.0.0.1", p + 1)).is_ok())
+        .expect("two free ports in a row")
+}
+
 async fn ensure_cores() -> PathBuf {
     // The tests run in parallel and share the cache: one download at a time.
     static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -244,10 +256,19 @@ impl Controller {
             let url = url.to_string();
             async move { client.get(url).send().await.unwrap().text().await.unwrap() }
         });
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        let conns = self.get("/connections").await;
+        // Wait for the connection to show up: with the other tests' cores running at the
+        // same time it can take a while.
         let port = url.trim_end_matches('/').rsplit(':').next().unwrap().to_string();
-        let c = conns["connections"].as_array().unwrap().iter().find(|c| c["metadata"]["destinationPort"].as_str() == Some(port.as_str())).expect("connection is open").clone();
+        let mut open = None;
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let conns = self.get("/connections").await;
+            open = conns["connections"].as_array().unwrap().iter().find(|c| c["metadata"]["destinationPort"].as_str() == Some(port.as_str())).cloned();
+            if open.is_some() {
+                break;
+            }
+        }
+        let c = open.expect("connection is open");
         assert_eq!(req.await.unwrap(), "slow");
         let chains = c["chains"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
         (c["rule"].as_str().unwrap_or_default().to_string(), chains)
@@ -626,7 +647,7 @@ async fn anti_dpi_carries_tls_traffic() {
 
     let mut s = engine.settings();
     s.system_proxy = false;
-    s.core.mixed_port = free_port();
+    s.core.mixed_port = free_port_pair();
     s.core.presets.clear();
     s.core.anti_dpi = true;
     engine.update_settings(s.clone()).await.unwrap();
