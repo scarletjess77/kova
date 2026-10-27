@@ -391,6 +391,15 @@ impl Engine {
         if old.core.geodata != new.core.geodata {
             self.refresh_geodata_files(false).await?;
         }
+        // Turning the kill switch (or the system proxy) off lets go of a hold.
+        if (!new.kill_switch || !new.system_proxy) && self.holding.swap(false, std::sync::atomic::Ordering::Relaxed) && !self.status().running {
+            let _ = sysproxy::disable(&self.paths.proxy_marker());
+            self.set_status(|s| s.error = None);
+        }
+        // A changed server for mobile data takes over at once while on mobile data.
+        if old.mobile_server != new.mobile_server && self.on_mobile.load(std::sync::atomic::Ordering::Relaxed) {
+            self.apply_network_choice().await;
+        }
         if !self.status().running {
             self.set_status(|s| s.mixed_port = new.core.mixed_port);
             return Ok(());
@@ -1427,10 +1436,13 @@ impl Engine {
                     if kill_switch {
                         engine.holding.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
+                    // Only a system proxy can be held; in TUN-only mode the kill switch
+                    // just reconnects.
+                    let holds_proxy = kill_switch && engine.settings().system_proxy;
                     // Clean up in a task of its own: shutdown() aborts every task in
                     // `r.tasks`, including this watchdog, which would cancel the cleanup.
                     tokio::spawn(async move {
-                        if !kill_switch {
+                        if !holds_proxy {
                             let _ = sysproxy::disable(&engine.paths.proxy_marker());
                         }
                         if let Some(r) = r {
@@ -1447,7 +1459,7 @@ impl Engine {
                         });
                         engine.emit(Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
                         if kill_switch {
-                            engine.reconnect_after_drop().await;
+                            engine.reconnect_after_drop(holds_proxy).await;
                         }
                     });
                     return;
@@ -1458,7 +1470,7 @@ impl Engine {
 
     /// The kill switch: try to bring the connection back a few times while apps stay
     /// offline. Stops as soon as the user disconnects (which lifts the hold).
-    async fn reconnect_after_drop(&self) {
+    async fn reconnect_after_drop(&self, holds_proxy: bool) {
         use std::sync::atomic::Ordering::Relaxed;
         for wait in [2, 5, 10] {
             tokio::time::sleep(Duration::from_secs(wait)).await;
@@ -1466,12 +1478,24 @@ impl Engine {
                 return;
             }
             if self.start().await.is_ok() {
-                self.emit(Event::Notice { text: "The connection dropped and is back; the kill switch kept apps offline meanwhile".into() });
+                let text = if holds_proxy {
+                    "The connection dropped and is back; the kill switch kept apps offline meanwhile"
+                } else {
+                    "The connection dropped and is back"
+                };
+                self.emit(Event::Notice { text: text.into() });
                 return;
             }
         }
-        if self.holding.load(Relaxed) {
+        if !self.holding.load(Relaxed) {
+            return;
+        }
+        if holds_proxy {
             self.set_status(|s| s.error = Some("The connection dropped. The kill switch keeps apps offline until you connect again or disconnect".into()));
+        } else {
+            // Nothing to hold (TUN only): let go, and say what happened.
+            self.holding.store(false, Relaxed);
+            self.set_status(|s| s.error = Some("The connection dropped and couldn't be restored. Connect again".into()));
         }
     }
 
@@ -1655,10 +1679,16 @@ impl Engine {
     /// switch is saved as the user's choice, which stays the Wi-Fi one.
     pub async fn network_changed(&self, mobile: bool) {
         use std::sync::atomic::Ordering::Relaxed;
-        if self.on_mobile.swap(mobile, Relaxed) == mobile {
+        if self.on_mobile.swap(mobile, Relaxed) == mobile || self.settings().mobile_server.is_none() {
             return;
         }
-        let Some(server) = self.settings().mobile_server else { return };
+        self.apply_network_choice().await;
+    }
+
+    /// Select the main group's server for the current network: the mobile-data one on
+    /// mobile data (when set), else the user's own choice.
+    async fn apply_network_choice(&self) {
+        let mobile = self.on_mobile.load(std::sync::atomic::Ordering::Relaxed);
         let (api, main) = {
             let run = self.run.lock().await;
             match run.as_ref() {
@@ -1667,15 +1697,19 @@ impl Engine {
             }
         };
         let Some(api) = api else { return };
-        let target = if mobile {
-            server
-        } else {
-            self.settings().selections.get(&self.selection_key(&main)).cloned().unwrap_or_else(|| AUTO.to_string())
+        let (target, on_mobile_server) = match self.settings().mobile_server.filter(|_| mobile) {
+            Some(server) => (server, true),
+            None => (self.settings().selections.get(&self.selection_key(&main)).cloned().unwrap_or_else(|| AUTO.to_string()), false),
         };
         if api.select(&main, &target).await.is_ok() {
             // Connections made on the other network keep their old route; start them over.
             let _ = api.close_all().await;
-            let text = if mobile { format!("Mobile data: switched to {target}") } else { format!("Wi-Fi: back to {target}") };
+            let text = match (mobile, on_mobile_server) {
+                (true, true) => format!("Mobile data: switched to {target}"),
+                // The mobile-data server was just turned off in Settings.
+                (true, false) => format!("Mobile data: using {target}"),
+                (false, _) => format!("Wi-Fi: back to {target}"),
+            };
             self.emit(Event::Notice { text });
         }
     }

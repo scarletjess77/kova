@@ -197,8 +197,14 @@ class KovaVpnService : VpnService() {
         val cm = getSystemService(ConnectivityManager::class.java) ?: return
         val callback = object : ConnectivityManager.NetworkCallback() {
             override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
-                val kind = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) "mobile" else "wifi"
+                // Usually the real network, as Kova is outside its own VPN. Some Android
+                // versions report the VPN instead; from Android 10 that one also carries
+                // the transport underneath it. With neither, it can't be told: skip.
+                val kind = when {
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) -> "mobile"
+                    caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) || caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) -> "wifi"
+                    else -> return
+                }
                 if (kind != lastNetwork) {
                     lastNetwork = kind
                     Actions.send("network:$kind", keep = true)

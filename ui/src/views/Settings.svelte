@@ -160,7 +160,7 @@
           <div class="row-sw"><div><div class="t">{t('Sniff domains')}</div><div class="d">{t('Reads TLS and HTTP hostnames so domain rules also work for raw IP connections')}</div></div>
             <button class="switch" role="switch" aria-label={t('Sniff domains')} aria-checked={s.core.sniff} onclick={() => toggle((x) => x.core.sniff, (x, v) => (x.core.sniff = v))}></button></div>
           {#if !app.mobile}
-            <div class="row-sw"><div><div class="t">{t('Kill switch')} <span class="chip">beta</span></div><div class="d">{t('If the connection drops on its own, apps that use the system proxy go offline instead of around Kova, and Kova reconnects. Disconnect lifts it.')}</div></div>
+            <div class="row-sw"><div><div class="t">{t('Kill switch')} <span class="chip">beta</span></div><div class="d">{t('If the connection drops on its own, apps that use the system proxy go offline instead of around Kova, and Kova reconnects. Disconnect lifts it. In TUN-only mode Kova just reconnects.')}</div></div>
               <button class="switch" role="switch" aria-label={t('Kill switch')} aria-checked={s.kill_switch} onclick={() => toggle((x) => x.kill_switch, (x, v) => (x.kill_switch = v))}></button></div>
           {/if}
           <div class="row-sw"><div><div class="t">{t('Anti-DPI')} <span class="chip">beta</span></div><div class="d">{t('Sends the start of each connection to the server in small pieces, so simpler blocking equipment can’t recognise it. Try it when servers stop connecting; it doesn’t help against whitelists. Needs the Xray core')}</div></div>

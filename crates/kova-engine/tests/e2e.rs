@@ -778,6 +778,13 @@ async fn mobile_data_uses_its_own_server() {
     engine.restart().await.unwrap();
     assert_eq!(now(&engine).await, "Relay");
 
+    // Turning the mobile-data server off in Settings while on mobile data: the usual
+    // choice at once.
+    let mut s = engine.settings();
+    s.mobile_server = None;
+    engine.update_settings(s).await.unwrap();
+    assert_eq!(now(&engine).await, "Home");
+
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
