@@ -304,8 +304,9 @@ impl ProfileIndex {
                 }
             }
         }
-        // Saved before sealing: seal now, contents included.
-        if unsealed {
+        // Saved before sealing: seal now. Each profile's content on its own, so profiles
+        // made of pasted servers (no address) are sealed too.
+        if crate::secret::available() {
             for p in &idx.profiles {
                 if let Ok(body) = std::fs::read_to_string(paths.profile_body(&p.id)) {
                     if !crate::secret::is_sealed(&body) {
@@ -313,6 +314,8 @@ impl ProfileIndex {
                     }
                 }
             }
+        }
+        if unsealed {
             let _ = idx.save(paths);
         }
         idx
@@ -365,14 +368,19 @@ mod tests {
             support_url: None,
             announce: None,
         };
-        write_json(&paths.profiles_index(), &ProfileIndex { profiles: vec![profile] }).unwrap();
+        let pasted = Profile { id: "p2".into(), source: Source::Local, ..profile.clone() };
+        write_json(&paths.profiles_index(), &ProfileIndex { profiles: vec![profile, pasted] }).unwrap();
         std::fs::write(paths.profile_body("p1"), body).unwrap();
+        std::fs::write(paths.profile_body("p2"), body).unwrap();
 
         let idx = ProfileIndex::load(&paths);
         assert!(matches!(&idx.profiles[0].source, Source::Remote { url: u, .. } if u == url));
         assert_eq!(paths.read_body("p1").unwrap(), body);
+        assert_eq!(paths.read_body("p2").unwrap(), body);
         if crate::secret::available() {
-            let on_disk = std::fs::read_to_string(paths.profiles_index()).unwrap() + &std::fs::read_to_string(paths.profile_body("p1")).unwrap();
+            let on_disk = std::fs::read_to_string(paths.profiles_index()).unwrap()
+                + &std::fs::read_to_string(paths.profile_body("p1")).unwrap()
+                + &std::fs::read_to_string(paths.profile_body("p2")).unwrap();
             assert!(!on_disk.contains("T0kenForTests123") && !on_disk.contains("b831381d"), "{on_disk}");
         }
     }

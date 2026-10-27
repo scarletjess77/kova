@@ -71,9 +71,8 @@ fn stream(n: &Node) -> Value {
                     if let Some(fp) = &t.fingerprint {
                         tls["fingerprint"] = fp.clone().into();
                     }
-                    if t.insecure {
-                        tls["allowInsecure"] = true.into();
-                    }
+                    // Certificate checks off: Xray no longer has "allowInsecure"; the
+                    // certificate is pinned instead (see `with_pin`).
                     s.insert("tlsSettings".into(), tls);
                 }
             }
@@ -156,6 +155,19 @@ fn sniffing(opts: &RuntimeOptions) -> Value {
     json!({ "enabled": opts.sniff, "destOverride": ["http", "tls", "quic"], "routeOnly": true })
 }
 
+/// `outbound(n)`, with the certificate pinned when the link turns certificate checks
+/// off (Xray 26.10 refuses "allowInsecure"; a pin trusts exactly that server's
+/// certificate instead of any).
+fn with_pin(n: &Node, opts: &RuntimeOptions) -> Option<Value> {
+    let mut o = outbound(n)?;
+    if n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none()) {
+        if let Some(pin) = opts.cert_pins.get(&n.name) {
+            o["streamSettings"]["tlsSettings"]["pinnedPeerCertSha256"] = pin.clone().into();
+        }
+    }
+    Some(o)
+}
+
 /// The Anti-DPI outbound: a direct connection whose TLS handshake goes out in small
 /// pieces with short pauses, and whose UDP starts with a few random packets, so DPI that
 /// reads one packet at a time can't match it.
@@ -185,7 +197,7 @@ pub fn sidecar(bridged: &[(&Node, u16)], opts: &RuntimeOptions) -> String {
         json!({ "udp": true, "auth": "password", "accounts": [{ "user": crate::options::LOCAL_USER, "pass": opts.local_password }] })
     };
     for (i, (n, port)) in bridged.iter().enumerate() {
-        let Some(mut o) = outbound(n) else { continue };
+        let Some(mut o) = with_pin(n, opts) else { continue };
         if opts.anti_dpi_port.is_some() {
             o["streamSettings"]["sockopt"]["dialerProxy"] = ANTI_DPI_TAG.into();
         }
@@ -220,7 +232,12 @@ pub enum Selection {
 /// Full Xray config when Xray is the front core.
 pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> String {
     let listen = opts.listen_addr();
-    let outbounds_nodes: Vec<Value> = nodes.iter().filter_map(outbound).collect();
+    let mut outbounds_nodes: Vec<Value> = nodes.iter().filter_map(|n| with_pin(n, opts)).collect();
+    if opts.anti_dpi {
+        for o in &mut outbounds_nodes {
+            o["streamSettings"]["sockopt"]["dialerProxy"] = ANTI_DPI_TAG.into();
+        }
+    }
     let tags: Vec<String> = outbounds_nodes.iter().filter_map(|o| o["tag"].as_str().map(String::from)).collect();
 
     let proxy_target = |rule: &mut Value| match selection {
@@ -265,6 +282,9 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
     let mut outbounds = outbounds_nodes;
     outbounds.push(json!({ "tag": "direct", "protocol": "freedom", "settings": { "domainStrategy": "UseIP" } }));
     outbounds.push(json!({ "tag": "block", "protocol": "blackhole" }));
+    if opts.anti_dpi {
+        outbounds.push(anti_dpi_outbound());
+    }
 
     let mut dns_servers: Vec<Value> = opts.dns.nameservers.iter().map(|s| Value::String(s.clone())).collect();
     let direct_domains: Vec<String> = opts.presets.iter().flat_map(|p| p.direct_geosites()).map(|g| format!("geosite:{g}")).collect();
@@ -296,6 +316,38 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn insecure_links_are_pinned_not_allow_insecure() {
+        let n = crate::links::parse_link("vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls&sni=a.example&allowInsecure=1&type=tcp#Self-signed").unwrap();
+        let mut o = RuntimeOptions::default();
+        o.cert_pins.insert("Self-signed".into(), "ab12".into());
+        let doc: Value = serde_json::from_str(&full(&[n.clone()], &Selection::Auto, &o)).unwrap();
+        let tls = &doc["outbounds"][0]["streamSettings"]["tlsSettings"];
+        assert_eq!(tls["pinnedPeerCertSha256"], "ab12");
+        assert!(tls.get("allowInsecure").is_none(), "Xray 26.10 refuses allowInsecure: {tls}");
+        // No pin (the server didn't answer): the certificate is checked normally.
+        let doc: Value = serde_json::from_str(&full(&[n], &Selection::Auto, &RuntimeOptions::default())).unwrap();
+        assert!(doc.to_string().find("allowInsecure").is_none());
+    }
+
+    #[test]
+    fn anti_dpi_with_xray_in_front() {
+        let mut o = RuntimeOptions::default();
+        o.anti_dpi = true;
+        let n = crate::links::parse_link("vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls&type=tcp#A").unwrap();
+        let w = crate::links::parse_link("wireguard://pk@203.0.113.2:51820?publickey=PUB&address=10.0.0.2%2F32#W");
+        let mut nodes = vec![n];
+        nodes.extend(w);
+        let doc: Value = serde_json::from_str(&full(&nodes, &Selection::Auto, &o)).unwrap();
+        let outbounds = doc["outbounds"].as_array().unwrap();
+        for o in outbounds.iter().filter(|o| o["protocol"] != "freedom" && o["protocol"] != "blackhole") {
+            assert_eq!(o["streamSettings"]["sockopt"]["dialerProxy"], ANTI_DPI_TAG, "{o}");
+        }
+        assert!(outbounds.iter().any(|o| o["tag"] == ANTI_DPI_TAG && o["settings"]["fragment"]["packets"] == "tlshello"));
+        // Not among the servers the balancer picks from.
+        assert!(!doc["routing"]["balancers"][0]["selector"].as_array().unwrap().iter().any(|t| t == ANTI_DPI_TAG));
+    }
+
     use super::*;
     use crate::links::parse_link;
 

@@ -631,7 +631,10 @@ async fn anti_dpi_carries_tls_traffic() {
     s.core.anti_dpi = true;
     engine.update_settings(s.clone()).await.unwrap();
     let link = format!("vless://{uuid}@127.0.0.1:{tls_port}?encryption=none&security=tls&sni=localhost&allowInsecure=1&type=ws&path=%2Fws#TLS");
-    engine.add_profile(&link, Some("Anti-DPI".into())).await.unwrap();
+    let profile = engine.add_profile(&link, Some("Anti-DPI".into())).await.unwrap();
+    // Latency tests while disconnected go through Anti-DPI too.
+    let delays = engine.test_delays(None).await.unwrap();
+    assert!(delays.get("TLS").copied().flatten().is_some(), "offline latency through Anti-DPI: {delays:?}");
     engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
     assert!(engine.status().sidecar, "Anti-DPI runs in the Xray sidecar");
 
@@ -643,7 +646,75 @@ async fn anti_dpi_carries_tls_traffic() {
     let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Anti-DPI").text().await.unwrap();
     assert_eq!(body, "hello from target");
 
+    // A profile pinned to Xray: Xray itself dials the server through its anti-DPI outbound.
+    let patch = kova_engine::engine::ProfilePatch { core: Some(kova_core::CorePreference::Xray), ..Default::default() };
+    engine.edit_profile(&profile.id, patch).await.unwrap();
+    engine.restart().await.unwrap_or_else(|e| panic!("restart with Xray failed: {e}"));
+    assert_eq!(engine.status().core, Some(CoreKind::Xray));
+    let cfg = std::fs::read_to_string(root.path().join("runtime/main/xray.json")).unwrap();
+    assert!(cfg.contains("\"dialerProxy\": \"anti-dpi\""), "{cfg}");
+    let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Xray's Anti-DPI").text().await.unwrap();
+    assert_eq!(body, "hello from target");
+
     engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}
+
+/// Anti-DPI with a UDP protocol: Hysteria2 (QUIC) dialled through the local Xray's UDP.
+/// The server is a Mihomo listener. First without Anti-DPI, as the baseline.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn anti_dpi_carries_hysteria2() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let xray = cores::binary_path(&cores_cache, CoreKind::Xray);
+    let cert = std::process::Command::new(&xray).args(["tls", "cert", "-domain=localhost", "-json"]).output().unwrap();
+    let cert: serde_json::Value = serde_json::from_slice(&cert.stdout).expect("a certificate");
+    let pem = |k: &str| cert[k].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect::<Vec<_>>().join("\n") + "\n";
+    let server_dir = tempfile::tempdir().unwrap();
+    std::fs::write(server_dir.path().join("cert.pem"), pem("certificate")).unwrap();
+    std::fs::write(server_dir.path().join("key.pem"), pem("key")).unwrap();
+    let hy_port = free_port();
+    let target = target_server().await;
+    std::fs::write(
+        server_dir.path().join("config.yaml"),
+        format!(
+            "mixed-port: 0\nmode: direct\nlog-level: warning\nlisteners:\n  - name: hy2\n    type: hysteria2\n    listen: 127.0.0.1\n    port: {hy_port}\n    users:\n      kova: testpass\n    certificate: ./cert.pem\n    private-key: ./key.pem\n"
+        ),
+    )
+    .unwrap();
+    let dir = server_dir.path().to_str().unwrap().to_string();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Mihomo))
+        .args(["-d", &dir, "-f", &format!("{dir}/config.yaml")])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    engine.update_settings(s.clone()).await.unwrap();
+    engine.add_profile(&format!("hysteria2://testpass@127.0.0.1:{hy_port}?insecure=1&sni=localhost#HY2"), Some("UDP".into())).await.unwrap();
+    let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", s.core.mixed_port)).unwrap()).timeout(Duration::from_secs(10)).build().unwrap();
+
+    for anti_dpi in [false, true] {
+        let mut s = engine.settings();
+        s.core.anti_dpi = anti_dpi;
+        engine.update_settings(s).await.unwrap();
+        engine.start().await.unwrap_or_else(|e| panic!("start failed (anti-DPI {anti_dpi}): {e}"));
+        let body = client.get(format!("http://localhost:{target}/")).send().await.unwrap_or_else(|e| panic!("Hysteria2 with anti-DPI {anti_dpi}: {e}")).text().await.unwrap();
+        assert_eq!(body, "hello from target", "anti-DPI {anti_dpi}");
+        engine.stop().await.unwrap();
+    }
     let _ = server.kill().await;
 }
 

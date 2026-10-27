@@ -361,6 +361,10 @@ pub struct RuntimeOptions {
     /// Local port of that Xray, set per run when Anti-DPI is on and Xray is installed.
     #[serde(skip)]
     pub anti_dpi_port: Option<u16>,
+    /// SHA-256 of the certificate of each server (by name) whose link turns certificate
+    /// checks off, for Xray to pin: Xray no longer accepts "allowInsecure". Set per run.
+    #[serde(skip)]
+    pub cert_pins: std::collections::HashMap<String, String>,
 }
 
 /// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
@@ -410,6 +414,7 @@ impl Default for RuntimeOptions {
             without_geodata: false,
             anti_dpi: false,
             anti_dpi_port: None,
+            cert_pins: Default::default(),
         }
     }
 }

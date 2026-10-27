@@ -444,6 +444,24 @@ pub const ANTI_DPI_PROXY: &str = "Kova anti-DPI";
 /// server that already names its own dialer.
 fn apply_anti_dpi(doc: &mut Mapping, opts: &RuntimeOptions) {
     let Some(port) = opts.anti_dpi_port else { return };
+    // Servers that come from provider files: Mihomo applies `override` to each of them.
+    if let Some(Yaml::Mapping(providers)) = doc.get_mut("proxy-providers") {
+        for (_, p) in providers.iter_mut() {
+            let Yaml::Mapping(p) = p else { continue };
+            let key = Yaml::String("override".into());
+            if !matches!(p.get(&key), Some(Yaml::Mapping(_))) {
+                p.insert(key.clone(), Yaml::Mapping(Mapping::new()));
+            }
+            if let Some(Yaml::Mapping(o)) = p.get_mut(&key) {
+                if !o.contains_key("dialer-proxy") {
+                    o.insert(Yaml::String("dialer-proxy".into()), Yaml::String(ANTI_DPI_PROXY.into()));
+                }
+            }
+        }
+    }
+    if !matches!(doc.get("proxies"), Some(Yaml::Sequence(_))) {
+        doc.insert(Yaml::String("proxies".into()), Yaml::Sequence(Vec::new()));
+    }
     let Some(Yaml::Sequence(proxies)) = doc.get_mut("proxies") else { return };
     for p in proxies.iter_mut() {
         let Yaml::Mapping(m) = p else { continue };
@@ -513,6 +531,20 @@ mod tests {
         assert_eq!(by("C")["dialer-proxy"].as_str(), Some("A"), "the profile's own chain is kept");
         let hop = by(ANTI_DPI_PROXY);
         assert_eq!((hop["port"].as_u64(), hop["username"].as_str()), (Some(17100), Some(LOCAL_USER)));
+        // Servers from provider files get it through Mihomo's override.
+        let with_provider = "proxy-providers:
+  sub:
+    type: http
+    url: https://sub.example.com/p
+    path: ./p.yaml
+proxy-groups:
+  - {name: Sel, type: select, use: [sub]}
+rules:
+  - MATCH,Sel
+";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(with_provider, &o).unwrap()).unwrap();
+        assert_eq!(doc["proxy-providers"]["sub"]["override"]["dialer-proxy"].as_str(), Some(ANTI_DPI_PROXY));
+        assert!(doc["proxies"].as_sequence().unwrap().iter().any(|p| p["name"].as_str() == Some(ANTI_DPI_PROXY)));
         // Off: nothing changes.
         o.anti_dpi_port = None;
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();

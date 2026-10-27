@@ -1,8 +1,10 @@
 //! Subscription addresses and profile contents at rest. They are access keys: whoever
-//! has them can use the subscription. On Windows they are sealed with DPAPI (only this
-//! Windows account can open them), on macOS with a key kept in the Keychain. On Linux and
-//! Android they stay as files only their owner can read: a key would have to sit next to
-//! them, and Android keeps each app's files apart already.
+//! has them can use the subscription. On Windows they are sealed with DPAPI: only this
+//! Windows account can open them, with no prompt and no key to lose. Elsewhere they stay
+//! as files only their owner can read. A key would have to sit next to them on Linux,
+//! Android keeps each app's files apart already, and on macOS the Keychain asks again
+//! after every update of an app not signed by Apple (Kova's builds aren't yet), where one
+//! "Deny" would leave the profiles unreadable.
 //!
 //! Sealed text is stored as `kova-sealed:v1:<base64>`; anything else is read as it is,
 //! so files from before this change still open, and are sealed on their next save.
@@ -25,9 +27,9 @@ pub fn open(stored: &str) -> Option<String> {
     imp::open(&data).and_then(|b| String::from_utf8(b).ok())
 }
 
-/// Whether this system seals at all (Windows, macOS).
+/// Whether this system seals at all (Windows).
 pub fn available() -> bool {
-    cfg!(any(windows, target_os = "macos"))
+    cfg!(windows)
 }
 
 pub fn is_sealed(stored: &str) -> bool {
@@ -81,46 +83,7 @@ mod imp {
     }
 }
 
-#[cfg(target_os = "macos")]
-mod imp {
-    use chacha20poly1305::aead::{Aead, KeyInit};
-    use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
-    use security_framework::passwords::{get_generic_password, set_generic_password};
-
-    const SERVICE: &str = "app.kova.client";
-    const ACCOUNT: &str = "profiles key";
-
-    /// The key in the Keychain, made the first time.
-    fn key() -> Option<ChaCha20Poly1305> {
-        let k = match get_generic_password(SERVICE, ACCOUNT) {
-            Ok(k) if k.len() == 32 => k,
-            _ => {
-                let mut k = vec![0u8; 32];
-                getrandom::fill(&mut k).ok()?;
-                set_generic_password(SERVICE, ACCOUNT, &k).ok()?;
-                k
-            }
-        };
-        Some(ChaCha20Poly1305::new(Key::from_slice(&k)))
-    }
-
-    pub fn seal(data: &[u8]) -> Option<Vec<u8>> {
-        let mut nonce = [0u8; 12];
-        getrandom::fill(&mut nonce).ok()?;
-        let mut out = nonce.to_vec();
-        out.extend(key()?.encrypt(Nonce::from_slice(&nonce), data).ok()?);
-        Some(out)
-    }
-    pub fn open(data: &[u8]) -> Option<Vec<u8>> {
-        if data.len() < 12 {
-            return None;
-        }
-        let (nonce, sealed) = data.split_at(12);
-        key()?.decrypt(Nonce::from_slice(nonce), sealed).ok()
-    }
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
+#[cfg(not(windows))]
 mod imp {
     pub fn seal(_: &[u8]) -> Option<Vec<u8>> {
         None
@@ -138,7 +101,7 @@ mod tests {
     fn sealed_text_opens_and_plain_text_passes_through() {
         let url = "https://sub.example.com/T0kenForTests123";
         let stored = seal(url);
-        if cfg!(any(windows, target_os = "macos")) {
+        if available() {
             assert!(is_sealed(&stored), "{stored}");
             assert!(!stored.contains("T0kenForTests123"));
         }
