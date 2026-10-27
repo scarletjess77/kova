@@ -20,7 +20,7 @@ use tokio::task::JoinHandle;
 use crate::cores::{self, CoreStatus};
 use crate::mihomo_api::{ConnectionsSnapshot, Mihomo, ProxyGroup, ProxyInfo, ProxySnapshot};
 use crate::process::{CoreProcess, LineSink, check_config};
-use crate::store::{Paths, Profile, ProfileIndex, Settings, Source, now, write_atomic};
+use crate::store::{Paths, Profile, ProfileIndex, Settings, Source, now};
 use crate::{Error, Result, fetch, sysproxy};
 
 #[derive(Debug, Clone, Serialize)]
@@ -462,7 +462,7 @@ impl Engine {
             };
             (input.to_string(), p)
         };
-        write_atomic(&self.paths.profile_body(&id), body.as_bytes())?;
+        self.paths.write_body(&id, &body)?;
         self.profiles.write().unwrap().profiles.push(profile.clone());
         let first = self.settings().active_profile.is_none();
         self.save_profiles()?;
@@ -483,7 +483,7 @@ impl Engine {
             let mut idx = self.profiles.write().unwrap();
             // The profile may have been deleted while the download was in flight.
             let e = idx.get_mut(id).ok_or_else(|| Error::Other("the profile was removed during the update".into()))?;
-            write_atomic(&self.paths.profile_body(id), sub.body.as_bytes())?;
+            self.paths.write_body(id, &sub.body)?;
             e.format = parsed.format;
             e.node_count = parsed.nodes.len();
             e.usage = sub.usage.or(e.usage.take());
@@ -593,7 +593,7 @@ impl Engine {
     }
 
     pub fn profile_content(&self, id: &str) -> Result<String> {
-        Ok(std::fs::read_to_string(self.paths.profile_body(id))?)
+        Ok(self.paths.read_body(id)?)
     }
 
     /// Replace a profile's content after checking it parses (and, for Clash configs,
@@ -603,7 +603,7 @@ impl Engine {
         if parsed.format == Format::Clash {
             self.validate_clash(text).await?;
         }
-        write_atomic(&self.paths.profile_body(id), text.as_bytes())?;
+        self.paths.write_body(id, text)?;
         {
             let mut idx = self.profiles.write().unwrap();
             if let Some(p) = idx.get_mut(id) {
@@ -629,7 +629,9 @@ impl Engine {
         let file = dir.join("config.yaml");
         std::fs::write(&file, merged)?;
         let (d, f) = (dir.to_string_lossy().to_string(), file.to_string_lossy().to_string());
-        check_config(&bin, &["-t", "-d", &d, "-f", &f], &dir, &[]).await
+        let checked = check_config(&bin, &["-t", "-d", &d, "-f", &f], &dir, &[]).await;
+        let _ = std::fs::remove_file(&file);
+        checked
     }
 
     async fn reload_if_active(&self, id: &str) -> Result<()> {
@@ -734,6 +736,7 @@ impl Engine {
         if let Some(r) = taken {
             r.shutdown().await;
         }
+        self.remove_run_configs();
         self.set_status(|s| {
             s.running = false;
             s.busy = false;
@@ -745,6 +748,18 @@ impl Engine {
         });
         self.emit(Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
         proxy
+    }
+
+    /// The configs written for the cores hold the servers' keys in plain text, which the
+    /// cores need while they run; take them away once they stop. Kept: the cores' own
+    /// caches next to them.
+    fn remove_run_configs(&self) {
+        for sub in ["main", "tester", "check"] {
+            let dir = self.paths.runtime_dir().join(sub);
+            for f in [dir.join("xray.json"), dir.join("xray-sidecar.json"), dir.join("config.yaml"), dir.join("mihomo").join("config.yaml")] {
+                let _ = std::fs::remove_file(f);
+            }
+        }
     }
 
     /// Re-apply config. The system proxy stays pointed at us across the short gap.

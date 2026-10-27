@@ -8,6 +8,7 @@ pub mod fetch;
 pub mod geodata;
 pub mod mihomo_api;
 pub mod process;
+pub mod secret;
 pub mod service;
 pub mod sitecheck;
 pub mod smart;
