@@ -710,3 +710,53 @@ async fn mobile_data_uses_its_own_server() {
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
+
+/// Kill switch (beta): when the core dies on its own, Kova reconnects by itself, and a
+/// user's Disconnect ends the hold. (The system proxy part isn't exercised: tests never
+/// touch the system proxy.)
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn kill_switch_reconnects_after_a_drop() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.kill_switch = true;
+    engine.update_settings(s).await.unwrap();
+    let link = format!("vless://b831381d-6324-4d53-ad4f-8cda48b30811@127.0.0.1:{}?encryption=none&security=none&type=ws&path=%2Fws#Any", free_port());
+    engine.add_profile(&link, Some("Kill switch".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+
+    // Stop only the Mihomo this test started (the machine may be running Kova for real).
+    let dir = root.path().file_name().unwrap().to_string_lossy().to_string();
+    let filter = format!("Name='mihomo.exe' AND ParentProcessId={} AND CommandLine LIKE '%{dir}%'", std::process::id());
+    let script = format!("Get-CimInstance Win32_Process -Filter \"{filter}\" | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}");
+    let _ = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &script]).output();
+
+    let mut dropped = false;
+    let mut back = false;
+    for _ in 0..60 {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let running = engine.status().running;
+        dropped |= !running;
+        if dropped && running {
+            back = true;
+            break;
+        }
+    }
+    assert!(dropped, "the drop was noticed");
+    assert!(back, "the kill switch reconnected: {:?}", engine.status());
+
+    engine.stop().await.unwrap();
+    assert!(!engine.status().running);
+}

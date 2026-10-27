@@ -164,6 +164,10 @@ pub struct Settings {
     /// Android: the server (or group) of the main group to use on mobile data, where
     /// whitelists apply; Wi-Fi keeps the one chosen as usual. `None`: the same on both.
     pub mobile_server: Option<String>,
+    /// Beta, desktop. When the connection drops on its own, keep the system proxy pointed
+    /// at Kova so apps go offline instead of around it, and reconnect. Only Disconnect or
+    /// a restored connection lifts it.
+    pub kill_switch: bool,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -208,6 +212,7 @@ impl Default for Settings {
             auto_switch: true,
             device_id: String::new(),
             mobile_server: None,
+            kill_switch: false,
         }
     }
 }

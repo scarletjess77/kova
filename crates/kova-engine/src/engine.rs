@@ -182,6 +182,9 @@ pub struct Engine {
     quiet: std::sync::atomic::AtomicBool,
     /// Android: the phone is on mobile data rather than Wi-Fi (see `mobile_server`).
     on_mobile: std::sync::atomic::AtomicBool,
+    /// The kill switch is holding: the connection dropped and the system proxy stays on
+    /// until it is back or the user disconnects.
+    holding: std::sync::atomic::AtomicBool,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -290,6 +293,7 @@ impl Engine {
             node_failures: Default::default(),
             quiet: Default::default(),
             on_mobile: Default::default(),
+            holding: Default::default(),
             events,
             me: me.clone(),
         }))
@@ -668,6 +672,7 @@ impl Engine {
         let opts = self.settings().core;
         match self.launch(Purpose::Main, opts.clone()).await {
             Ok((r, plan)) => {
+                self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
                 let kind = r.front_kind;
                 let sidecar = r.sidecar.is_some();
                 let api = r.api.clone();
@@ -714,8 +719,11 @@ impl Engine {
             }
             Err(e) => {
                 drop(run);
-                // A failed restart must not leave the OS proxy pointing at a dead port.
-                let _ = sysproxy::disable(&self.paths.proxy_marker());
+                // A failed restart must not leave the OS proxy pointing at a dead port,
+                // unless the kill switch holds it there on purpose.
+                if !self.holding.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = sysproxy::disable(&self.paths.proxy_marker());
+                }
                 self.set_status(|s| {
                     s.busy = false;
                     s.running = false;
@@ -730,6 +738,8 @@ impl Engine {
     }
 
     pub async fn stop(&self) -> Result<()> {
+        // Disconnecting lifts the kill switch.
+        self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
         let taken = self.run.lock().await.take();
         self.set_status(|s| s.busy = true);
         let proxy = sysproxy::disable(&self.paths.proxy_marker());
@@ -1378,10 +1388,16 @@ impl Engine {
                 if let Some(msg) = died {
                     let r = guard.take();
                     drop(guard);
+                    let kill_switch = engine.settings().kill_switch;
+                    if kill_switch {
+                        engine.holding.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
                     // Clean up in a task of its own: shutdown() aborts every task in
                     // `r.tasks`, including this watchdog, which would cancel the cleanup.
                     tokio::spawn(async move {
-                        let _ = sysproxy::disable(&engine.paths.proxy_marker());
+                        if !kill_switch {
+                            let _ = sysproxy::disable(&engine.paths.proxy_marker());
+                        }
                         if let Some(r) = r {
                             r.shutdown().await;
                         }
@@ -1395,11 +1411,33 @@ impl Engine {
                             s.error = Some(msg);
                         });
                         engine.emit(Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
+                        if kill_switch {
+                            engine.reconnect_after_drop().await;
+                        }
                     });
                     return;
                 }
             }
         })
+    }
+
+    /// The kill switch: try to bring the connection back a few times while apps stay
+    /// offline. Stops as soon as the user disconnects (which lifts the hold).
+    async fn reconnect_after_drop(&self) {
+        use std::sync::atomic::Ordering::Relaxed;
+        for wait in [2, 5, 10] {
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+            if !self.holding.load(Relaxed) || self.status().running {
+                return;
+            }
+            if self.start().await.is_ok() {
+                self.emit(Event::Notice { text: "The connection dropped and is back; the kill switch kept apps offline meanwhile".into() });
+                return;
+            }
+        }
+        if self.holding.load(Relaxed) {
+            self.set_status(|s| s.error = Some("The connection dropped. The kill switch keeps apps offline until you connect again or disconnect".into()));
+        }
     }
 
     // ------------------------------------------------------------------ proxies

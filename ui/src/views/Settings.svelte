@@ -159,6 +159,10 @@
             <button class="switch" role="switch" aria-label="IPv6" aria-checked={s.core.ipv6} onclick={() => toggle((x) => x.core.ipv6, (x, v) => (x.core.ipv6 = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Sniff domains')}</div><div class="d">{t('Reads TLS and HTTP hostnames so domain rules also work for raw IP connections')}</div></div>
             <button class="switch" role="switch" aria-label={t('Sniff domains')} aria-checked={s.core.sniff} onclick={() => toggle((x) => x.core.sniff, (x, v) => (x.core.sniff = v))}></button></div>
+          {#if !app.mobile}
+            <div class="row-sw"><div><div class="t">{t('Kill switch')} <span class="chip">beta</span></div><div class="d">{t('If the connection drops on its own, apps that use the system proxy go offline instead of around Kova, and Kova reconnects. Disconnect lifts it.')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Kill switch')} aria-checked={s.kill_switch} onclick={() => toggle((x) => x.kill_switch, (x, v) => (x.kill_switch = v))}></button></div>
+          {/if}
           <div class="row-sw"><div><div class="t">{t('Anti-DPI')} <span class="chip">beta</span></div><div class="d">{t('Sends the start of each connection to the server in small pieces, so simpler blocking equipment can’t recognise it. Try it when servers stop connecting; it doesn’t help against whitelists. Needs the Xray core')}</div></div>
             <button class="switch" role="switch" aria-label={t('Anti-DPI')} aria-checked={s.core.anti_dpi} onclick={() => toggle((x) => x.core.anti_dpi, (x, v) => (x.core.anti_dpi = v))}></button></div>
         </div>
@@ -180,7 +184,7 @@
               {#each mainServers as n (n)}<option value={n}>{n}</option>{/each}
               {#if s.mobile_server && !mainServers.includes(s.mobile_server)}<option value={s.mobile_server}>{s.mobile_server}</option>{/if}
             </select></div>
-          <div class="row-sw"><div><div class="t">{t('Always-on VPN')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN.')}</div></div>
+          <div class="row-sw"><div><div class="t">{t('Always-on VPN and kill switch')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN; also turn on Block connections without VPN to keep apps offline whenever Kova isn’t connected.')}</div></div>
             <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
           <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
         </div>

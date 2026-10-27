@@ -81,6 +81,8 @@ export interface Settings {
   device_id: string;
   /** Android: the main group's member to use on mobile data; null for the same as on Wi-Fi. */
   mobile_server: string | null;
+  /** Beta, desktop: keep apps offline when the connection drops, and reconnect. */
+  kill_switch: boolean;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
