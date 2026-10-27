@@ -15,6 +15,12 @@ on:
     tags: ["v*"]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      only:
+        description: Build only some platforms (a test build of one change)
+        type: choice
+        options: [all, android, desktop]
+        default: all
 
 permissions:
   contents: write
@@ -25,6 +31,7 @@ env:
 
 jobs:
   desktop:
+    if: inputs.only != 'android'
     strategy:
       fail-fast: false
       matrix:
@@ -98,6 +105,7 @@ jobs:
   # One APK per processor, side by side: 64-bit phones, and 32-bit phones and TVs. Each
   # build gets only its own cores, so an APK never lists a processor it can't run on.
   android:
+    if: inputs.only != 'desktop'
     strategy:
       fail-fast: false
       matrix:
