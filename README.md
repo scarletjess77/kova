@@ -46,6 +46,7 @@ No accounts, ads or telemetry. Kova contacts other services only for these featu
 - **Privacy check:** `ipify.org`. **Speed test:** `speed.cloudflare.com`.
 - **Site check:** the sites in its list, only when it is run.
 - **Updates:** `github.com`, for Kova, the cores and the routing data.
+- **Subscription updates** carry a random device ID made once per install (not a hardware ID); providers with device limits count devices by it.
 
 ## Documentation
 

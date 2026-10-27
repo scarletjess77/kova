@@ -375,7 +375,7 @@
           <p class="hint">{t('Besides your servers, Kova contacts only these, and the last four only when you use that feature:')}</p>
           <dl>
             <dt class="mono">github.com</dt><dd>{t('Kova updates, cores and routing data')}</dd>
-            <dt>{t('Your subscription’s address')}</dt><dd>{t('Updating the profile')}</dd>
+            <dt>{t('Your subscription’s address')}</dt><dd>{t('Updating the profile. Kova sends a random device ID made for this install, which providers use to count devices')}</dd>
             <dt class="mono">www.gstatic.com</dt><dd>{t('Latency tests and health checks, through your servers')}</dd>
             <dt class="mono">ipwho.is, ipinfo.io</dt><dd>{t('The Exit point card')}</dd>
             <dt class="mono">ya.ru</dt><dd>{t('What’s wrong? (whether the network works)')}</dd>

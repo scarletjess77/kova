@@ -117,6 +117,8 @@ export interface Profile {
   updated_at: number;
   warnings: string[];
   support_url: string | null;
+  /** The provider's latest message, from the last update. */
+  announce: string | null;
 }
 
 export interface NodeView {
