@@ -11,3 +11,8 @@
 
 # Line numbers in crash reports.
 -keepattributes SourceFile, LineNumberTable
+
+# The QR scanner (ML Kit) creates its components by reflection, from class names in the
+# manifest; R8's full mode would drop their constructors and the camera screen crashes.
+-keep class * implements com.google.firebase.components.ComponentRegistrar { *; }
+-keep class com.google.mlkit.** { *; }
