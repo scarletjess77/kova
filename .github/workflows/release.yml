@@ -160,6 +160,14 @@ jobs:
           export KOVA_ANDROID_KEYSTORE="$RUNNER_TEMP/kova.jks"
           npx tauri android build --apk --target ${{ matrix.rust }}
           cp "$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)" "Kova_${GITHUB_REF_NAME#v}_android-${{ matrix.name }}.apk"
+      # A build that isn't a release (a dry run on a branch) keeps its APK to try out.
+      - name: Keep the APK
+        if: env.RELEASE != 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: Kova_android-${{ matrix.name }}
+          path: Kova_*_android-*.apk
+          retention-days: 14
       # The desktop builds create the draft release; this one may be ready first.
       - name: Add it to the release
         if: env.RELEASE == 'true'
