@@ -12,6 +12,7 @@ mod updates;
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use kova_core::CoreKind;
@@ -590,12 +591,37 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
     }
 }
 
+/// Whether the window is on screen (desktop) and the page says it is visible (any
+/// platform). While either is false, the per-second traffic and memory figures aren't
+/// sent: a window in the tray or an app in the background would only redraw unseen.
+static WINDOW_SHOWN: AtomicBool = AtomicBool::new(true);
+static PAGE_VISIBLE: AtomicBool = AtomicBool::new(true);
+
+#[cfg_attr(not(desktop), allow(dead_code))]
+pub(crate) fn note_window_shown(shown: bool) {
+    WINDOW_SHOWN.store(shown, Ordering::Relaxed);
+}
+
+#[tauri::command]
+fn page_visible(visible: bool) {
+    PAGE_VISIBLE.store(visible, Ordering::Relaxed);
+}
+
+fn ui_watching() -> bool {
+    WINDOW_SHOWN.load(Ordering::Relaxed) && PAGE_VISIBLE.load(Ordering::Relaxed)
+}
+
 fn forward_events(app: AppHandle, engine: Arc<Engine>) {
     let mut rx = engine.subscribe();
     tauri::async_runtime::spawn(async move {
         loop {
             match rx.recv().await {
                 Ok(ev) => {
+                    // The reset on disconnect always goes, so a window shown later has no stale speed.
+                    let reset = matches!(ev, Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
+                    if matches!(ev, Event::Traffic { .. } | Event::Memory { .. }) && !reset && !ui_watching() {
+                        continue;
+                    }
                     // The tray lists the profiles and the servers, and shows the status.
                     let is_status = matches!(ev, Event::Status(_) | Event::Profiles);
                     let _ = app.emit("engine", &ev);
@@ -673,9 +699,15 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .on_window_event(|w, e| {
             // Closing the window keeps Kova running in the tray, like other proxy clients.
-            if let tauri::WindowEvent::CloseRequested { api, .. } = e {
-                let _ = w.hide();
-                api.prevent_close();
+            match e {
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    let _ = w.hide();
+                    note_window_shown(false);
+                    api.prevent_close();
+                }
+                // Minimising and restoring, from the title bar or the taskbar.
+                tauri::WindowEvent::Resized(_) => note_window_shown(!w.is_minimized().unwrap_or(false) && w.is_visible().unwrap_or(true)),
+                _ => {}
             }
         });
     #[cfg(target_os = "android")]
@@ -716,6 +748,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            page_visible,
             links::take_import_link,
             system_language,
             platform,

@@ -170,6 +170,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <div class="card"><b>TUN mode</b><span>Everything, including games and voice (UDP). On Windows it needs the Kova service once.</span></div>
       </div>
       <p>To turn on TUN on Windows: <span class="ui">Dashboard</span> → <span class="ui">TUN mode</span>. It needs the <b>Kova service</b>: the installer sets it up, otherwise use <span class="ui">Settings</span> → <span class="ui">TUN mode</span> → <span class="ui">Install</span> and approve the admin prompt once. Kova itself never runs as administrator.</p>
+      <p>On Linux: <span class="ui">Settings</span> → <span class="ui">TUN mode</span> → <span class="ui">Give rights</span>, then enter the password once. Kova itself still never runs as root.</p>
       <h3>On Android</h3>
       <p>Kova works as a VPN: Android asks for permission on the first connect. By default every app goes through it. To choose apps: <span class="ui">Settings</span> → <span class="ui">Apps through the VPN</span> (only the chosen ones, or all except the chosen ones). There is also a quick-settings tile and a home-screen widget for one-tap connecting.</p>
     </section>
@@ -226,6 +227,11 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <li>Update the subscription: <span class="ui">Profiles</span> → <span class="ui">Update all</span>.</li>
         <li><span class="ui">Logs</span> shows every connection and error. <span class="ui">Copy report</span> (there and in <span class="ui">What's wrong?</span>) copies everything support needs, with links, keys and IDs removed.</li>
       </ol>
+      <h3>Servers stopped connecting</h3>
+      <ul>
+        <li><b>Anti-DPI</b> (beta): <span class="ui">Settings</span> → <span class="ui">Network</span> → <span class="ui">Anti-DPI</span>. Kova sends the start of each connection in small pieces, so simpler blocking equipment can't recognise it. It needs the Xray core (<span class="ui">Settings</span> → <span class="ui">Cores</span>).</li>
+        <li><b>Only on mobile data</b> (Android): mobile networks may let through only whitelisted sites, and Anti-DPI doesn't help there. Pick a server that works there, such as one in Russia or behind a CDN, in <span class="ui">Settings</span> → <span class="ui">VPN</span> → <span class="ui">Server on mobile data</span>. Kova switches to it on mobile data and back on Wi-Fi.</li>
+      </ul>
       <div class="note warn"><b>Games with ExitLag or similar boosters</b>With TUN mode on, the game's traffic goes into Kova before the booster sees it. While playing with a booster, turn TUN off and keep only the System proxy, or let Kova carry the game instead (an <b>App</b> rule for the game → <b>Proxy</b>).</div>
     </section>
 
@@ -234,6 +240,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <ul>
         <li><b>Updates</b>: Kova checks for new versions itself. <span class="ui">Settings</span> → <span class="ui">Updates</span> → <span class="ui">Check now</span>. Updates are signed, so only genuine Kova versions install.</li>
         <li><b>Start with the computer</b>: <span class="ui">Launch at sign-in</span>, <span class="ui">Start in the tray</span> and <span class="ui">Connect on launch</span>. The tray icon's menu also switches the server and the profile.</li>
+        <li><b>Kill switch</b> (beta, computer): <span class="ui">Settings</span> → <span class="ui">Network</span> → <span class="ui">Kill switch</span>. If the connection drops on its own, apps that use the system proxy stay offline instead of going around Kova, and Kova reconnects. <span class="ui">Disconnect</span> lifts it. On Android use the system's <b>Always-on VPN</b> and <b>Block connections without VPN</b>.</li>
         <li><b>Look</b>: <span class="ui">Settings</span> → <b>Theme</b> (11 themes, from OLED black to Nord and Dracula) and <b>Language</b> (English or Russian).</li>
       </ul>
     </section>
@@ -323,6 +330,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <div class="card"><b>Режим TUN</b><span>Всё, включая игры и голосовую связь (UDP). На Windows один раз нужна служба Kova.</span></div>
       </div>
       <p>Включить TUN на Windows: <span class="ui">Главная</span> → <span class="ui">Режим TUN</span>. Для него нужна <b>служба Kova</b>: её ставит установщик, а если её нет — <span class="ui">Настройки</span> → <span class="ui">Режим TUN</span> → <span class="ui">Установить</span> и один раз подтвердите запрос администратора. Сама Kova никогда не работает от имени администратора.</p>
+      <p>На Linux: <span class="ui">Настройки</span> → <span class="ui">Режим TUN</span> → <span class="ui">Выдать права</span> и один раз введите пароль. Сама Kova при этом не работает от root.</p>
       <h3>На Android</h3>
       <p>Kova работает как VPN: при первом подключении Android попросит разрешение. По умолчанию через неё идут все приложения. Выбрать приложения: <span class="ui">Настройки</span> → <span class="ui">Приложения через VPN</span> (только выбранные или все, кроме выбранных). Есть плитка в шторке и виджет на главный экран для подключения одним касанием.</p>
     </section>
@@ -379,6 +387,11 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <li>Обновите подписку: <span class="ui">Профили</span> → <span class="ui">Обновить все</span>.</li>
         <li><span class="ui">Журнал</span> показывает все соединения и ошибки. <span class="ui">Скопировать отчёт</span> (там и в <span class="ui">Что не так?</span>) копирует всё, что нужно поддержке, без ссылок, ключей и идентификаторов.</li>
       </ol>
+      <h3>Серверы перестали подключаться</h3>
+      <ul>
+        <li><b>Анти-DPI</b> (бета): <span class="ui">Настройки</span> → <span class="ui">Сеть</span> → <span class="ui">Анти-DPI</span>. Kova отправляет начало каждого соединения маленькими кусками, и простое оборудование блокировок его не распознаёт. Нужно ядро Xray (<span class="ui">Настройки</span> → <span class="ui">Ядра</span>).</li>
+        <li><b>Только в мобильной сети</b> (Android): в мобильных сетях могут действовать белые списки, и Анти-DPI там не поможет. Выберите сервер, который там работает, например в России или за CDN: <span class="ui">Настройки</span> → <span class="ui">VPN</span> → <span class="ui">Сервер в мобильной сети</span>. Kova переключится на него в мобильной сети и обратно в Wi-Fi.</li>
+      </ul>
       <div class="note warn"><b>Игры с ExitLag и похожими бустерами</b>Когда включён режим TUN, трафик игры попадает в Kova раньше, чем его увидит бустер. Пока играете с бустером, выключите TUN и оставьте только системный прокси — или пусть игру ведёт Kova (правило <b>Приложение</b> для игры → <b>Прокси</b>).</div>
     </section>
 
@@ -387,6 +400,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <ul>
         <li><b>Обновления</b>: Kova сама проверяет новые версии. <span class="ui">Настройки</span> → <span class="ui">Обновления</span> → <span class="ui">Проверить сейчас</span>. Обновления подписаны, поэтому устанавливаются только настоящие версии Kova.</li>
         <li><b>Запуск вместе с компьютером</b>: <span class="ui">Запускать при входе в систему</span>, <span class="ui">Запускать свёрнутой в трей</span> и <span class="ui">Подключаться при запуске</span>. Через меню значка в трее также можно сменить сервер и профиль.</li>
+        <li><b>Защита от утечек</b> (бета, компьютер): <span class="ui">Настройки</span> → <span class="ui">Сеть</span> → <span class="ui">Защита от утечек</span>. Если соединение оборвётся само, программы через системный прокси останутся без сети, а не пойдут в обход Kova, и Kova переподключится. <span class="ui">Отключить</span> снимает защиту. На Android используйте системные <b>Постоянный VPN</b> и <b>Блокировать соединения без VPN</b>.</li>
         <li><b>Внешний вид</b>: <span class="ui">Настройки</span> → <b>Тема</b> (11 тем, от чёрной OLED до Nord и Dracula) и <b>Язык</b> (русский или английский).</li>
       </ul>
     </section>

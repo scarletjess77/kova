@@ -1,0 +1,30 @@
+# After a release is published, opens the winget-pkgs pull request for the new version.
+# Needs the WINGET_TOKEN secret (a classic token with public_repo) and the package
+# already in winget (the first version goes in by hand, from packaging/winget/).
+name: winget
+
+on:
+  release:
+    types: [released]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag, such as v0.1.15
+        required: true
+
+permissions: {}
+
+jobs:
+  update:
+    runs-on: windows-latest
+    steps:
+      - name: Submit the new version
+        env:
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          if (-not $env:WINGET_TOKEN) { Write-Output "No WINGET_TOKEN secret; skipping."; exit 0 }
+          $version = $env:TAG.TrimStart('v')
+          $url = "https://github.com/${{ github.repository }}/releases/download/$env:TAG/Kova_${version}_x64-setup.exe"
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update scarletjess77.Kova --urls $url --version $version --submit --token $env:WINGET_TOKEN

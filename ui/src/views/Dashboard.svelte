@@ -1,7 +1,7 @@
 <script lang="ts">
   import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
-  import { api, errText, type ExitInfo, type Mode } from '../lib/api';
+  import { api, errText, type ExitInfo, type Mode, type Preset } from '../lib/api';
   import { countryCode, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -13,6 +13,20 @@
   let s = $derived(app.status);
   let settings = $derived(app.settings);
   let profile = $derived(app.activeProfile);
+
+  // First start: where the user is decides which local sites go direct. It starts from
+  // the system language; a Russian user with an English system picks it here.
+  type Region = 'direct-ru' | 'direct-ir' | 'direct-cn' | 'none';
+  const LOCAL: Preset[] = ['direct-ru', 'direct-ir', 'direct-cn', 'proxy-blocked-ru'];
+  let region = $derived.by((): Region => {
+    const p = settings?.core.presets ?? [];
+    if (p.includes('direct-ru') || p.includes('proxy-blocked-ru')) return 'direct-ru';
+    return p.includes('direct-ir') ? 'direct-ir' : p.includes('direct-cn') ? 'direct-cn' : 'none';
+  });
+  function setRegion(r: Region) {
+    if (r === region) return;
+    void app.saveSettings((x) => { x.core.presets = [...x.core.presets.filter((p) => !LOCAL.includes(p)), ...(r === 'none' ? [] : [r])]; });
+  }
 
   // The group traffic starts in: GLOBAL in Global mode, else "Proxy" (our generated
   // profiles) or the first selector of an imported config.
@@ -49,7 +63,7 @@
   });
 
   let now = $state(Date.now());
-  const tick = setInterval(() => (now = Date.now()), 1000);
+  const tick = setInterval(() => { if (!document.hidden) now = Date.now(); }, 1000);
 
   let exit = $state<ExitInfo | null>(null);
   let exitErr = $state<string | null>(null);
@@ -74,6 +88,7 @@
 
   let connCount = $state(0);
   const poll = setInterval(async () => {
+    if (document.hidden) return;
     if (!app.status.running) { connCount = 0; return; }
     try { connCount = (await api.getConnections()).connections.length; } catch { /* core restarting */ }
   }, 3000);
@@ -118,6 +133,13 @@
         <div class="state" class:off={!s.running && !s.busy}>{s.busy ? (s.running ? t('Switching…') : t('Connecting…')) : s.running ? (capturing ? t('Protected') : t('Proxy only')) : t('Disconnected')}</div>
         {#if !profile}
           <ol class="start">
+            <li><b>{t('Where are you?')}</b><span>{t('Local sites go direct, the rest through the server. Rules can change it later.')}</span>
+              <div class="seg region" role="group" aria-label={t('Where are you?')}>
+                <button aria-pressed={region === 'direct-ru'} onclick={() => setRegion('direct-ru')}>{t('Russia')}</button>
+                <button aria-pressed={region === 'direct-ir'} onclick={() => setRegion('direct-ir')}>{t('Iran')}</button>
+                <button aria-pressed={region === 'direct-cn'} onclick={() => setRegion('direct-cn')}>{t('China')}</button>
+                <button aria-pressed={region === 'none'} onclick={() => setRegion('none')}>{t('Elsewhere')}</button>
+              </div></li>
             <li><b>{t('Add your servers')}</b><span>{app.mobile ? t('A subscription link, share links, or a QR code from your provider.') : t('A subscription link, share links, or a config file from your provider.')}</span></li>
             <li><b>{t('Press the power button')}</b><span>{t('Kova picks the core each server needs.')}</span></li>
             <li><b>{app.mobile ? t('Allow the VPN') : t('Choose what goes through Kova')}</b><span>{app.mobile ? t('Android asks once. Settings → VPN chooses which apps use it.') : t('System proxy covers browsers and most apps; TUN mode covers everything, games included.')}</span></li>
@@ -257,6 +279,7 @@
   .start { margin: 4px 0 12px; padding-left: 20px; text-align: left; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
   .start li::marker { color: var(--faint); font: 600 12px var(--f-mono); }
   .start b { display: block; color: var(--fg); font-weight: 600; }
+  .start .region { margin-top: 6px; }
   .dash { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; }
   .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } }

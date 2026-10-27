@@ -28,7 +28,9 @@ pub fn setup(app: &App, engine: &Arc<Engine>) -> tauri::Result<()> {
         })
         .build(app)?;
     let minimized = std::env::args().any(|a| a == "--minimized") || engine.settings().start_minimized;
-    if !minimized {
+    if minimized {
+        crate::note_window_shown(false);
+    } else {
         show_main(&handle);
     }
     Ok(())
@@ -100,15 +102,16 @@ pub fn show_main(app: &AppHandle) {
         let _ = w.show();
         let _ = w.unminimize();
         let _ = w.set_focus();
+        crate::note_window_shown(true);
     }
 }
 
 pub fn window_action(app: &AppHandle, action: &str) {
     let Some(w) = app.get_webview_window("main") else { return };
     let _ = match action {
-        "minimize" => w.minimize(),
+        "minimize" => w.minimize().inspect(|_| crate::note_window_shown(false)),
         "maximize" => w.is_maximized().and_then(|m| if m { w.unmaximize() } else { w.maximize() }),
-        "hide" => w.hide(),
+        "hide" => w.hide().inspect(|_| crate::note_window_shown(false)),
         _ => Ok(()),
     };
 }

@@ -51,7 +51,7 @@
   }
 
   // Keep group selections fresh while the core moves url-test groups around.
-  const poll = setInterval(() => { if (app.status.running) void app.refreshProxies(); }, 5000);
+  const poll = setInterval(() => { if (app.status.running && !document.hidden) void app.refreshProxies(); }, 5000);
   onDestroy(() => clearInterval(poll));
   void app.refreshProxies();
 </script>
