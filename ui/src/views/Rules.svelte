@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { api, type Learned, type Preset, type Rule, type RuleKind, type Suggestion } from '../lib/api';
-  import { fmtAgo } from '../lib/format';
+  import { countryCode, fmtAgo } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import AppRules from '../components/AppRules.svelte';
@@ -32,7 +32,29 @@
 
   let s = $derived(app.settings);
   let rules = $derived(s?.core.custom_rules ?? []);
-  let targets = $derived(['Proxy', 'DIRECT', 'REJECT', ...app.proxies.groups.map((g) => g.name).filter((g) => !['Proxy', 'GLOBAL'].includes(g))]);
+  // Countries the active profile has servers in: a rule can send a site through the
+  // fastest of them (`country:US`; the engine makes the group).
+  let countries = $derived([...new Set([...Object.keys(app.proxies.proxies), ...Object.keys(app.nodes)].map(countryCode).filter((c): c is string => !!c))].sort());
+  let targets = $derived(['Proxy', 'DIRECT', 'REJECT', ...countries.map((c) => `country:${c}`), ...app.proxies.groups.map((g) => g.name).filter((g) => !['Proxy', 'GLOBAL'].includes(g) && !g.endsWith(' · fastest'))]);
+  function targetLabel(x: string): string {
+    if (x === 'Proxy') return t('Proxy (main group)');
+    const c = x.startsWith('country:') ? x.slice(8) : null;
+    return c ? t('Fastest in {country}', { country: c }) : x;
+  }
+
+  // AI services block Russia and some other countries: one rule sends them all abroad.
+  const AI_LIST = 'category-ai-!cn';
+  let aiCountry = $state('');
+  let hasAiRule = $derived(rules.some((r) => r.kind === 'geosite' && r.value === AI_LIST));
+  $effect(() => {
+    if (!countries.includes(aiCountry)) aiCountry = countries.includes('US') ? 'US' : (countries[0] ?? '');
+  });
+  function addAiRule() {
+    const c = aiCountry;
+    if (!c) return;
+    const rule: Rule = { kind: 'geosite', value: AI_LIST, target: `country:${c}` };
+    void app.saveSettings((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]), t('Rule added'));
+  }
   let isClash = $derived(app.activeProfile?.format === 'clash');
 
   function togglePreset(p: Preset) {
@@ -245,10 +267,19 @@
       </select>
       <input class="input mono" bind:value={value} placeholder={KINDS.find((k) => k[0] === kind)?.[2]} aria-label={t('Value')} />
       <select class="input" bind:value={target} aria-label={t('Send to')}>
-        {#each targets as x (x)}<option value={x}>{x === 'Proxy' ? t('Proxy (main group)') : x}</option>{/each}
+        {#each targets as x (x)}<option value={x}>{targetLabel(x)}</option>{/each}
       </select>
       <button class="btn primary" type="submit" disabled={!value.trim()}><Icon name="plus" />{t('Add rule')}</button>
     </form>
+    {#if !hasAiRule && countries.length}
+      <div class="ai">
+        <span>{t('ChatGPT, Claude, Gemini and other AI services through')}</span>
+        <select class="input small" bind:value={aiCountry} aria-label={t('Country for AI services')}>
+          {#each countries as c (c)}<option value={c}>{c}</option>{/each}
+        </select>
+        <button class="btn" onclick={addAiRule}><Icon name="plus" />{t('Add rule')}</button>
+      </div>
+    {/if}
     {#if rules.length}
       <div class="twrap list">
         <table>
@@ -263,7 +294,7 @@
                 <td class="num muted">{i + 1}</td>
                 <td><span class="rt">{KIND_LABEL[r.kind] ?? r.kind}</span></td>
                 <td class="mono small selectable">{r.value}</td>
-                <td><span class="pol {polClass(r.target)}">{r.target}</span></td>
+                <td><span class="pol {polClass(r.target)}">{targetLabel(r.target)}</span></td>
                 <td class="r"><button class="x" onclick={() => remove(i)} aria-label={t('Delete rule {n}', { n: i + 1 })}><Icon name="x" /></button></td>
               </tr>
             {/each}
@@ -369,6 +400,8 @@
   .preset .switch { margin-left: auto; margin-top: 2px; }
   .link { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
   .add { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px auto; gap: 8px; }
+  .ai { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .ai .input { width: auto; }
   @container (max-width: 760px) { .add { grid-template-columns: 1fr 1fr; } }
   .list { margin-top: 12px; }
   .small { font-size: 12px; }

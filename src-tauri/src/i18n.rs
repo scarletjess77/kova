@@ -33,6 +33,8 @@ const RU: &[(&str, &str)] = &[
     ("System proxy", "Системный прокси"),
     ("TUN mode", "Режим TUN"),
     ("Open Kova", "Открыть Kova"),
+    ("Server", "Сервер"),
+    ("Profile", "Профиль"),
     ("Quit Kova", "Выйти из Kova"),
     ("Kova: connected ({})", "Kova: подключено ({})"),
     ("Kova: disconnected", "Kova: отключено"),

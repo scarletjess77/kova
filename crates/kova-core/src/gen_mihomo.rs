@@ -244,7 +244,15 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
         ])
     };
 
-    let known: HashSet<&str> = names.iter().map(String::as_str).chain([AUTO, FALLBACK]).collect();
+    let (countries, country_targets) = country_groups(&opts.rules(), &names);
+    let groups = match groups {
+        Value::Array(mut g) => {
+            g.extend(countries);
+            Value::Array(g)
+        }
+        g => g,
+    };
+    let known: HashSet<&str> = names.iter().map(String::as_str).chain([AUTO, FALLBACK]).chain(country_targets.iter().map(String::as_str)).collect();
     let mut rules = bypass_rules(opts);
     rules.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(PROXY)));
 
@@ -296,10 +304,25 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     }
 
     let main = main_group(&doc);
-    let known = names_in(&doc);
+    let mut known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
     let mut learned = Vec::new();
     if opts.apply_rules_to_clash_profiles {
+        // Groups for the countries rules send traffic to, from the profile's own servers.
+        let servers: Vec<String> = match doc.get("proxies") {
+            Some(Yaml::Sequence(p)) => p.iter().filter_map(|p| p.get("name").and_then(|n| n.as_str()).map(String::from)).collect(),
+            _ => Vec::new(),
+        };
+        let (countries, targets) = country_groups(&opts.rules(), &servers);
+        if !countries.is_empty() {
+            let mut groups = match doc.remove("proxy-groups") {
+                Some(Yaml::Sequence(g)) => g,
+                _ => Vec::new(),
+            };
+            groups.extend(countries.into_iter().map(|g| serde_yaml_ng::to_value(g).expect("json to yaml")));
+            doc.insert(Yaml::String("proxy-groups".into()), Yaml::Sequence(groups));
+        }
+        known.extend(targets);
         ours.extend(opts.rules().iter().map(|r| r.retargeted(|t| known.contains(t)).to_clash(&main)));
         learned = apply_smart(&mut doc, opts, &main);
     }
@@ -389,6 +412,27 @@ pub fn sanitize_for_service(raw: &str) -> Result<String, GenError> {
 }
 
 /// Names of every proxy and group defined in a Clash config.
+/// A url-test group for each country the rules send traffic to (`country:US`), made of
+/// `servers` in that country, and the targets that got one. A country with no servers
+/// gets none, so its rules fall back to the main group.
+fn country_groups(rules: &[Rule], servers: &[String]) -> (Vec<Value>, Vec<String>) {
+    let mut groups = Vec::new();
+    let mut targets: Vec<String> = Vec::new();
+    for r in rules {
+        let Some(code) = r.target.strip_prefix(COUNTRY) else { continue };
+        if targets.contains(&r.target) {
+            continue;
+        }
+        let members: Vec<&String> = servers.iter().filter(|s| country_of(s).as_deref() == Some(code)).collect();
+        if members.is_empty() {
+            continue;
+        }
+        groups.push(json!({ "name": country_group(code), "type": "url-test", "proxies": members, "url": TEST_URL, "interval": 300, "tolerance": 50, "lazy": true }));
+        targets.push(r.target.clone());
+    }
+    (groups, targets)
+}
+
 fn names_in(doc: &Mapping) -> HashSet<String> {
     ["proxies", "proxy-groups"]
         .iter()
@@ -421,6 +465,33 @@ pub fn main_group(doc: &Mapping) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rules_can_send_sites_through_a_country() {
+        let mut o = RuntimeOptions::default();
+        o.custom_rules = vec![
+            Rule { kind: RuleKind::Geosite, value: "category-ai-!cn".into(), target: "country:US".into() },
+            Rule { kind: RuleKind::DomainSuffix, value: "netflix.com".into(), target: "country:JP".into() },
+        ];
+        let raw = "proxies:\n  - {name: \"🇺🇸 New York\", type: trojan, server: a, port: 443, password: x}\n  - {name: US-2 Dallas, type: trojan, server: b, port: 443, password: x}\n  - {name: \"🇩🇪 Frankfurt\", type: trojan, server: c, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [\"🇺🇸 New York\", US-2 Dallas, \"🇩🇪 Frankfurt\"]}\nrules:\n  - MATCH,Sel\n";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let us = country_group("US");
+        let group = doc["proxy-groups"].as_sequence().unwrap().iter().find(|g| g["name"].as_str() == Some(us.as_str())).expect("a US group");
+        assert_eq!(group["proxies"].as_sequence().unwrap().len(), 2);
+        let rules: Vec<&str> = doc["rules"].as_sequence().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+        assert!(rules.contains(&format!("GEOSITE,category-ai-!cn,{us}").as_str()), "{rules:?}");
+        // No server in Japan: the rule goes through the main group instead.
+        assert!(rules.contains(&"DOMAIN-SUFFIX,netflix.com,Sel"), "{rules:?}");
+    }
+
+    #[test]
+    fn countries_from_server_names() {
+        use crate::options::country_of;
+        for (name, code) in [("🇳🇱 Amsterdam", Some("NL")), ("NL-01", Some("NL")), ("DE Frankfurt", Some("DE")), ("Германия 2", Some("DE")), ("United States", Some("US")), ("Fast node", None), ("Auto", None)] {
+            assert_eq!(country_of(name).as_deref(), code, "{name}");
+        }
+        assert_eq!(country_group("US"), "US · fastest");
+    }
+
     use super::*;
     use crate::compat::{CorePreference, plan};
     use crate::links::parse_link;

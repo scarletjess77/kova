@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use kova_core::options::Mode;
-use kova_engine::store::Settings;
+use kova_engine::store::{Profile, Settings};
 use kova_engine::{Engine, Status};
 use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -14,7 +14,7 @@ use crate::i18n::{self, tr};
 /// Create the tray icon and show the window unless Kova starts in the tray.
 pub fn setup(app: &App, engine: &Arc<Engine>) -> tauri::Result<()> {
     let handle = app.handle().clone();
-    let menu = tray_menu(&handle, &engine.status(), &engine.settings())?;
+    let menu = tray_menu(&handle, &engine.status(), &engine.settings(), &engine.profiles(), None)?;
     TrayIconBuilder::with_id("main")
         .icon(app.default_window_icon().cloned().expect("bundled icon"))
         .tooltip("Kova")
@@ -34,7 +34,13 @@ pub fn setup(app: &App, engine: &Arc<Engine>) -> tauri::Result<()> {
     Ok(())
 }
 
-fn tray_menu(app: &AppHandle, st: &Status, s: &Settings) -> tauri::Result<Menu<Wry>> {
+/// Most entries a submenu lists; a subscription with hundreds of servers stays usable.
+const MAX_ITEMS: usize = 40;
+
+/// The main group's name, current choice and members, while connected.
+type Choices = Option<(String, String, Vec<String>)>;
+
+fn tray_menu(app: &AppHandle, st: &Status, s: &Settings, profiles: &[Profile], servers: Choices) -> tauri::Result<Menu<Wry>> {
     let l = i18n::lang(s);
     let t = |en| tr(l, en, &[]);
     let toggle = MenuItem::with_id(app, "toggle", t(if st.running { "Disconnect" } else { "Connect" }), !st.busy, None::<&str>)?;
@@ -49,14 +55,38 @@ fn tray_menu(app: &AppHandle, st: &Status, s: &Settings) -> tauri::Result<Menu<W
     let quit = MenuItem::with_id(app, "quit", t("Quit Kova"), true, None::<&str>)?;
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    Menu::with_items(app, &[&toggle, &sep1, &mode, &sys, &tun, &sep2, &show, &quit])
+    let menu = Menu::with_items(app, &[&toggle])?;
+    // Picking a server or a profile without opening the window.
+    if let Some((_, now, all)) = servers.filter(|(_, _, all)| all.len() > 1) {
+        let items = all.iter().take(MAX_ITEMS).map(|n| CheckMenuItem::with_id(app, format!("node:{n}"), n, true, *n == now, None::<&str>)).collect::<tauri::Result<Vec<_>>>()?;
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = items.iter().map(|i| i as _).collect();
+        menu.append(&Submenu::with_items(app, t("Server"), true, &refs)?)?;
+    }
+    if profiles.len() > 1 {
+        let items = profiles.iter().take(MAX_ITEMS).map(|p| CheckMenuItem::with_id(app, format!("profile:{}", p.id), &p.name, true, s.active_profile.as_deref() == Some(p.id.as_str()), None::<&str>)).collect::<tauri::Result<Vec<_>>>()?;
+        let refs: Vec<&dyn tauri::menu::IsMenuItem<Wry>> = items.iter().map(|i| i as _).collect();
+        menu.append(&Submenu::with_items(app, t("Profile"), true, &refs)?)?;
+    }
+    for item in [&sep1 as &dyn tauri::menu::IsMenuItem<Wry>, &mode, &sys, &tun, &sep2, &show, &quit] {
+        menu.append(item)?;
+    }
+    Ok(menu)
 }
 
 pub fn refresh_tray(app: &AppHandle) {
-    let engine = app.state::<Arc<Engine>>();
+    // The server list comes from the running core, so the menu is built once it answers.
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let engine = app.state::<Arc<Engine>>().inner().clone();
+        let servers = if engine.status().running { engine.main_choices().await } else { None };
+        set_tray(&app, &engine, servers);
+    });
+}
+
+fn set_tray(app: &AppHandle, engine: &Engine, servers: Choices) {
     let (st, s) = (engine.status(), engine.settings());
     if let Some(tray) = app.tray_by_id("main") {
-        if let Ok(menu) = tray_menu(app, &st, &s) {
+        if let Ok(menu) = tray_menu(app, &st, &s, &engine.profiles(), servers) {
             let _ = tray.set_menu(Some(menu));
         }
         let l = i18n::lang(&s);
@@ -113,6 +143,11 @@ fn on_menu(app: &AppHandle, id: &str) {
                 show_main(&app);
                 Ok(())
             }
+            other if other.starts_with("node:") => match engine.main_choices().await {
+                Some((group, _, _)) => engine.select(&group, &other["node:".len()..]).await,
+                None => Ok(()),
+            },
+            other if other.starts_with("profile:") => engine.set_active_profile(&other["profile:".len()..]).await,
             "quit" => {
                 let _ = engine.stop().await;
                 app.exit(0);

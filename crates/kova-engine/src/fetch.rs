@@ -88,11 +88,30 @@ pub struct Subscription {
     pub title: Option<String>,
     pub update_hours: Option<u32>,
     pub support_url: Option<String>,
+    /// A message from the provider (the `announce` header), such as planned maintenance.
+    pub announce: Option<String>,
 }
 
-pub async fn subscription(url: &str, user_agent: Option<&str>, proxy: Option<&str>) -> Result<Subscription, Error> {
+/// The operating system as panels list it next to a device.
+fn device_os() -> &'static str {
+    match std::env::consts::OS {
+        "windows" => "Windows",
+        "android" => "Android",
+        "macos" => "macOS",
+        "linux" => "Linux",
+        other => other,
+    }
+}
+
+/// `device_id` is a random value made once per install, not a hardware ID. Panels with a
+/// device limit (Remnawave and others) refuse a subscription request without it.
+pub async fn subscription(url: &str, user_agent: Option<&str>, proxy: Option<&str>, device_id: &str) -> Result<Subscription, Error> {
     let c = client(proxy, user_agent.unwrap_or(DEFAULT_SUB_UA))?;
-    let resp = c.get(url).send().await?;
+    let mut req = c.get(url).header("x-device-os", device_os());
+    if !device_id.is_empty() {
+        req = req.header("x-hwid", device_id);
+    }
+    let resp = req.send().await?;
     if !resp.status().is_success() {
         return Err(Error::Http(format!("the server answered {}", resp.status())));
     }
@@ -106,6 +125,47 @@ pub async fn subscription(url: &str, user_agent: Option<&str>, proxy: Option<&st
         title: title.filter(|t| !t.is_empty()),
         update_hours: header("profile-update-interval").and_then(|v| v.trim().parse().ok()),
         support_url: header("profile-web-page-url").or_else(|| header("support-url")),
+        announce: header("announce").map(|a| decode_title(&a).trim().chars().take(300).collect::<String>()).filter(|a| !a.is_empty()),
         body: resp.text().await?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    /// A one-request server: returns what the client sent, and answers with `headers`.
+    async fn serve_once(headers: &'static str) -> (String, tokio::task::JoinHandle<String>) {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/sub", l.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let n = s.read(&mut buf).await.unwrap();
+            let body = "vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls#A";
+            let resp = format!("HTTP/1.1 200 OK\r\n{headers}content-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            s.write_all(resp.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&buf[..n]).to_lowercase()
+        });
+        (url, task)
+    }
+
+    #[tokio::test]
+    async fn sends_the_device_id_and_reads_the_announcement() {
+        // "Maintenance tonight" in base64, as panels send it.
+        let (url, task) = serve_once("announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodA==\r\n").await;
+        let sub = super::subscription(&url, None, None, "abc123").await.unwrap();
+        let request = task.await.unwrap();
+        assert!(request.contains("x-hwid: abc123"), "{request}");
+        assert!(request.contains("x-device-os: "), "{request}");
+        assert_eq!(sub.announce.as_deref(), Some("Maintenance tonight"));
+    }
+
+    #[tokio::test]
+    async fn no_device_id_header_when_there_is_none() {
+        let (url, task) = serve_once("").await;
+        let sub = super::subscription(&url, None, None, "").await.unwrap();
+        assert!(!task.await.unwrap().contains("x-hwid"));
+        assert_eq!(sub.announce, None);
+    }
 }

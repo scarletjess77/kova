@@ -75,6 +75,8 @@ export interface Settings {
   vpn_apps: { mode: VpnAppsMode; apps: string[] };
   /** Move to the fastest working node when the chosen one stops answering. */
   auto_switch: boolean;
+  /** Random per-install ID sent to subscription servers. */
+  device_id: string;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
@@ -117,6 +119,8 @@ export interface Profile {
   updated_at: number;
   warnings: string[];
   support_url: string | null;
+  /** The provider's latest message, from the last update. */
+  announce: string | null;
 }
 
 export interface NodeView {
@@ -158,6 +162,7 @@ export interface Snapshot { status: Status; settings: Settings; profiles: Profil
 
 export const api = {
   getState: () => invoke<Snapshot>('get_state'),
+  takeImportLink: () => invoke<string | null>('take_import_link'),
   connect: () => invoke<void>('connect'),
   disconnect: () => invoke<void>('disconnect'),
   saveSettings: (settings: Settings) => invoke<Settings>('save_settings', { settings }),

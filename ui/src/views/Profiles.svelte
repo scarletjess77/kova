@@ -121,6 +121,7 @@
                 <input class="input mono ua" value={src.user_agent ?? ''} placeholder={t('clash.meta (default)')} onchange={(e) => edit({ user_agent: e.currentTarget.value })} aria-label="User-Agent" /></div>
             </div>
           {/if}
+          {#if sel.announce}<p class="announce"><b>{t('From the provider')}:</b> <span class="selectable">{sel.announce}</span></p>{/if}
           {#if sel.warnings.length}
             <details class="warn-box"><summary>{tn(sel.warnings.length, '{n} entry was skipped', '{n} entries were skipped')}</summary>
               <ul>{#each sel.warnings.slice(0, 20) as w, i (i)}<li class="mono">{w}</li>{/each}</ul></details>
@@ -170,6 +171,7 @@
   .detail .card-h { margin: 0; }
   .small { font-size: 12px; }
   .ua { width: 220px; font-size: 12px; }
+  .announce { margin: 0; padding: 9px 11px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
   .warn-box { font-size: 12.5px; color: var(--warn); }
   .warn-box ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 11.5px; }
   .confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }

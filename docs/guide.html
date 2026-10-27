@@ -142,6 +142,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         </li>
         <li>Press <span class="ui">Import</span>. The profile appears with its servers, traffic left and expiry date.</li>
       </ol>
+      <p>If the provider's subscription page has an <b>Add to Kova</b> button, it opens this dialog with the link already filled in. Messages from the provider (for example about maintenance) appear on the Dashboard.</p>
       <p>Subscriptions update themselves. To update now: <span class="ui">Profiles</span> → <span class="ui">Update all</span>.</p>
     </section>
 
@@ -207,6 +208,8 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <tr><td>App (process name)</td><td><code>steam.exe</code></td><td>A program on the computer. <span class="ui">Route an app…</span> picks it from a list.</td></tr>
       </table></div>
       <p>Example: to watch YouTube through the server while everything Russian goes direct, add <b>Geosite list</b> <code>youtube</code> → <b>Proxy</b>.</p>
+      <h3>Through a chosen country</h3>
+      <p>Besides <b>Proxy</b> and <b>Direct</b>, a rule can go to <b>Fastest in US</b>, <b>Fastest in DE</b> and so on: Kova picks the fastest of the subscription's servers in that country. ChatGPT, Claude and Gemini refuse Russian addresses, so the Rules page offers one line for them: <span class="ui">ChatGPT, Claude, Gemini and other AI services through</span> a country → <span class="ui">Add rule</span>.</p>
     </section>
 
     <section id="en-smart">
@@ -221,7 +224,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <li><b><span class="ui">Site check</span></b> opens popular sites both directly and through Kova, so it is clear what is blocked and whether the server helps. There are also the <b>Privacy check</b> (does the real address or DNS leak) and the <b>Speed test</b>.</li>
         <li>Try another server: <span class="ui">Proxies</span> → <span class="ui">Test latency</span>.</li>
         <li>Update the subscription: <span class="ui">Profiles</span> → <span class="ui">Update all</span>.</li>
-        <li><span class="ui">Logs</span> shows every connection and error, useful to send to support.</li>
+        <li><span class="ui">Logs</span> shows every connection and error. <span class="ui">Copy report</span> (there and in <span class="ui">What's wrong?</span>) copies everything support needs, with links, keys and IDs removed.</li>
       </ol>
       <div class="note warn"><b>Games with ExitLag or similar boosters</b>With TUN mode on, the game's traffic goes into Kova before the booster sees it. While playing with a booster, turn TUN off and keep only the System proxy, or let Kova carry the game instead (an <b>App</b> rule for the game → <b>Proxy</b>).</div>
     </section>
@@ -230,7 +233,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <h2><span class="n">09</span>Updates and settings</h2>
       <ul>
         <li><b>Updates</b>: Kova checks for new versions itself. <span class="ui">Settings</span> → <span class="ui">Updates</span> → <span class="ui">Check now</span>. Updates are signed, so only genuine Kova versions install.</li>
-        <li><b>Start with the computer</b>: <span class="ui">Launch at sign-in</span>, <span class="ui">Start in the tray</span> and <span class="ui">Connect on launch</span>.</li>
+        <li><b>Start with the computer</b>: <span class="ui">Launch at sign-in</span>, <span class="ui">Start in the tray</span> and <span class="ui">Connect on launch</span>. The tray icon's menu also switches the server and the profile.</li>
         <li><b>Look</b>: <span class="ui">Settings</span> → <b>Theme</b> (11 themes, from OLED black to Nord and Dracula) and <b>Language</b> (English or Russian).</li>
       </ul>
     </section>
@@ -292,6 +295,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         </li>
         <li>Нажмите <span class="ui">Импортировать</span>. Появится профиль с серверами, остатком трафика и датой окончания.</li>
       </ol>
+      <p>Если на странице подписки провайдера есть кнопка <b>Добавить в Kova</b>, она откроет это окно с уже вставленной ссылкой. Сообщения провайдера (например, о профилактике) появляются на Главной.</p>
       <p>Подписки обновляются сами. Обновить сейчас: <span class="ui">Профили</span> → <span class="ui">Обновить все</span>.</p>
     </section>
 
@@ -357,6 +361,8 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <tr><td>Приложение (имя процесса)</td><td><code>steam.exe</code></td><td>Программа на компьютере. <span class="ui">Маршрут для программы…</span> выбирает её из списка.</td></tr>
       </table></div>
       <p>Пример: чтобы YouTube шёл через сервер, а всё российское — напрямую, добавьте <b>Список geosite</b> <code>youtube</code> → <b>Прокси</b>.</p>
+      <h3>Через выбранную страну</h3>
+      <p>Кроме <b>Прокси</b> и <b>Напрямую</b> правило можно направить в <b>Самый быстрый: US</b>, <b>Самый быстрый: DE</b> и т. д. — Kova выберет самый быстрый сервер подписки в этой стране. ChatGPT, Claude и Gemini не пускают с российских адресов, поэтому на странице правил есть готовая строка: <span class="ui">ChatGPT, Claude, Gemini и другие ИИ-сервисы через</span> страну → <span class="ui">Добавить правило</span>.</p>
     </section>
 
     <section id="ru-smart">
@@ -371,7 +377,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <li><b><span class="ui">Проверка сайтов</span></b> открывает популярные сайты напрямую и через Kova — видно, что заблокировано и помогает ли сервер. Там же <b>Проверка приватности</b> (не утекает ли настоящий адрес или DNS) и <b>Тест скорости</b>.</li>
         <li>Попробуйте другой сервер: <span class="ui">Прокси</span> → <span class="ui">Проверить задержку</span>.</li>
         <li>Обновите подписку: <span class="ui">Профили</span> → <span class="ui">Обновить все</span>.</li>
-        <li><span class="ui">Журнал</span> показывает все соединения и ошибки — его удобно отправить в поддержку.</li>
+        <li><span class="ui">Журнал</span> показывает все соединения и ошибки. <span class="ui">Скопировать отчёт</span> (там и в <span class="ui">Что не так?</span>) копирует всё, что нужно поддержке, без ссылок, ключей и идентификаторов.</li>
       </ol>
       <div class="note warn"><b>Игры с ExitLag и похожими бустерами</b>Когда включён режим TUN, трафик игры попадает в Kova раньше, чем его увидит бустер. Пока играете с бустером, выключите TUN и оставьте только системный прокси — или пусть игру ведёт Kova (правило <b>Приложение</b> для игры → <b>Прокси</b>).</div>
     </section>
@@ -380,7 +386,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <h2><span class="n">09</span>Обновления и настройки</h2>
       <ul>
         <li><b>Обновления</b>: Kova сама проверяет новые версии. <span class="ui">Настройки</span> → <span class="ui">Обновления</span> → <span class="ui">Проверить сейчас</span>. Обновления подписаны, поэтому устанавливаются только настоящие версии Kova.</li>
-        <li><b>Запуск вместе с компьютером</b>: <span class="ui">Запускать при входе в систему</span>, <span class="ui">Запускать свёрнутой в трей</span> и <span class="ui">Подключаться при запуске</span>.</li>
+        <li><b>Запуск вместе с компьютером</b>: <span class="ui">Запускать при входе в систему</span>, <span class="ui">Запускать свёрнутой в трей</span> и <span class="ui">Подключаться при запуске</span>. Через меню значка в трее также можно сменить сервер и профиль.</li>
         <li><b>Внешний вид</b>: <span class="ui">Настройки</span> → <b>Тема</b> (11 тем, от чёрной OLED до Nord и Dracula) и <b>Язык</b> (русский или английский).</li>
       </ul>
     </section>

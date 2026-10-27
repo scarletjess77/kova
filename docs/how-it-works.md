@@ -77,3 +77,30 @@ Learned sites are stored in `learned.json` in the data folder and expire after 3
 - **The cores ship inside the APK** as `libmihomo.so` and `libxray.so`, because Android only runs programs that come with the app. They are pinned in `scripts/android-cores.json` and updated together with the app.
 - **TV.** The interface switches to a remote-friendly layout: the arrows move between controls row by row, Left and Right move between the menu and the page.
 - **Updates** are downloaded inside the app, checked by SHA-256 and installed after Android asks to confirm. Every release is signed with the same key, so each installs over the last and keeps the profiles.
+
+## For VPN providers
+
+**"Add to Kova" links.** Kova opens `kova://import/<subscription address>` (the address appended as it is, like `happ://add/`), `kova://import?url=<encoded address>` and `kova://install-config?url=<encoded address>`. The link opens the Add profile dialog with the address filled in; the user presses Import. Share links (`vless://…`) work the same way.
+
+On a Remnawave subscription page, add Kova to `app-config.json` for each platform, for example:
+
+```json
+{
+  "id": "kova",
+  "name": "Kova",
+  "isFeatured": false,
+  "urlScheme": "kova://import/",
+  "installationStep": {
+    "buttons": [
+      { "buttonLink": "https://github.com/scarletjess77/kova/releases/latest", "buttonText": { "en": "Download", "ru": "Скачать" } }
+    ],
+    "description": { "en": "Download and install Kova", "ru": "Скачайте и установите Kova" }
+  },
+  "addSubscriptionStep": { "description": { "en": "Press the button to add the subscription, then Import", "ru": "Нажмите кнопку, чтобы добавить подписку, затем «Импортировать»" } },
+  "connectAndUseStep": { "description": { "en": "Press the round button on the Dashboard", "ru": "Нажмите круглую кнопку на главной" } }
+}
+```
+
+**Headers Kova reads:** `subscription-userinfo` (traffic and expiry), `profile-title`, `profile-update-interval`, `profile-web-page-url` or `support-url` (the Provider button) and `announce` (a message shown on the Dashboard; plain text or `base64:`).
+
+**Headers Kova sends:** `User-Agent: clash.meta/1.19 mihomo Kova/<version>` (so panels return a full Mihomo config), `x-hwid` (a random ID made once per install, for device limits) and `x-device-os`.

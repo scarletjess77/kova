@@ -105,6 +105,7 @@
   <div class="tools"><button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button></div>
 </div>
 {#if subWarning}<div class="sub-warn"><Icon name="alert" />{subWarning}</div>{/if}
+{#if profile?.announce}<div class="announce" role="note"><Icon name="globe" /><span><b>{t('From the provider')}:</b> <span class="selectable">{profile.announce}</span></span></div>{/if}
 {#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
 
 <div class="dash">
@@ -249,6 +250,8 @@
 <style>
   .sub-warn { display: flex; align-items: center; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--warn-soft); color: var(--warn); font-size: 13px; }
   .sub-warn :global(.i) { width: 16px; height: 16px; flex: none; }
+  .announce { display: flex; align-items: flex-start; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
+  .announce :global(.i) { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--muted); }
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .speed { color: var(--fg); }
   .start { margin: 4px 0 12px; padding-left: 20px; text-align: left; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }

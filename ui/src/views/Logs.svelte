@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick } from 'svelte';
   import { t } from '../lib/i18n.svelte';
+  import { copyReport } from '../lib/report';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
 
@@ -34,6 +35,7 @@
     </div>
     <button class="btn" onclick={() => (app.logsPaused = !app.logsPaused)}><Icon name={app.logsPaused ? 'play' : 'pause'} />{app.logsPaused ? t('Resume') : t('Pause')}</button>
     <button class="btn ghost" onclick={() => app.logs.splice(0)}>{t('Clear')}</button>
+    <button class="btn ghost" onclick={() => app.run(() => copyReport(null, t('Report copied. Links, keys and IDs were left out')))}><Icon name="copy" />{t('Copy report')}</button>
   </div>
 </div>
 

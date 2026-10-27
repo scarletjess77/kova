@@ -196,7 +196,8 @@ impl Rule {
     }
 
     pub fn to_clash(&self, proxy_group: &str) -> String {
-        let target = if self.target == PROXY { proxy_group } else { &self.target };
+        let country = self.target.strip_prefix(COUNTRY).map(country_group);
+        let target = if self.target == PROXY { proxy_group } else { country.as_deref().unwrap_or(&self.target) };
         match self.kind {
             RuleKind::Match => format!("MATCH,{target}"),
             RuleKind::IpCidr => format!("IP-CIDR,{},{target},no-resolve", self.value),
@@ -255,6 +256,42 @@ impl GeoSource {
 
 /// Names of the groups Kova generates for link-based profiles.
 pub const PROXY: &str = "Proxy";
+/// A rule target `country:US` sends traffic through the fastest of the profile's servers
+/// in that country; without any, through the main group.
+pub const COUNTRY: &str = "country:";
+
+/// The group Kova makes for a country target: "US · fastest". No flag emoji, which
+/// Windows draws as two letters.
+pub fn country_group(code: &str) -> String {
+    format!("{code} · fastest")
+}
+
+/// Country names servers are often called by, in English and Russian (as in the UI).
+const COUNTRY_NAMES: &[(&str, &str)] = &[
+    ("netherlands", "NL"), ("нидерланды", "NL"), ("germany", "DE"), ("германия", "DE"), ("finland", "FI"), ("финляндия", "FI"),
+    ("poland", "PL"), ("польша", "PL"), ("sweden", "SE"), ("швеция", "SE"), ("united kingdom", "GB"), ("britain", "GB"), ("великобритания", "GB"),
+    ("turkey", "TR"), ("türkiye", "TR"), ("турция", "TR"), ("united states", "US"), ("usa", "US"), ("сша", "US"), ("japan", "JP"), ("япония", "JP"),
+    ("singapore", "SG"), ("сингапур", "SG"), ("france", "FR"), ("франция", "FR"), ("estonia", "EE"), ("эстония", "EE"), ("latvia", "LV"), ("латвия", "LV"),
+    ("lithuania", "LT"), ("литва", "LT"), ("kazakhstan", "KZ"), ("казахстан", "KZ"), ("russia", "RU"), ("россия", "RU"), ("canada", "CA"), ("канада", "CA"),
+    ("switzerland", "CH"), ("швейцария", "CH"), ("austria", "AT"), ("австрия", "AT"), ("hong kong", "HK"), ("гонконг", "HK"),
+];
+
+/// A server's country from its name: a flag emoji (🇳🇱), a leading code ("NL Amsterdam",
+/// "NL-01") or a country name. Matches `countryCode` in the UI.
+pub fn country_of(name: &str) -> Option<String> {
+    let flag: Vec<u32> = name.chars().map(|c| c as u32).filter(|c| (0x1F1E6..=0x1F1FF).contains(c)).collect();
+    if flag.len() >= 2 {
+        return Some(flag[..2].iter().map(|c| char::from(b'A' + (c - 0x1F1E6) as u8)).collect());
+    }
+    let t = name.trim();
+    let lead: String = t.chars().take(2).collect();
+    let next = t.chars().nth(2);
+    if lead.chars().count() == 2 && lead.chars().all(|c| c.is_ascii_uppercase()) && next.is_none_or(|c| c.is_whitespace() || c.is_ascii_digit() || "-_|·.".contains(c)) {
+        return Some(lead);
+    }
+    let lower = name.to_lowercase();
+    COUNTRY_NAMES.iter().find(|(k, _)| lower.contains(k)).map(|(_, v)| v.to_string())
+}
 pub const AUTO: &str = "Auto";
 pub const FALLBACK: &str = "Fallback";
 pub const TEST_URL: &str = "https://www.gstatic.com/generate_204";

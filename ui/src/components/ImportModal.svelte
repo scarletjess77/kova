@@ -15,7 +15,10 @@
 
   type Tab = 'link' | 'clip' | 'file' | 'qr' | 'device';
   // A TV remote can't type a link comfortably: start with another device.
-  let tab = $state<Tab>(app.tv ? 'device' : 'link');
+  // A kova:// link fills in the Link tab; the user still presses Import.
+  const fromLink = app.importLink;
+  app.importLink = null;
+  let tab = $state<Tab>(fromLink ? 'link' : app.tv ? 'device' : 'link');
 
   // "From another device": a page on the local network that adds what is pasted there.
   let receiving = $state<{ url: string; svg: string } | null>(null);
@@ -33,7 +36,7 @@
   // Close once the other device added a profile; stop serving the page on the way out.
   $effect(() => { if (receiving && app.profiles.length > startCount) onclose(); });
   onDestroy(() => { if (receiving) void api.receiveStop(); });
-  let input = $state('');
+  let input = $state(fromLink ?? '');
   let name = $state('');
   let busy = $state(false);
   let clip = $state<string | null>(null);

@@ -135,6 +135,26 @@ fn split_uri(s: &str, scheme: &'static str) -> Result<Uri, LinkError> {
 }
 
 /// Decode standard or URL-safe base64, with or without padding, ignoring whitespace.
+/// What a `kova://` link asks to import: a subscription address or a share link.
+/// Subscription pages build these like other clients' links: `kova://import/<address>`
+/// (Remnawave and others append the address as it is), `kova://import?url=<address>` or
+/// Clash's `kova://install-config?url=<address>`. `None` for anything else.
+pub fn from_app_link(link: &str) -> Option<String> {
+    let rest = link.trim().strip_prefix("kova://")?;
+    let payload = if let Some(p) = rest.strip_prefix("import/") {
+        p.to_string()
+    } else {
+        let query = rest.strip_prefix("import?").or_else(|| rest.strip_prefix("install-config?"))?;
+        let value = query.split('&').find_map(|kv| kv.strip_prefix("url="))?;
+        decode(value)
+    };
+    // An address passed whole may still be percent-encoded.
+    let payload = if payload.contains("://") { payload } else { decode(&payload) };
+    let scheme = payload.split("://").next()?;
+    let ok = !scheme.is_empty() && scheme.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '+') && payload.len() > scheme.len() + 3;
+    (ok && payload.len() <= 8192 && !payload.starts_with("kova://")).then_some(payload)
+}
+
 pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
     use base64::engine::general_purpose::{STANDARD, STANDARD_NO_PAD, URL_SAFE, URL_SAFE_NO_PAD};
     let clean: String = s.chars().filter(|c| !c.is_whitespace()).collect();
@@ -707,6 +727,19 @@ pub fn to_link(n: &Node) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn app_links() {
+        let sub = "https://sub.example.com/abc?x=1#Name";
+        assert_eq!(from_app_link(&format!("kova://import/{sub}")).as_deref(), Some(sub));
+        assert_eq!(from_app_link("kova://import/https%3A%2F%2Fsub.example.com%2Fabc").as_deref(), Some("https://sub.example.com/abc"));
+        assert_eq!(from_app_link("kova://import?url=https%3A%2F%2Fsub.example.com%2Fa%3Fb%3D1").as_deref(), Some("https://sub.example.com/a?b=1"));
+        assert_eq!(from_app_link("kova://install-config?url=https%3A%2F%2Fs.example%2Fc&name=x").as_deref(), Some("https://s.example/c"));
+        assert_eq!(from_app_link("kova://import/vless://id@203.0.113.1:443#A").as_deref(), Some("vless://id@203.0.113.1:443#A"));
+        for bad in ["kova://connect", "kova://import/", "kova://import/notalink", "happ://add/https://x", "kova://import/kova://import/https://x", "kova://import?name=x"] {
+            assert_eq!(from_app_link(bad), None, "{bad}");
+        }
+    }
+
     use super::*;
 
     #[test]

@@ -340,6 +340,7 @@ impl Engine {
             // a settings save from the UI carries a possibly stale copy of them.
             new.core.secret = s.core.secret.clone();
             new.core.local_password = s.core.local_password.clone();
+            new.device_id = s.device_id.clone();
             new.active_profile = s.active_profile.clone();
             new.selections = s.selections.clone();
             new.xray_selection = s.xray_selection.clone();
@@ -423,7 +424,7 @@ impl Engine {
         let is_url = (input.starts_with("http://") || input.starts_with("https://")) && !input.contains(char::is_whitespace);
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let (body, profile) = if is_url {
-            let sub = fetch::subscription(input, None, self.fetch_proxy(true).as_deref()).await?;
+            let sub = fetch::subscription(input, None, self.fetch_proxy(true).as_deref(), &self.settings().device_id).await?;
             let parsed = subscription::parse(&sub.body)?;
             let p = Profile {
                 id: id.clone(),
@@ -436,6 +437,7 @@ impl Engine {
                 updated_at: now(),
                 warnings: parsed.warnings,
                 support_url: sub.support_url,
+                announce: sub.announce,
             };
             (sub.body, p)
         } else {
@@ -452,6 +454,7 @@ impl Engine {
                 updated_at: now(),
                 warnings: parsed.warnings,
                 support_url: None,
+                announce: None,
             };
             (input.to_string(), p)
         };
@@ -470,7 +473,7 @@ impl Engine {
         let Source::Remote { url, user_agent, via_proxy, .. } = &p.source else {
             return Ok(p);
         };
-        let sub = fetch::subscription(url, user_agent.as_deref(), self.fetch_proxy(*via_proxy).as_deref()).await?;
+        let sub = fetch::subscription(url, user_agent.as_deref(), self.fetch_proxy(*via_proxy).as_deref(), &self.settings().device_id).await?;
         let parsed = subscription::parse(&sub.body)?;
         let updated = {
             let mut idx = self.profiles.write().unwrap();
@@ -483,6 +486,8 @@ impl Engine {
             e.updated_at = now();
             e.warnings = parsed.warnings;
             e.support_url = sub.support_url.or(e.support_url.take());
+            // The provider withdraws a message by no longer sending it.
+            e.announce = sub.announce;
             e.clone()
         };
         self.save_profiles()?;
@@ -1515,6 +1520,19 @@ impl Engine {
     /// Android: the screen went off or on.
     pub fn set_quiet(&self, quiet: bool) {
         self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// The main group while connected: its name, its current choice and its members,
+    /// for picking a server outside the window (the tray).
+    pub async fn main_choices(&self) -> Option<(String, String, Vec<String>)> {
+        let (api, main) = {
+            let run = self.run.lock().await;
+            let r = run.as_ref()?;
+            (r.api.clone()?, r.main_group.clone())
+        };
+        let snap = api.proxies().await.ok()?;
+        let g = snap.groups.into_iter().find(|g| g.name == main)?;
+        Some((g.name, g.now, g.all))
     }
 
     /// The node traffic goes through now: the main group's choice, followed through

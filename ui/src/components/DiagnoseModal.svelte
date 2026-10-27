@@ -1,6 +1,7 @@
 <script lang="ts">
   import { api, type Check } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
+  import { copyReport } from '../lib/report';
   import { app } from '../lib/state.svelte';
   import CheckList from './CheckList.svelte';
   import Icon from './Icon.svelte';
@@ -35,6 +36,7 @@
   {/if}
   {#snippet footer()}
     <button class="btn ghost" onclick={onclose}>{t('Close')}</button>
+    <button class="btn" disabled={!checks} onclick={() => app.run(() => copyReport(checks, t('Report copied. Links, keys and IDs were left out')))}><Icon name="copy" />{t('Copy report')}</button>
     <button class="btn" class:busy disabled={busy} onclick={run}><Icon name="refresh" />{t('Check again')}</button>
   {/snippet}
 </Modal>

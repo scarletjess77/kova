@@ -140,6 +140,9 @@ pub struct Settings {
     pub vpn_apps: VpnApps,
     /// Move to the fastest working node when the chosen one stops answering.
     pub auto_switch: bool,
+    /// A random value made once per install and sent to subscription servers, which
+    /// count devices by it. Not derived from the hardware.
+    pub device_id: String,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -182,6 +185,7 @@ impl Default for Settings {
             beta_updates: env!("CARGO_PKG_VERSION").contains('-'),
             vpn_apps: VpnApps::default(),
             auto_switch: true,
+            device_id: String::new(),
         }
     }
 }
@@ -189,8 +193,8 @@ impl Default for Settings {
 impl Settings {
     pub fn load(paths: &Paths) -> Self {
         let mut s: Settings = read_json(&paths.settings());
-        if s.core.secret.is_empty() || s.core.local_password.is_empty() {
-            for v in [&mut s.core.secret, &mut s.core.local_password] {
+        if s.core.secret.is_empty() || s.core.local_password.is_empty() || s.device_id.is_empty() {
+            for v in [&mut s.core.secret, &mut s.core.local_password, &mut s.device_id] {
                 if v.is_empty() {
                     *v = uuid::Uuid::new_v4().simple().to_string();
                 }
@@ -246,6 +250,9 @@ pub struct Profile {
     pub warnings: Vec<String>,
     #[serde(default)]
     pub support_url: Option<String>,
+    /// The provider's latest message, from the last update.
+    #[serde(default)]
+    pub announce: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
