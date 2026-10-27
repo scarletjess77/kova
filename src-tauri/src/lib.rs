@@ -6,6 +6,7 @@ mod android;
 #[cfg(desktop)]
 mod desktop;
 mod i18n;
+mod links;
 mod receive;
 mod updates;
 
@@ -653,6 +654,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let dir: std::path::PathBuf = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
             let first_run = !kova_engine::store::Paths::new(&dir).map(|p| p.settings().exists()).unwrap_or(true);
@@ -673,6 +675,7 @@ pub fn run() {
             #[cfg(desktop)]
             desktop::setup(app, &engine)?;
             app.manage(updates::PendingUpdate::default());
+            links::setup(app);
             let handle = app.handle().clone();
             forward_events(handle.clone(), engine.clone());
             #[cfg(target_os = "android")]
@@ -682,6 +685,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             get_state,
+            links::take_import_link,
             system_language,
             platform,
             updates::check_update,

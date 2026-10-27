@@ -45,6 +45,8 @@ class AppState {
 
   /** The "Add profile" dialog, openable from any view. */
   importOpen = $state(false);
+  /** What a kova:// link asked to import, for the dialog to start with. */
+  importLink = $state<string | null>(null);
 
   toast = $state<string | null>(null);
   private toastTimer: ReturnType<typeof setTimeout> | undefined;
@@ -147,6 +149,15 @@ class AppState {
     return this.profiles.find((p) => p.id === this.settings?.active_profile);
   }
 
+  private async openImportLink() {
+    const link = await api.takeImportLink().catch(() => null);
+    if (!link) return;
+    this.importLink = link;
+    this.importOpen = false;
+    // Reopened on the next tick so a dialog already showing starts over with the link.
+    setTimeout(() => (this.importOpen = true));
+  }
+
   async countSuggestions() {
     this.suggestionCount = (await api.smartSuggestions().catch(() => [])).length;
   }
@@ -172,6 +183,10 @@ class AppState {
     await listen<string>('toast', (e) => this.notify(friendly(e.payload)));
     await listen<Settings>('settings-changed', (e) => { this.settings = e.payload; this.applyTheme(); });
     await listen('cores-changed', () => { this.coresVersion++; });
+    // A kova:// link, such as "Add to Kova" on a subscription page. One that started
+    // Kova is waiting already.
+    await listen('import-link', () => void this.openImportLink());
+    void this.openImportLink();
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
     window.addEventListener('popstate', this.onPopState);
     this.ready = true;

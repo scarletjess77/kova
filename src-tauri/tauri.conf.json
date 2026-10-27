@@ -51,6 +51,10 @@
     "homepage": "https://github.com/scarletjess77/kova"
   },
   "plugins": {
+    "deep-link": {
+      "desktop": { "schemes": ["kova"] },
+      "mobile": [{ "scheme": ["kova"], "appLink": false }]
+    },
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDdBMjgyNEY1RkYxMTE0ODYKUldTR0ZCSC85U1FvZWtzTmJCS3c4TUpXS3IzZVN5NnlwU1gwbExIWmlWSENwdkFkbmljMUlPbHMK",
       "endpoints": [
