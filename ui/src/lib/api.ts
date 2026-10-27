@@ -75,6 +75,8 @@ export interface Settings {
   vpn_apps: { mode: VpnAppsMode; apps: string[] };
   /** Move to the fastest working node when the chosen one stops answering. */
   auto_switch: boolean;
+  /** Random per-install ID sent to subscription servers. */
+  device_id: string;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';

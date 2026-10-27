@@ -489,6 +489,8 @@ export const ru: Dict = {
   'Light': 'Светлая',
   'Match system': 'Как в системе',
   'From the provider': 'Сообщение провайдера',
+  'Copy report': 'Скопировать отчёт',
+  'Report copied. Links, keys and IDs were left out': 'Отчёт скопирован. Ссылки, ключи и идентификаторы убраны',
   'OLED black': 'Чёрная OLED',
   'Dim': 'Приглушённая',
   'Warm paper': 'Тёплая бумага',
