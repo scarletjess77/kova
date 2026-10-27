@@ -17,7 +17,7 @@
   let sel = $derived(app.profiles.find((p) => p.id === (selectedId ?? app.settings?.active_profile)) ?? app.profiles[0]);
   $effect(() => { void sel?.id; confirmDelete = false; });
 
-  let FORMAT = $derived<Record<Profile['format'], string>>({ clash: 'Clash / Mihomo YAML', 'sing-box': 'sing-box JSON', links: t('Share links') });
+  let FORMAT = $derived<Record<Profile['format'], string>>({ clash: 'Clash / Mihomo YAML', 'sing-box': 'sing-box JSON', xray: 'Xray JSON', links: t('Share links') });
   const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
 
   async function update(id: string) {
@@ -117,13 +117,14 @@
             <div>
               <div class="row-sw"><div><div class="t">{t('Update through the proxy')}</div><div class="d">{t('Helps when the provider’s site is blocked. Used only while connected.')}</div></div>
                 <button class="switch" role="switch" aria-label={t('Update through the proxy')} aria-checked={src.via_proxy} onclick={() => edit({ via_proxy: !src.via_proxy })}></button></div>
-              <div class="row-sw"><div><div class="t">User-Agent</div><div class="d">{t('Some providers return a different format per app')}</div></div>
-                <input class="input mono ua" value={src.user_agent ?? ''} placeholder={t('clash.meta (default)')} onchange={(e) => edit({ user_agent: e.currentTarget.value })} aria-label="User-Agent" /></div>
+              <div class="row-sw"><div><div class="t">User-Agent</div><div class="d">{t('Providers pick the format by app. The default gets a Clash/Mihomo config; an Xray app’s name, such as v2rayNG/1.10.0, often gets Xray JSON. What a panel returns depends on its settings.')}</div></div>
+                <input class="input mono ua" list="ua-presets" value={src.user_agent ?? ''} placeholder={t('clash.meta (default)')} onchange={(e) => edit({ user_agent: e.currentTarget.value })} aria-label="User-Agent" />
+                <datalist id="ua-presets"><option value="v2rayNG/1.10.0"></option><option value="Happ/3.0.0"></option><option value="sing-box/1.12.0"></option><option value="clash.meta"></option></datalist></div>
             </div>
           {/if}
           {#if sel.announce}<p class="announce"><b>{t('From the provider')}:</b> <span class="selectable">{sel.announce}</span></p>{/if}
           {#if sel.warnings.length}
-            <details class="warn-box"><summary>{tn(sel.warnings.length, '{n} entry was skipped', '{n} entries were skipped')}</summary>
+            <details class="warn-box"><summary>{tn(sel.warnings.length, '{n} entry skipped or changed', '{n} entries skipped or changed')}</summary>
               <ul>{#each sel.warnings.slice(0, 20) as w, i (i)}<li class="mono">{w}</li>{/each}</ul></details>
           {/if}
           <div class="actions">

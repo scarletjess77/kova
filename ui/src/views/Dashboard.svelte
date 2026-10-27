@@ -135,7 +135,7 @@
         {#if profile}
           <div class="hero-meta">
             {#if s.running && s.core}
-              <span class="chip acc"><Icon name="bolt" />{s.core === 'xray' ? 'Xray' : s.sidecar ? t('Mihomo + Xray bridge') : 'Mihomo'}</span>
+              <span class="chip acc"><Icon name="bolt" />{s.core === 'xray' ? 'Xray' : s.bridged.length ? t('Mihomo + Xray bridge') : 'Mihomo'}</span>{#if settings?.core.anti_dpi && s.sidecar}<span class="chip">{t('Anti-DPI')}</span>{/if}
               <span>{t('Connected for')} <span class="num">{fmtDur(now - (s.since ?? 0) * 1000)}</span></span>
               {#if app.mobile}<span class="speed num">↓ {fmtSpeed(app.down[app.down.length - 1])} · ↑ {fmtSpeed(app.up[app.up.length - 1])}</span>{/if}
             {:else if s.error}

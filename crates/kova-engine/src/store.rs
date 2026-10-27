@@ -28,7 +28,25 @@ impl Paths {
         for d in [p.profiles_dir(), p.cores_dir(), p.runtime_dir()] {
             std::fs::create_dir_all(d)?;
         }
+        // Subscriptions are access keys: on Linux and macOS only the owner may read the
+        // data folder (see `secret`).
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&p.root, std::fs::Permissions::from_mode(0o700));
+        }
         Ok(p)
+    }
+
+    /// A profile's content, opened (see [`crate::secret`]).
+    pub fn read_body(&self, id: &str) -> std::io::Result<String> {
+        let stored = std::fs::read_to_string(self.profile_body(id))?;
+        crate::secret::open(&stored).ok_or_else(|| std::io::Error::other("this profile was saved on another computer or account and can't be opened here; add it again"))
+    }
+
+    /// Save a profile's content, sealed where the system allows.
+    pub fn write_body(&self, id: &str, text: &str) -> std::io::Result<()> {
+        write_atomic(&self.profile_body(id), crate::secret::seal(text).as_bytes())
     }
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")
@@ -143,6 +161,13 @@ pub struct Settings {
     /// A random value made once per install and sent to subscription servers, which
     /// count devices by it. Not derived from the hardware.
     pub device_id: String,
+    /// Android: the server (or group) of the main group to use on mobile data, where
+    /// whitelists apply; Wi-Fi keeps the one chosen as usual. `None`: the same on both.
+    pub mobile_server: Option<String>,
+    /// Beta, desktop. When the connection drops on its own, keep the system proxy pointed
+    /// at Kova so apps go offline instead of around it, and reconnect. Only Disconnect or
+    /// a restored connection lifts it.
+    pub kill_switch: bool,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -186,6 +211,8 @@ impl Default for Settings {
             vpn_apps: VpnApps::default(),
             auto_switch: true,
             device_id: String::new(),
+            mobile_server: None,
+            kill_switch: false,
         }
     }
 }
@@ -261,11 +288,49 @@ pub struct ProfileIndex {
 }
 
 impl ProfileIndex {
+    /// The profiles, with subscription addresses opened (see [`crate::secret`]).
     pub fn load(paths: &Paths) -> Self {
-        read_json(&paths.profiles_index())
+        let mut idx: Self = read_json(&paths.profiles_index());
+        let mut unsealed = false;
+        for p in &mut idx.profiles {
+            if let Source::Remote { url, .. } = &mut p.source {
+                unsealed |= crate::secret::available() && !url.is_empty() && !crate::secret::is_sealed(url);
+                match crate::secret::open(url) {
+                    Some(u) => *url = u,
+                    None => {
+                        url.clear();
+                        p.warnings.insert(0, "The subscription address was saved on another computer or account and can't be opened here; add the profile again".into());
+                    }
+                }
+            }
+        }
+        // Saved before sealing: seal now. Each profile's content on its own, so profiles
+        // made of pasted servers (no address) are sealed too.
+        if crate::secret::available() {
+            for p in &idx.profiles {
+                if let Ok(body) = std::fs::read_to_string(paths.profile_body(&p.id)) {
+                    if !crate::secret::is_sealed(&body) {
+                        let _ = paths.write_body(&p.id, &body);
+                    }
+                }
+            }
+        }
+        if unsealed {
+            let _ = idx.save(paths);
+        }
+        idx
     }
+    /// Save the profiles with subscription addresses sealed.
     pub fn save(&self, paths: &Paths) -> Result<(), Error> {
-        write_json(&paths.profiles_index(), self)
+        let mut sealed = Self { profiles: self.profiles.clone() };
+        for p in &mut sealed.profiles {
+            if let Source::Remote { url, .. } = &mut p.source {
+                if !url.is_empty() {
+                    *url = crate::secret::seal(url);
+                }
+            }
+        }
+        write_json(&paths.profiles_index(), &sealed)
     }
     pub fn get(&self, id: &str) -> Option<&Profile> {
         self.profiles.iter().find(|p| p.id == id)
@@ -281,7 +346,44 @@ pub fn now() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::Theme;
+    use super::*;
+
+    #[test]
+    fn subscriptions_are_sealed_on_disk_and_old_files_are_sealed_on_load() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path()).unwrap();
+        let url = "https://sub.example.com/T0kenForTests123";
+        let body = "vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443#A";
+        // As an older Kova left them: plain text.
+        let profile = Profile {
+            id: "p1".into(),
+            name: "P".into(),
+            source: Source::Remote { url: url.into(), user_agent: None, update_hours: 12, via_proxy: true },
+            format: kova_core::subscription::Format::Links,
+            core: Default::default(),
+            node_count: 1,
+            usage: None,
+            updated_at: 0,
+            warnings: vec![],
+            support_url: None,
+            announce: None,
+        };
+        let pasted = Profile { id: "p2".into(), source: Source::Local, ..profile.clone() };
+        write_json(&paths.profiles_index(), &ProfileIndex { profiles: vec![profile, pasted] }).unwrap();
+        std::fs::write(paths.profile_body("p1"), body).unwrap();
+        std::fs::write(paths.profile_body("p2"), body).unwrap();
+
+        let idx = ProfileIndex::load(&paths);
+        assert!(matches!(&idx.profiles[0].source, Source::Remote { url: u, .. } if u == url));
+        assert_eq!(paths.read_body("p1").unwrap(), body);
+        assert_eq!(paths.read_body("p2").unwrap(), body);
+        if crate::secret::available() {
+            let on_disk = std::fs::read_to_string(paths.profiles_index()).unwrap()
+                + &std::fs::read_to_string(paths.profile_body("p1")).unwrap()
+                + &std::fs::read_to_string(paths.profile_body("p2")).unwrap();
+            assert!(!on_disk.contains("T0kenForTests123") && !on_disk.contains("b831381d"), "{on_disk}");
+        }
+    }
 
     #[test]
     fn unknown_theme_loads_as_dark() {

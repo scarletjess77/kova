@@ -19,7 +19,7 @@
   // A QR code holds about 2 KB comfortably; longer text is copied instead.
   const QR_LIMIT = 2000;
   let svg = $derived.by(() => {
-    if (!text || text.length > QR_LIMIT || profile.format === 'clash' || profile.format === 'sing-box') return null;
+    if (!text || text.length > QR_LIMIT || profile.format === 'clash' || profile.format === 'sing-box' || profile.format === 'xray') return null;
     const qr = qrcode(0, 'L');
     qr.addData(text, 'Byte');
     qr.make();
@@ -39,7 +39,7 @@
       <div class="qr" aria-label={t('QR code of the profile')}>{@html svg}</div>
       <p class="hint">{t('Scan it in Kova on another device: Add profile → QR code.')}</p>
     {:else}
-      <p class="hint">{profile.format === 'clash' || profile.format === 'sing-box'
+      <p class="hint">{profile.format === 'clash' || profile.format === 'sing-box' || profile.format === 'xray'
         ? t('This profile is a config file, too large for a QR code. Copy it and paste it into Add profile on the other device.')
         : t('Too long for a QR code. Copy it and paste it into Add profile on the other device.')}</p>
     {/if}

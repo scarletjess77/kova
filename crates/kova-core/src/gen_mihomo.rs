@@ -263,6 +263,7 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
     doc["proxies"] = Value::Array(proxies);
     doc["proxy-groups"] = groups;
     let mut doc: Mapping = serde_yaml_ng::from_value(serde_yaml_ng::to_value(doc).expect("json to yaml")).expect("an object");
+    apply_anti_dpi(&mut doc, opts);
     rules.extend(apply_smart(&mut doc, opts, PROXY));
     rules.extend(opts.tail_rules().iter().map(|r| r.to_clash(PROXY)));
     doc.insert(Yaml::String("rules".into()), serde_yaml_ng::to_value(rules).expect("strings"));
@@ -304,6 +305,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     }
 
     let main = main_group(&doc);
+    apply_anti_dpi(&mut doc, opts);
     let mut known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
     let mut learned = Vec::new();
@@ -433,6 +435,54 @@ fn country_groups(rules: &[Rule], servers: &[String]) -> (Vec<Value>, Vec<String
     (groups, targets)
 }
 
+/// The proxy Mihomo dials servers through when Anti-DPI is on (see [`RuntimeOptions::anti_dpi`]).
+pub const ANTI_DPI_PROXY: &str = "Kova anti-DPI";
+
+/// With Anti-DPI, add the local Xray as a proxy and dial every server through it
+/// (`dialer-proxy`), so the connection to the server carries the anti-DPI changes.
+/// Kova's own local SOCKS hops (the Xray bridge) are left as they are, and so is a
+/// server that already names its own dialer.
+fn apply_anti_dpi(doc: &mut Mapping, opts: &RuntimeOptions) {
+    let Some(port) = opts.anti_dpi_port else { return };
+    // Servers that come from provider files: Mihomo applies `override` to each of them.
+    if let Some(Yaml::Mapping(providers)) = doc.get_mut("proxy-providers") {
+        for (_, p) in providers.iter_mut() {
+            let Yaml::Mapping(p) = p else { continue };
+            let key = Yaml::String("override".into());
+            if !matches!(p.get(&key), Some(Yaml::Mapping(_))) {
+                p.insert(key.clone(), Yaml::Mapping(Mapping::new()));
+            }
+            if let Some(Yaml::Mapping(o)) = p.get_mut(&key) {
+                if !o.contains_key("dialer-proxy") {
+                    o.insert(Yaml::String("dialer-proxy".into()), Yaml::String(ANTI_DPI_PROXY.into()));
+                }
+            }
+        }
+    }
+    if !matches!(doc.get("proxies"), Some(Yaml::Sequence(_))) {
+        doc.insert(Yaml::String("proxies".into()), Yaml::Sequence(Vec::new()));
+    }
+    let Some(Yaml::Sequence(proxies)) = doc.get_mut("proxies") else { return };
+    for p in proxies.iter_mut() {
+        let Yaml::Mapping(m) = p else { continue };
+        // Kova's own bridge: SOCKS on loopback with Kova's login (or with none, when there
+        // is no login at all).
+        let str_of = |k: &str| m.get(k).and_then(|v| v.as_str()).unwrap_or_default().to_string();
+        let ours = str_of("type") == "socks5"
+            && str_of("server") == "127.0.0.1"
+            && (str_of("username") == LOCAL_USER || (opts.local_password.is_empty() && str_of("username").is_empty()));
+        if !ours && !m.contains_key("dialer-proxy") {
+            m.insert(Yaml::String("dialer-proxy".into()), Yaml::String(ANTI_DPI_PROXY.into()));
+        }
+    }
+    let mut hop = json!({ "name": ANTI_DPI_PROXY, "type": "socks5", "server": "127.0.0.1", "port": port, "udp": true });
+    if !opts.local_password.is_empty() {
+        hop["username"] = json!(LOCAL_USER);
+        hop["password"] = json!(opts.local_password);
+    }
+    proxies.push(serde_yaml_ng::to_value(hop).expect("json to yaml"));
+}
+
 fn names_in(doc: &Mapping) -> HashSet<String> {
     ["proxies", "proxy-groups"]
         .iter()
@@ -465,6 +515,42 @@ pub fn main_group(doc: &Mapping) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn anti_dpi_dials_every_server_through_the_local_xray() {
+        let mut o = RuntimeOptions::default();
+        o.anti_dpi = true;
+        o.anti_dpi_port = Some(17100);
+        o.local_password = "pw".into();
+        let raw = "proxies:\n  - {name: A, type: trojan, server: a.example, port: 443, password: x}\n  - {name: B, type: socks5, server: 127.0.0.1, port: 17001, username: kova, password: pw}\n  - {name: D, type: trojan, server: 127.0.0.1, port: 8443, password: x}\n  - {name: C, type: trojan, server: c.example, port: 443, password: x, dialer-proxy: A}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A, B, C]}\nrules:\n  - MATCH,Sel\n";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let proxies = doc["proxies"].as_sequence().unwrap();
+        let by = |n: &str| proxies.iter().find(|p| p["name"].as_str() == Some(n)).unwrap().clone();
+        assert_eq!(by("A")["dialer-proxy"].as_str(), Some(ANTI_DPI_PROXY));
+        assert!(by("B").get("dialer-proxy").is_none(), "a local hop stays direct");
+        assert_eq!(by("D")["dialer-proxy"].as_str(), Some(ANTI_DPI_PROXY), "a real server on this computer is still a server");
+        assert_eq!(by("C")["dialer-proxy"].as_str(), Some("A"), "the profile's own chain is kept");
+        let hop = by(ANTI_DPI_PROXY);
+        assert_eq!((hop["port"].as_u64(), hop["username"].as_str()), (Some(17100), Some(LOCAL_USER)));
+        // Servers from provider files get it through Mihomo's override.
+        let with_provider = "proxy-providers:
+  sub:
+    type: http
+    url: https://sub.example.com/p
+    path: ./p.yaml
+proxy-groups:
+  - {name: Sel, type: select, use: [sub]}
+rules:
+  - MATCH,Sel
+";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(with_provider, &o).unwrap()).unwrap();
+        assert_eq!(doc["proxy-providers"]["sub"]["override"]["dialer-proxy"].as_str(), Some(ANTI_DPI_PROXY));
+        assert!(doc["proxies"].as_sequence().unwrap().iter().any(|p| p["name"].as_str() == Some(ANTI_DPI_PROXY)));
+        // Off: nothing changes.
+        o.anti_dpi_port = None;
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        assert!(doc["proxies"].as_sequence().unwrap().iter().all(|p| p["name"].as_str() != Some(ANTI_DPI_PROXY)));
+    }
+
     #[test]
     fn rules_can_send_sites_through_a_country() {
         let mut o = RuntimeOptions::default();

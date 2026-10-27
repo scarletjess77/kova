@@ -15,13 +15,16 @@ object Actions {
 
     private var waiting: Invoke? = null
     private var queued: String? = null
+    /** The latest network change (`network:wifi`, `network:mobile`), kept apart so it
+     *  never pushes out a waiting connect request; only the newest one matters. */
+    private var queuedNetwork: String? = null
 
     /** Rust asking for the next request. */
     @Synchronized
     fun next(invoke: Invoke) {
-        val q = queued
+        val q = queued ?: queuedNetwork
         if (q != null) {
-            queued = null
+            if (q === queued) queued = null else queuedNetwork = null
             invoke.resolve(JSObject().put("action", q))
         } else {
             waiting = invoke
@@ -40,7 +43,9 @@ object Actions {
             w.resolve(JSObject().put("action", action))
             return true
         }
-        if (keep) queued = action
+        if (keep) {
+            if (action.startsWith("network:")) queuedNetwork = action else queued = action
+        }
         return false
     }
 }

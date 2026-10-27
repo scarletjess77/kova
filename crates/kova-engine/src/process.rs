@@ -45,9 +45,15 @@ pub fn is_elevated() -> bool {
         CloseHandle(token);
         ok != 0 && elevation.TokenIsElevated != 0
     }
-    #[cfg(not(windows))]
+    #[cfg(unix)]
     {
-        // Linux can also grant CAP_NET_ADMIN without root; let the core try and report.
+        // Root. On Linux TUN can also run without it, through the copy of Mihomo with
+        // network rights (see `tun_linux`).
+        // SAFETY: geteuid has no preconditions.
+        unsafe { libc::geteuid() == 0 }
+    }
+    #[cfg(not(any(windows, unix)))]
+    {
         true
     }
 }

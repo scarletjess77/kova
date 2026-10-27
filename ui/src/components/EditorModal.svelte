@@ -16,7 +16,7 @@
     api.getProfileContent(profile.id).then((t) => { text = t; original = t; }).catch((e) => (error = String(e)));
   });
 
-  const file = $derived(profile.format === 'clash' ? 'config.yaml' : profile.format === 'sing-box' ? 'config.json' : 'links.txt');
+  const file = $derived(profile.format === 'clash' ? 'config.yaml' : profile.format === 'sing-box' || profile.format === 'xray' ? 'config.json' : 'links.txt');
 
   async function save() {
     busy = true;

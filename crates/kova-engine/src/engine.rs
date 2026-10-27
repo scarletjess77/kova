@@ -20,7 +20,7 @@ use tokio::task::JoinHandle;
 use crate::cores::{self, CoreStatus};
 use crate::mihomo_api::{ConnectionsSnapshot, Mihomo, ProxyGroup, ProxyInfo, ProxySnapshot};
 use crate::process::{CoreProcess, LineSink, check_config};
-use crate::store::{Paths, Profile, ProfileIndex, Settings, Source, now, write_atomic};
+use crate::store::{Paths, Profile, ProfileIndex, Settings, Source, now};
 use crate::{Error, Result, fetch, sysproxy};
 
 #[derive(Debug, Clone, Serialize)]
@@ -180,6 +180,11 @@ pub struct Engine {
     node_failures: std::sync::atomic::AtomicU32,
     /// The screen is off (Android): background checks run less often.
     quiet: std::sync::atomic::AtomicBool,
+    /// Android: the phone is on mobile data rather than Wi-Fi (see `mobile_server`).
+    on_mobile: std::sync::atomic::AtomicBool,
+    /// The kill switch is holding: the connection dropped and the system proxy stays on
+    /// until it is back or the user disconnects.
+    holding: std::sync::atomic::AtomicBool,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -210,23 +215,56 @@ impl Engine {
 /// IP addresses (as /32 or /128) of the given servers; hostnames are looked up. Best
 /// effort: a name that doesn't resolve now is skipped.
 async fn resolve_servers<'a>(servers: impl Iterator<Item = (&'a str, u16)>) -> Vec<String> {
-    let mut out = Vec::new();
-    for (host, port) in servers {
-        let addrs: Vec<std::net::IpAddr> = match host.parse::<std::net::IpAddr>() {
+    // All at once: with Anti-DPI this is every server of the profile.
+    let lookups = servers.map(|(host, port)| async move {
+        match host.parse::<std::net::IpAddr>() {
             Ok(ip) => vec![ip],
             Err(_) => match tokio::time::timeout(Duration::from_secs(3), tokio::net::lookup_host((host, port))).await {
                 Ok(Ok(it)) => it.map(|a| a.ip()).collect(),
                 _ => Vec::new(),
             },
-        };
-        for ip in addrs {
-            let cidr = if ip.is_ipv4() { format!("{ip}/32") } else { format!("{ip}/128") };
-            if !out.contains(&cidr) {
-                out.push(cidr);
-            }
+        }
+    });
+    let mut out = Vec::new();
+    for ip in futures_util::future::join_all(lookups).await.into_iter().flatten() {
+        let cidr = if ip.is_ipv4() { format!("{ip}/32") } else { format!("{ip}/128") };
+        if !out.contains(&cidr) {
+            out.push(cidr);
         }
     }
     out
+}
+
+/// The certificate SHA-256 of each node whose link turns certificate checks off, asked
+/// with `xray tls ping`, for Xray to pin (it no longer accepts "allowInsecure"). Best
+/// effort and all at once: a server that doesn't answer gets no pin, and Xray then
+/// checks its certificate normally.
+async fn cert_pins<'a>(xray: &Path, nodes: impl Iterator<Item = &'a Node>) -> HashMap<String, String> {
+    let pings = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none())).map(|n| async move {
+        let name = n.tls.as_ref().and_then(|t| t.sni.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| n.server.clone());
+        // The server's address, when it isn't what the certificate is asked for.
+        let ip = if name == n.server {
+            None
+        } else if let Ok(ip) = n.server.parse::<std::net::IpAddr>() {
+            Some(ip)
+        } else {
+            tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok().and_then(|mut a| a.next()).map(|a| a.ip())
+        };
+        let mut cmd = std::process::Command::new(xray);
+        crate::process::hide_window(&mut cmd);
+        cmd.args(["tls", "ping"]);
+        if let Some(ip) = ip {
+            cmd.args(["-ip", &ip.to_string()]);
+        }
+        let host = if name.contains(':') { format!("[{name}]") } else { name };
+        cmd.arg(format!("{host}:{}", n.port));
+        let out = tokio::time::timeout(Duration::from_secs(6), tokio::process::Command::from(cmd).kill_on_drop(true).output()).await.ok()?.ok()?;
+        // The last one is the handshake made with the name.
+        let text = String::from_utf8_lossy(&out.stdout);
+        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).last()?.to_string();
+        Some((n.name.clone(), pin))
+    });
+    futures_util::future::join_all(pings).await.into_iter().flatten().collect()
 }
 
 /// Fail early with a clear message instead of letting a core start without its listener.
@@ -286,6 +324,8 @@ impl Engine {
             tun_fd: std::sync::Mutex::new(None),
             node_failures: Default::default(),
             quiet: Default::default(),
+            on_mobile: Default::default(),
+            holding: Default::default(),
             events,
             me: me.clone(),
         }))
@@ -350,6 +390,15 @@ impl Engine {
         new.save(&self.paths)?;
         if old.core.geodata != new.core.geodata {
             self.refresh_geodata_files(false).await?;
+        }
+        // Turning the kill switch (or the system proxy) off lets go of a hold.
+        if (!new.kill_switch || !new.system_proxy) && self.holding.swap(false, std::sync::atomic::Ordering::Relaxed) && !self.status().running {
+            let _ = sysproxy::disable(&self.paths.proxy_marker());
+            self.set_status(|s| s.error = None);
+        }
+        // A changed server for mobile data takes over at once while on mobile data.
+        if old.mobile_server != new.mobile_server && self.on_mobile.load(std::sync::atomic::Ordering::Relaxed) {
+            self.apply_network_choice().await;
         }
         if !self.status().running {
             self.set_status(|s| s.mixed_port = new.core.mixed_port);
@@ -458,7 +507,7 @@ impl Engine {
             };
             (input.to_string(), p)
         };
-        write_atomic(&self.paths.profile_body(&id), body.as_bytes())?;
+        self.paths.write_body(&id, &body)?;
         self.profiles.write().unwrap().profiles.push(profile.clone());
         let first = self.settings().active_profile.is_none();
         self.save_profiles()?;
@@ -479,7 +528,7 @@ impl Engine {
             let mut idx = self.profiles.write().unwrap();
             // The profile may have been deleted while the download was in flight.
             let e = idx.get_mut(id).ok_or_else(|| Error::Other("the profile was removed during the update".into()))?;
-            write_atomic(&self.paths.profile_body(id), sub.body.as_bytes())?;
+            self.paths.write_body(id, &sub.body)?;
             e.format = parsed.format;
             e.node_count = parsed.nodes.len();
             e.usage = sub.usage.or(e.usage.take());
@@ -589,7 +638,7 @@ impl Engine {
     }
 
     pub fn profile_content(&self, id: &str) -> Result<String> {
-        Ok(std::fs::read_to_string(self.paths.profile_body(id))?)
+        Ok(self.paths.read_body(id)?)
     }
 
     /// Replace a profile's content after checking it parses (and, for Clash configs,
@@ -599,7 +648,7 @@ impl Engine {
         if parsed.format == Format::Clash {
             self.validate_clash(text).await?;
         }
-        write_atomic(&self.paths.profile_body(id), text.as_bytes())?;
+        self.paths.write_body(id, text)?;
         {
             let mut idx = self.profiles.write().unwrap();
             if let Some(p) = idx.get_mut(id) {
@@ -625,7 +674,9 @@ impl Engine {
         let file = dir.join("config.yaml");
         std::fs::write(&file, merged)?;
         let (d, f) = (dir.to_string_lossy().to_string(), file.to_string_lossy().to_string());
-        check_config(&bin, &["-t", "-d", &d, "-f", &f], &dir, &[]).await
+        let checked = check_config(&bin, &["-t", "-d", &d, "-f", &f], &dir, &[]).await;
+        let _ = std::fs::remove_file(&file);
+        checked
     }
 
     async fn reload_if_active(&self, id: &str) -> Result<()> {
@@ -662,6 +713,7 @@ impl Engine {
         let opts = self.settings().core;
         match self.launch(Purpose::Main, opts.clone()).await {
             Ok((r, plan)) => {
+                self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
                 let kind = r.front_kind;
                 let sidecar = r.sidecar.is_some();
                 let api = r.api.clone();
@@ -691,6 +743,12 @@ impl Engine {
                     // restored right after and wins.
                     let _ = api.select("GLOBAL", &main_group).await;
                     self.restore_selections(&api).await;
+                    // Connected on mobile data: its own server, over the saved choice.
+                    if self.on_mobile.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let Some(server) = self.settings().mobile_server {
+                            let _ = api.select(&main_group, &server).await;
+                        }
+                    }
                 }
                 if let Err(e) = self.apply_system_proxy() {
                     self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("could not set the system proxy: {e}") });
@@ -702,8 +760,11 @@ impl Engine {
             }
             Err(e) => {
                 drop(run);
-                // A failed restart must not leave the OS proxy pointing at a dead port.
-                let _ = sysproxy::disable(&self.paths.proxy_marker());
+                // A failed restart must not leave the OS proxy pointing at a dead port,
+                // unless the kill switch holds it there on purpose.
+                if !self.holding.load(std::sync::atomic::Ordering::Relaxed) {
+                    let _ = sysproxy::disable(&self.paths.proxy_marker());
+                }
                 self.set_status(|s| {
                     s.busy = false;
                     s.running = false;
@@ -718,12 +779,15 @@ impl Engine {
     }
 
     pub async fn stop(&self) -> Result<()> {
+        // Disconnecting lifts the kill switch.
+        self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
         let taken = self.run.lock().await.take();
         self.set_status(|s| s.busy = true);
         let proxy = sysproxy::disable(&self.paths.proxy_marker());
         if let Some(r) = taken {
             r.shutdown().await;
         }
+        self.remove_run_configs();
         self.set_status(|s| {
             s.running = false;
             s.busy = false;
@@ -735,6 +799,21 @@ impl Engine {
         });
         self.emit(Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
         proxy
+    }
+
+    /// The configs written for the cores hold the servers' keys in plain text, which the
+    /// cores need while they run; take them away once they stop. Kept: the cores' own
+    /// caches next to them, including the server lists Mihomo downloads for a profile's
+    /// proxy providers. Mihomo starts from those when the provider can't be reached, so
+    /// removing them could leave such a profile with no servers; like the rest of the
+    /// data folder they are readable by this user only.
+    fn remove_run_configs(&self) {
+        for sub in ["main", "tester", "check"] {
+            let dir = self.paths.runtime_dir().join(sub);
+            for f in [dir.join("xray.json"), dir.join("xray-sidecar.json"), dir.join("config.yaml"), dir.join("mihomo").join("config.yaml")] {
+                let _ = std::fs::remove_file(f);
+            }
+        }
     }
 
     /// Re-apply config. The system proxy stays pointed at us across the short gap.
@@ -905,7 +984,8 @@ impl Engine {
             plan = compat::plan(&nodes, CorePreference::Auto);
         }
         let xray_bin = cores::binary_path(&cores_dir, CoreKind::Xray);
-        let mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
+        #[allow(unused_mut)]
+        let mut mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
         let asset_env: [(&str, &Path); 1] = [("XRAY_LOCATION_ASSET", cores_dir.as_path())];
 
         if plan.front == CoreKind::Xray {
@@ -921,6 +1001,7 @@ impl Engine {
                 Some(n) => Selection::Node(n),
                 None => Selection::Auto,
             };
+            opts.cert_pins = cert_pins(&xray_bin, nodes.iter()).await;
             let cfg = run_dir.join("xray.json");
             std::fs::write(&cfg, gen_xray::full(&nodes, &selection, &opts))?;
             let c = cfg.to_string_lossy().to_string();
@@ -961,6 +1042,21 @@ impl Engine {
             opts.tun.enabled = true;
             opts.tun_fd = Some(fd);
         } else if opts.tun.enabled && !crate::process::is_elevated() {
+            #[cfg(target_os = "linux")]
+            match crate::tun_linux::granted() {
+                // The copy of Mihomo with network rights runs TUN.
+                Some(granted) if !quiet => mihomo_bin = granted,
+                _ => {
+                    opts.tun.enabled = false;
+                    warning = Some("TUN mode needs network rights once. Allow them in Settings, TUN mode".to_string());
+                }
+            }
+            #[cfg(target_os = "macos")]
+            {
+                opts.tun.enabled = false;
+                warning = Some("TUN mode on macOS needs Kova to run as administrator for now".to_string());
+            }
+            #[cfg(windows)]
             if !quiet && crate::service::hello().await.is_some() {
                 via_service = true;
             } else {
@@ -971,7 +1067,13 @@ impl Engine {
         let main_group = if profile.format == Format::Clash { gen_mihomo::main_group_of(&body) } else { PROXY.to_string() };
         let mut bridges = Bridges::new();
         let mut sidecar = None;
-        if plan.needs_sidecar() {
+        // Anti-DPI (beta) runs in the same Xray, which then starts even with nothing to bridge.
+        // Latency tests while disconnected (`quiet`) use it too, so they match a connection.
+        let anti_dpi = opts.anti_dpi;
+        if anti_dpi && !xray_bin.exists() {
+            warning.get_or_insert_with(|| "Anti-DPI needs the Xray core. Install it in Settings, Cores".to_string());
+        }
+        if plan.needs_sidecar() || (anti_dpi && xray_bin.exists()) {
             if !xray_bin.exists() {
                 for b in std::mem::take(&mut plan.bridged) {
                     plan.dropped.push((b, "needs Xray, which is not installed".into()));
@@ -981,13 +1083,23 @@ impl Engine {
                 for (n, port) in &bridged {
                     bridges.insert(n.name.clone(), *port);
                 }
-                // In TUN mode the bridge's own connections to its servers would be captured
-                // and routed back into the bridge. Exempt them by process (rule mode) and by
-                // destination address (all modes, rules or not).
-                opts.bypass_processes = vec![cores::binary_name(CoreKind::Xray).to_string()];
-                if opts.tun.enabled {
-                    opts.tun_exclude = resolve_servers(bridged.iter().map(|(n, _)| (n.server.as_str(), n.port))).await;
+                if anti_dpi {
+                    opts.anti_dpi_port = Some(free_port());
                 }
+                // In TUN mode Xray's own connections to the servers would be captured and
+                // routed back into it, and TUN would also undo Anti-DPI's small pieces.
+                // Exempt them by process (rule mode) and by destination address (all modes,
+                // rules or not). With Anti-DPI Xray connects to every server.
+                opts.bypass_processes = vec![cores::binary_name(CoreKind::Xray).to_string()];
+                // On Android Kova's own traffic, Xray's included, is outside the VPN already.
+                if opts.tun.enabled && opts.tun_fd.is_none() {
+                    opts.tun_exclude = if anti_dpi {
+                        resolve_servers(nodes.iter().map(|n| (n.server.as_str(), n.port))).await
+                    } else {
+                        resolve_servers(bridged.iter().map(|(n, _)| (n.server.as_str(), n.port))).await
+                    };
+                }
+                opts.cert_pins = cert_pins(&xray_bin, bridged.iter().map(|(n, _)| *n)).await;
                 let cfg = run_dir.join("xray-sidecar.json");
                 std::fs::write(&cfg, gen_xray::sidecar(&bridged, &opts))?;
                 let c = cfg.to_string_lossy().to_string();
@@ -1323,10 +1435,19 @@ impl Engine {
                 if let Some(msg) = died {
                     let r = guard.take();
                     drop(guard);
+                    let kill_switch = engine.settings().kill_switch;
+                    if kill_switch {
+                        engine.holding.store(true, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    // Only a system proxy can be held; in TUN-only mode the kill switch
+                    // just reconnects.
+                    let holds_proxy = kill_switch && engine.settings().system_proxy;
                     // Clean up in a task of its own: shutdown() aborts every task in
                     // `r.tasks`, including this watchdog, which would cancel the cleanup.
                     tokio::spawn(async move {
-                        let _ = sysproxy::disable(&engine.paths.proxy_marker());
+                        if !holds_proxy {
+                            let _ = sysproxy::disable(&engine.paths.proxy_marker());
+                        }
                         if let Some(r) = r {
                             r.shutdown().await;
                         }
@@ -1340,11 +1461,45 @@ impl Engine {
                             s.error = Some(msg);
                         });
                         engine.emit(Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
+                        if kill_switch {
+                            engine.reconnect_after_drop(holds_proxy).await;
+                        }
                     });
                     return;
                 }
             }
         })
+    }
+
+    /// The kill switch: try to bring the connection back a few times while apps stay
+    /// offline. Stops as soon as the user disconnects (which lifts the hold).
+    async fn reconnect_after_drop(&self, holds_proxy: bool) {
+        use std::sync::atomic::Ordering::Relaxed;
+        for wait in [2, 5, 10] {
+            tokio::time::sleep(Duration::from_secs(wait)).await;
+            if !self.holding.load(Relaxed) || self.status().running {
+                return;
+            }
+            if self.start().await.is_ok() {
+                let text = if holds_proxy {
+                    "The connection dropped and is back; the kill switch kept apps offline meanwhile"
+                } else {
+                    "The connection dropped and is back"
+                };
+                self.emit(Event::Notice { text: text.into() });
+                return;
+            }
+        }
+        if !self.holding.load(Relaxed) {
+            return;
+        }
+        if holds_proxy {
+            self.set_status(|s| s.error = Some("The connection dropped. The kill switch keeps apps offline until you connect again or disconnect".into()));
+        } else {
+            // Nothing to hold (TUN only): let go, and say what happened.
+            self.holding.store(false, Relaxed);
+            self.set_status(|s| s.error = Some("The connection dropped and couldn't be restored. Connect again".into()));
+        }
     }
 
     // ------------------------------------------------------------------ proxies
@@ -1520,6 +1675,46 @@ impl Engine {
     /// Android: the screen went off or on.
     pub fn set_quiet(&self, quiet: bool) {
         self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Android: the phone moved between Wi-Fi and mobile data. With a server set for
+    /// mobile data, switch to it there and back to the usual choice on Wi-Fi. Neither
+    /// switch is saved as the user's choice, which stays the Wi-Fi one.
+    pub async fn network_changed(&self, mobile: bool) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.on_mobile.swap(mobile, Relaxed) == mobile || self.settings().mobile_server.is_none() {
+            return;
+        }
+        self.apply_network_choice().await;
+    }
+
+    /// Select the main group's server for the current network: the mobile-data one on
+    /// mobile data (when set), else the user's own choice.
+    async fn apply_network_choice(&self) {
+        let mobile = self.on_mobile.load(std::sync::atomic::Ordering::Relaxed);
+        let (api, main) = {
+            let run = self.run.lock().await;
+            match run.as_ref() {
+                Some(r) => (r.api.clone(), r.main_group.clone()),
+                None => return,
+            }
+        };
+        let Some(api) = api else { return };
+        let (target, on_mobile_server) = match self.settings().mobile_server.filter(|_| mobile) {
+            Some(server) => (server, true),
+            None => (self.settings().selections.get(&self.selection_key(&main)).cloned().unwrap_or_else(|| AUTO.to_string()), false),
+        };
+        if api.select(&main, &target).await.is_ok() {
+            // Connections made on the other network keep their old route; start them over.
+            let _ = api.close_all().await;
+            let text = match (mobile, on_mobile_server) {
+                (true, true) => format!("Mobile data: switched to {target}"),
+                // The mobile-data server was just turned off in Settings.
+                (true, false) => format!("Mobile data: using {target}"),
+                (false, _) => format!("Wi-Fi: back to {target}"),
+            };
+            self.emit(Event::Notice { text });
+        }
     }
 
     /// The main group while connected: its name, its current choice and its members,

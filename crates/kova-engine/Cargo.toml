@@ -10,6 +10,7 @@ rust-version.workspace = true
 [dependencies]
 kova-core = { path = "../kova-core" }
 flate2 = "1.1.10"
+base64 = "0.23.1"
 futures-util = "0.3.34"
 hex = "0.4.3"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "stream", "json", "http2", "charset", "gzip", "socks"] }
@@ -26,7 +27,7 @@ zip = "9.0.5"
 libc = "0.2"
 
 [target."cfg(windows)".dependencies]
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Networking_WinInet", "Win32_Security"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_System_Threading", "Win32_Networking_WinInet", "Win32_Security", "Win32_Security_Cryptography"] }
 winreg = "0.56.0"
 
 [dev-dependencies]

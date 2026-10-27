@@ -21,6 +21,18 @@ fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
 }
 
+/// A free port whose next one is free too: Xray in front also listens on the port above
+/// the proxy port. Taken from below the range the system hands out for outgoing
+/// connections (49152+ on Windows, 32768+ on Linux), where the other tests' connections
+/// could take the second port before Xray does.
+fn free_port_pair() -> u16 {
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() as u16;
+    (0..6000u16)
+        .map(|i| 20000 + (seed.wrapping_add(i * 2)) % 12000)
+        .find(|&p| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok() && std::net::TcpListener::bind(("127.0.0.1", p + 1)).is_ok())
+        .expect("two free ports in a row")
+}
+
 async fn ensure_cores() -> PathBuf {
     // The tests run in parallel and share the cache: one download at a time.
     static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -244,10 +256,19 @@ impl Controller {
             let url = url.to_string();
             async move { client.get(url).send().await.unwrap().text().await.unwrap() }
         });
-        tokio::time::sleep(Duration::from_millis(600)).await;
-        let conns = self.get("/connections").await;
+        // Wait for the connection to show up: with the other tests' cores running at the
+        // same time it can take a while.
         let port = url.trim_end_matches('/').rsplit(':').next().unwrap().to_string();
-        let c = conns["connections"].as_array().unwrap().iter().find(|c| c["metadata"]["destinationPort"].as_str() == Some(port.as_str())).expect("connection is open").clone();
+        let mut open = None;
+        for _ in 0..20 {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            let conns = self.get("/connections").await;
+            open = conns["connections"].as_array().unwrap().iter().find(|c| c["metadata"]["destinationPort"].as_str() == Some(port.as_str())).cloned();
+            if open.is_some() {
+                break;
+            }
+        }
+        let c = open.expect("connection is open");
         assert_eq!(req.await.unwrap(), "slow");
         let chains = c["chains"].as_array().unwrap().iter().map(|x| x.as_str().unwrap().to_string()).collect();
         (c["rule"].as_str().unwrap_or_default().to_string(), chains)
@@ -584,4 +605,257 @@ async fn first_start_gets_routing_data_through_the_server() {
 
     engine.stop().await.unwrap();
     let _ = server.kill().await;
+}
+
+/// Anti-DPI (beta): every server connection goes through the local Xray, which sends the
+/// TLS handshake in small pieces. The server here speaks VLESS over TLS, so the pieces
+/// must reassemble into a handshake it accepts, and pages must still load.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn anti_dpi_carries_tls_traffic() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let xray = cores::binary_path(&cores_cache, CoreKind::Xray);
+    let cert = std::process::Command::new(&xray).args(["tls", "cert", "-domain=localhost", "-json"]).output().unwrap();
+    let cert: serde_json::Value = serde_json::from_slice(&cert.stdout).expect("a certificate");
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let tls_port = free_port();
+    let target = target_server().await;
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": tls_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" }, "security": "tls",
+                                               "tlsSettings": { "certificates": [{ "certificate": cert["certificate"], "key": cert["key"] }] } } }],
+            "outbounds": [{ "protocol": "freedom" }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(&xray).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port_pair();
+    s.core.presets.clear();
+    s.core.anti_dpi = true;
+    engine.update_settings(s.clone()).await.unwrap();
+    let link = format!("vless://{uuid}@127.0.0.1:{tls_port}?encryption=none&security=tls&sni=localhost&allowInsecure=1&type=ws&path=%2Fws#TLS");
+    let profile = engine.add_profile(&link, Some("Anti-DPI".into())).await.unwrap();
+    // Latency tests while disconnected go through Anti-DPI too.
+    let delays = engine.test_delays(None).await.unwrap();
+    assert!(delays.get("TLS").copied().flatten().is_some(), "offline latency through Anti-DPI: {delays:?}");
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    assert!(engine.status().sidecar, "Anti-DPI runs in the Xray sidecar");
+
+    // The server is dialled through the anti-DPI hop.
+    let cfg = std::fs::read_to_string(root.path().join("runtime/main/mihomo/config.yaml")).unwrap();
+    assert!(cfg.contains("dialer-proxy: Kova anti-DPI"), "{cfg}");
+
+    let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", s.core.mixed_port)).unwrap()).timeout(Duration::from_secs(10)).build().unwrap();
+    let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Anti-DPI").text().await.unwrap();
+    assert_eq!(body, "hello from target");
+
+    // A profile pinned to Xray: Xray itself dials the server through its anti-DPI outbound.
+    let patch = kova_engine::engine::ProfilePatch { core: Some(kova_core::CorePreference::Xray), ..Default::default() };
+    engine.edit_profile(&profile.id, patch).await.unwrap();
+    engine.restart().await.unwrap_or_else(|e| panic!("restart with Xray failed: {e}"));
+    assert_eq!(engine.status().core, Some(CoreKind::Xray));
+    let cfg = std::fs::read_to_string(root.path().join("runtime/main/xray.json")).unwrap();
+    assert!(cfg.contains("\"dialerProxy\": \"anti-dpi\""), "{cfg}");
+    let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Xray's Anti-DPI").text().await.unwrap();
+    assert_eq!(body, "hello from target");
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}
+
+/// Anti-DPI with a UDP protocol: Hysteria2 (QUIC) dialled through the local Xray's UDP.
+/// The server is a Mihomo listener. First without Anti-DPI, as the baseline.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn anti_dpi_carries_hysteria2() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let xray = cores::binary_path(&cores_cache, CoreKind::Xray);
+    let cert = std::process::Command::new(&xray).args(["tls", "cert", "-domain=localhost", "-json"]).output().unwrap();
+    let cert: serde_json::Value = serde_json::from_slice(&cert.stdout).expect("a certificate");
+    let pem = |k: &str| cert[k].as_array().unwrap().iter().map(|l| l.as_str().unwrap()).collect::<Vec<_>>().join("\n") + "\n";
+    let server_dir = tempfile::tempdir().unwrap();
+    std::fs::write(server_dir.path().join("cert.pem"), pem("certificate")).unwrap();
+    std::fs::write(server_dir.path().join("key.pem"), pem("key")).unwrap();
+    let hy_port = free_port();
+    let target = target_server().await;
+    std::fs::write(
+        server_dir.path().join("config.yaml"),
+        format!(
+            "mixed-port: 0\nmode: direct\nlog-level: warning\nlisteners:\n  - name: hy2\n    type: hysteria2\n    listen: 127.0.0.1\n    port: {hy_port}\n    users:\n      kova: testpass\n    certificate: ./cert.pem\n    private-key: ./key.pem\n"
+        ),
+    )
+    .unwrap();
+    let dir = server_dir.path().to_str().unwrap().to_string();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Mihomo))
+        .args(["-d", &dir, "-f", &format!("{dir}/config.yaml")])
+        .kill_on_drop(true)
+        .spawn()
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(800)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    engine.update_settings(s.clone()).await.unwrap();
+    engine.add_profile(&format!("hysteria2://testpass@127.0.0.1:{hy_port}?insecure=1&sni=localhost#HY2"), Some("UDP".into())).await.unwrap();
+    let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", s.core.mixed_port)).unwrap()).timeout(Duration::from_secs(10)).build().unwrap();
+
+    for anti_dpi in [false, true] {
+        let mut s = engine.settings();
+        s.core.anti_dpi = anti_dpi;
+        engine.update_settings(s).await.unwrap();
+        engine.start().await.unwrap_or_else(|e| panic!("start failed (anti-DPI {anti_dpi}): {e}"));
+        let body = client.get(format!("http://localhost:{target}/")).send().await.unwrap_or_else(|e| panic!("Hysteria2 with anti-DPI {anti_dpi}: {e}")).text().await.unwrap();
+        assert_eq!(body, "hello from target", "anti-DPI {anti_dpi}");
+        engine.stop().await.unwrap();
+    }
+    let _ = server.kill().await;
+}
+
+/// Android: on mobile data Kova uses the server set for it, and on Wi-Fi the usual
+/// choice again, without overwriting that choice.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn mobile_data_uses_its_own_server() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom" }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.mobile_server = Some("Relay".into());
+    engine.update_settings(s).await.unwrap();
+    let links = format!(
+        "vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Home\n\
+         vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Relay\n"
+    );
+    engine.add_profile(&links, Some("Mobile".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    engine.select(PROXY, "Home").await.unwrap();
+    let now = |e: &std::sync::Arc<Engine>| {
+        let e = e.clone();
+        async move { e.proxies().await.unwrap().groups.into_iter().find(|g| g.name == PROXY).unwrap().now }
+    };
+
+    engine.network_changed(true).await;
+    assert_eq!(now(&engine).await, "Relay", "mobile data uses its own server");
+    engine.network_changed(false).await;
+    assert_eq!(now(&engine).await, "Home", "Wi-Fi goes back to the usual choice");
+    assert_eq!(engine.settings().selections.values().next().map(String::as_str), Some("Home"), "the usual choice is kept");
+
+    // Connecting while on mobile data starts on its server.
+    engine.network_changed(true).await;
+    engine.restart().await.unwrap();
+    assert_eq!(now(&engine).await, "Relay");
+
+    // Turning the mobile-data server off in Settings while on mobile data: the usual
+    // choice at once.
+    let mut s = engine.settings();
+    s.mobile_server = None;
+    engine.update_settings(s).await.unwrap();
+    assert_eq!(now(&engine).await, "Home");
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}
+
+/// Kill switch (beta): when the core dies on its own, Kova reconnects by itself, and a
+/// user's Disconnect ends the hold. (The system proxy part isn't exercised: tests never
+/// touch the system proxy.)
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn kill_switch_reconnects_after_a_drop() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.kill_switch = true;
+    engine.update_settings(s).await.unwrap();
+    let link = format!("vless://b831381d-6324-4d53-ad4f-8cda48b30811@127.0.0.1:{}?encryption=none&security=none&type=ws&path=%2Fws#Any", free_port());
+    engine.add_profile(&link, Some("Kill switch".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+
+    // Stop only the Mihomo this test started (the machine may be running Kova for real).
+    let dir = root.path().file_name().unwrap().to_string_lossy().to_string();
+    let filter = format!("Name='mihomo.exe' AND ParentProcessId={} AND CommandLine LIKE '%{dir}%'", std::process::id());
+    let script = format!("Get-CimInstance Win32_Process -Filter \"{filter}\" | ForEach-Object {{ Stop-Process -Id $_.ProcessId -Force }}");
+    let _ = std::process::Command::new("powershell").args(["-NoProfile", "-Command", &script]).output();
+
+    let mut dropped = false;
+    let mut back = false;
+    for _ in 0..60 {
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        let running = engine.status().running;
+        dropped |= !running;
+        if dropped && running {
+            back = true;
+            break;
+        }
+    }
+    assert!(dropped, "the drop was noticed");
+    assert!(back, "the kill switch reconnected: {:?}", engine.status());
+
+    engine.stop().await.unwrap();
+    assert!(!engine.status().running);
 }

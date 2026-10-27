@@ -13,6 +13,7 @@ pub mod links;
 pub mod model;
 pub mod options;
 pub mod singbox;
+pub mod xray_json;
 pub mod smart;
 pub mod subscription;
 

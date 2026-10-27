@@ -870,7 +870,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d045de693cb712d0b22c6a64be5b953f67b3ce00ab5ad3dd5d8b441886ab8e1a"
 dependencies = [
  "quote",
- "syn 2.0.119",
+ "syn 3.0.9",
 ]
 
 [[package]]
@@ -2450,7 +2450,7 @@ dependencies = [
 
 [[package]]
 name = "kova"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "kova-core",
  "kova-engine",
@@ -2482,7 +2482,7 @@ dependencies = [
 
 [[package]]
 name = "kova-core"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "base64 0.23.1",
  "indexmap 2.14.2",
@@ -2497,8 +2497,9 @@ dependencies = [
 
 [[package]]
 name = "kova-engine"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
+ "base64 0.23.1",
  "flate2",
  "futures-util",
  "hex",
@@ -2521,7 +2522,7 @@ dependencies = [
 
 [[package]]
 name = "kova-service"
-version = "0.1.13"
+version = "0.1.14"
 dependencies = [
  "kova-core",
  "kova-engine",

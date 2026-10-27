@@ -31,6 +31,10 @@ TUN captures all traffic, including games and UDP, but creating the virtual adap
 
 Command line, from an elevated prompt: `kova.exe --service-install`, `kova.exe --service-uninstall`. For development, `kova.exe --service-console` runs the pipe server in the foreground (set `KOVA_SERVICE_HOME` and `KOVA_SERVICE_PIPE` to keep it separate from an installed service).
 
+**Linux.** TUN needs the network-admin capability. Settings → TUN mode → **Give rights** asks for the password once (polkit) and installs a copy of Kova's Mihomo as `/usr/local/lib/kova/mihomo`, owned by root, with `cap_net_admin`, `cap_net_bind_service` and `cap_net_raw` only. TUN runs with that copy; Kova itself never runs as root. After a Mihomo update the copy is offered for granting again. Without polkit: `sudo install -m 0755 <Mihomo> /usr/local/lib/kova/mihomo && sudo setcap cap_net_admin,cap_net_bind_service,cap_net_raw+ep /usr/local/lib/kova/mihomo`.
+
+**macOS.** TUN still needs Kova started as administrator; a helper like the Windows service is planned.
+
 ## Routing data (GeoIP / GeoSite)
 
 Rules such as `GEOSITE,category-ru` and `GEOIP,RU` read two files in the v2ray format, `geoip.dat` and `geosite.dat`. Both cores use the same copy. The source is chosen in Settings → Routing data:
@@ -100,6 +104,8 @@ On a Remnawave subscription page, add Kova to `app-config.json` for each platfor
   "connectAndUseStep": { "description": { "en": "Press the round button on the Dashboard", "ru": "Нажмите круглую кнопку на главной" } }
 }
 ```
+
+**Formats Kova reads:** a Clash/Mihomo config (kept as it is), sing-box JSON, Xray JSON (one config or a list of them, as panels send it for v2rayNG or Happ), and plain or base64 share links. From Xray JSON Kova takes each server and its transport and security; the provider's fragment, mux and outbound chains aren't used (Kova's Anti-DPI replaces fragment), and the profile lists what was left out. A panel picks the format by User-Agent: Kova asks as `clash.meta`, and a profile's User-Agent can be changed in Profiles to get another format.
 
 **Headers Kova reads:** `subscription-userinfo` (traffic and expiry), `profile-title`, `profile-update-interval`, `profile-web-page-url` or `support-url` (the Provider button) and `announce` (a message shown on the Dashboard; plain text or `base64:`).
 

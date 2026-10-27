@@ -12,6 +12,11 @@
   import Icon from '../components/Icon.svelte';
 
   let appVersion = $state('');
+  // Members of the group traffic starts in ("Proxy", or an imported config's first
+  // selector), for the server used on mobile data.
+  let mainServers = $derived(
+    (app.proxies.groups.find((g) => g.name === 'Proxy') ?? app.proxies.groups.find((g) => g.type === 'Selector' && g.name !== 'GLOBAL'))?.all ?? [],
+  );
   let pickingApps = $state(false);
   let lanIp = $state<string | null>(null);
   $effect(() => { if (app.settings?.core.allow_lan) void api.lanAddress().then((v) => (lanIp = v), () => {}); });
@@ -49,13 +54,14 @@
   let svcOutdated = $derived(!!svc?.running && svc.outdated);
   async function installSvc() {
     svcBusy = 'install';
-    await app.run(() => api.serviceInstall(), svc?.installed ? t('Kova service updated') : t('Kova service installed. TUN mode no longer needs administrator rights'));
+    const linux = app.platform === 'linux';
+    await app.run(() => api.serviceInstall(), linux ? t('TUN mode can be used now') : svc?.installed ? t('Kova service updated') : t('Kova service installed. TUN mode no longer needs administrator rights'));
     svcBusy = null;
     await loadSvc();
   }
   async function removeSvc() {
     svcBusy = 'remove';
-    await app.run(() => api.serviceUninstall(), t('Kova service removed'));
+    await app.run(() => api.serviceUninstall(), app.platform === 'linux' ? t('Network rights taken back') : t('Kova service removed'));
     svcBusy = null;
     await loadSvc();
   }
@@ -153,6 +159,12 @@
             <button class="switch" role="switch" aria-label="IPv6" aria-checked={s.core.ipv6} onclick={() => toggle((x) => x.core.ipv6, (x, v) => (x.core.ipv6 = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Sniff domains')}</div><div class="d">{t('Reads TLS and HTTP hostnames so domain rules also work for raw IP connections')}</div></div>
             <button class="switch" role="switch" aria-label={t('Sniff domains')} aria-checked={s.core.sniff} onclick={() => toggle((x) => x.core.sniff, (x, v) => (x.core.sniff = v))}></button></div>
+          {#if !app.mobile}
+            <div class="row-sw"><div><div class="t">{t('Kill switch')} <span class="chip">beta</span></div><div class="d">{t('If the connection drops on its own, apps that use the system proxy go offline instead of around Kova, and Kova reconnects. Disconnect lifts it. In TUN-only mode Kova just reconnects.')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Kill switch')} aria-checked={s.kill_switch} onclick={() => toggle((x) => x.kill_switch, (x, v) => (x.kill_switch = v))}></button></div>
+          {/if}
+          <div class="row-sw"><div><div class="t">{t('Anti-DPI')} <span class="chip">beta</span></div><div class="d">{t('Sends the start of each connection to the server in small pieces, so simpler blocking equipment can’t recognise it. Try it when servers stop connecting; it doesn’t help against whitelists. Needs the Xray core')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Anti-DPI')} aria-checked={s.core.anti_dpi} onclick={() => toggle((x) => x.core.anti_dpi, (x, v) => (x.core.anti_dpi = v))}></button></div>
         </div>
       </section>
 
@@ -165,7 +177,14 @@
               ? tn(s.vpn_apps.apps.length, 'Only {n} chosen app', 'Only {n} chosen apps')
               : tn(s.vpn_apps.apps.length, 'All but {n} chosen app', 'All but {n} chosen apps')}</div></div>
             <button class="btn" onclick={() => (pickingApps = true)}>{t('Choose')}</button></div>
-          <div class="row-sw"><div><div class="t">{t('Always-on VPN')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN.')}</div></div>
+          <div class="row-sw"><div><div class="t">{t('Server on mobile data')}</div><div class="d">{t('Mobile networks may only let through whitelisted sites. Choose a server that works there, such as one in Russia or behind a CDN; Kova switches to it on mobile data and back on Wi-Fi.')}</div></div>
+            <select class="input mobile-server" aria-label={t('Server on mobile data')} value={s.mobile_server ?? ''}
+              onchange={(e) => { const v = e.currentTarget.value; void app.saveSettings((x) => (x.mobile_server = v || null)); }}>
+              <option value="">{t('Same as on Wi-Fi')}</option>
+              {#each mainServers as n (n)}<option value={n}>{n}</option>{/each}
+              {#if s.mobile_server && !mainServers.includes(s.mobile_server)}<option value={s.mobile_server}>{s.mobile_server}</option>{/if}
+            </select></div>
+          <div class="row-sw"><div><div class="t">{t('Always-on VPN and kill switch')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN; also turn on Block connections without VPN to keep apps offline whenever Kova isn’t connected.')}</div></div>
             <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
           <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
         </div>
@@ -184,8 +203,10 @@
             {/each}
           </div>
         </div>
-        {#if app.platform === 'linux' || app.platform === 'macos'}
-          <p class="hint">{t('TUN captures every app, including games and UDP. On Linux and macOS it needs administrator rights for now: start Kova with sudo to use it. The system proxy works without them.')}</p>
+        {#if app.platform === 'linux'}
+          <p class="hint">{t('TUN captures every app, including games and UDP. It needs network rights: Kova asks for your password once and gives them to its copy of Mihomo only, so Kova itself never runs as root.')}</p>
+        {:else if app.platform === 'macos'}
+          <p class="hint">{t('TUN captures every app, including games and UDP. On macOS it needs administrator rights for now: start Kova with sudo to use it. The system proxy works without them.')}</p>
         {:else}
           <p class="hint">{t('TUN captures every app, including games and UDP. It needs system rights, which the Kova service provides so Kova itself never runs as administrator.')}</p>
         {/if}
@@ -193,17 +214,25 @@
           <div class="svc">
             <span class="led" class:on={svc.running}></span>
             <div class="svc-text">
-              <div class="t">{t('Kova service')}</div>
-              <div class="d">
-                {#if svc.running}{t('Running · version {version}', { version: svc.version ?? '' })}{svc.core_version ? ` · Mihomo ${svc.core_version}` : ''}{svcOutdated ? ` · ${t('from another Kova build, update it')}` : ''}
-                {:else if svc.installed}{t('Installed but not running')}
-                {:else}{t('Not installed. Installing asks for administrator approval once.')}{/if}
-              </div>
+              {#if app.platform === 'linux'}
+                <div class="t">{t('Network rights for TUN')}</div>
+                <div class="d">
+                  {#if svc.installed}{t('Given')}{svcOutdated ? ` · ${t('Mihomo was updated since; give them again')}` : ''}
+                  {:else}{t('Not given yet. Giving them asks for your password once.')}{/if}
+                </div>
+              {:else}
+                <div class="t">{t('Kova service')}</div>
+                <div class="d">
+                  {#if svc.running}{t('Running · version {version}', { version: svc.version ?? '' })}{svc.core_version ? ` · Mihomo ${svc.core_version}` : ''}{svcOutdated ? ` · ${t('from another Kova build, update it')}` : ''}
+                  {:else if svc.installed}{t('Installed but not running')}
+                  {:else}{t('Not installed. Installing asks for administrator approval once.')}{/if}
+                </div>
+              {/if}
             </div>
             <div class="actions">
               {#if !svc.installed || !svc.running || svcOutdated}
                 <button class="btn primary" class:busy={svcBusy === 'install'} disabled={svcBusy !== null} onclick={installSvc}>
-                  {#if svcBusy === 'install'}<Icon name="refresh" />{t('Waiting for approval…')}{:else}{svc.installed ? t('Repair or update') : t('Install')}{/if}</button>
+                  {#if svcBusy === 'install'}<Icon name="refresh" />{t('Waiting for approval…')}{:else if app.platform === 'linux'}{svc.installed ? t('Give again') : t('Give rights')}{:else}{svc.installed ? t('Repair or update') : t('Install')}{/if}</button>
               {/if}
               {#if svc.installed}
                 <button class="btn ghost danger" class:busy={svcBusy === 'remove'} disabled={svcBusy !== null} onclick={removeSvc}>{t('Remove')}</button>
@@ -437,4 +466,5 @@
   .sw.split { display: flex; }
   .sw.split > span { position: relative; flex: 1; background: var(--win); }
   .sw.split i { right: 8px; }
+  .mobile-server { max-width: 46%; }
 </style>

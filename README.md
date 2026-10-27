@@ -17,7 +17,7 @@
 - **Works where GitHub is blocked.** Cores and routing data ship with the app; missing data is fetched through the server once connected.
 - **Checks.** "What's wrong?" diagnostics, a site check (direct and through Kova), a privacy check (exit IP, encrypted DNS, IPv6 leaks) and a speed test.
 - **TUN mode** on Windows without running as administrator, through a small [service](docs/how-it-works.md#tun-mode-and-the-kova-service). On Android: a per-app VPN, a quick-settings tile, a widget and always-on support.
-- **Safe by default.** Downloads are checked by SHA-256, updates are signed, the core controller listens on localhost only with a secret, and the system proxy is restored after a crash.
+- **Safe by default.** Subscriptions are stored encrypted on Windows (DPAPI) and owner-only elsewhere, downloads are checked by SHA-256, updates are signed, the core controller listens on localhost only with a secret, and the system proxy is restored after a crash.
 - **English and Russian**, and 11 themes: dark, light, OLED black, dim, warm paper, high contrast, Nord, Catppuccin, Dracula, Gruvbox and Solarized.
 
 <p>
@@ -33,7 +33,7 @@ The latest build is on the [Releases](https://github.com/scarletjess77/kova/rele
 |---|---|
 | Windows 10/11 | `_x64-setup.exe` |
 | Android 7+, phones and TV | `_android-arm64.apk` (most devices); `_android-armv7.apk` (older and 32-bit devices, many TVs) |
-| Linux | `.AppImage` or `.deb` |
+| Linux | `.deb` (includes the cores) or `.AppImage` (smaller; downloads the cores on first start) |
 | macOS | `_aarch64.dmg` (Apple silicon); `_x64.dmg` (Intel) |
 
 Kova updates itself (Settings → Updates). Windows and Android are the most tested; Linux and macOS builds are newer. The Windows installer is not code-signed yet, so SmartScreen may warn.

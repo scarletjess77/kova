@@ -45,6 +45,8 @@ export interface RuntimeOptions {
   smart_routing: boolean;
   smart_profile_rules: boolean;
   smart_learn_direct: boolean;
+  /** Beta: split the TLS handshake and add UDP noise on connections to the servers. */
+  anti_dpi: boolean;
 }
 
 export type Route = 'proxy' | 'direct';
@@ -77,6 +79,10 @@ export interface Settings {
   auto_switch: boolean;
   /** Random per-install ID sent to subscription servers. */
   device_id: string;
+  /** Android: the main group's member to use on mobile data; null for the same as on Wi-Fi. */
+  mobile_server: string | null;
+  /** Beta, desktop: keep apps offline when the connection drops, and reconnect. */
+  kill_switch: boolean;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
@@ -112,7 +118,7 @@ export interface Profile {
   id: string;
   name: string;
   source: Source;
-  format: 'clash' | 'sing-box' | 'links';
+  format: 'clash' | 'sing-box' | 'xray' | 'links';
   core: CorePreference;
   node_count: number;
   usage: UserInfo | null;

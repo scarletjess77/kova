@@ -322,8 +322,10 @@ struct ServiceView {
 }
 
 #[tauri::command]
-async fn service_status() -> ServiceView {
+async fn service_status(app: AppHandle) -> ServiceView {
     let app_version = env!("CARGO_PKG_VERSION").to_string();
+    #[cfg(windows)]
+    let _ = &app;
     #[cfg(windows)]
     {
         let state = tokio::task::spawn_blocking(kova_service::query).await.ok().flatten();
@@ -345,8 +347,18 @@ async fn service_status() -> ServiceView {
             outdated,
         }
     }
-    #[cfg(not(windows))]
-    ServiceView { supported: false, installed: false, running: false, version: None, app_version, core_version: None, outdated: false }
+    #[cfg(target_os = "linux")]
+    {
+        let ours = kova_engine::cores::binary_path(&app.state::<Arc<Engine>>().paths.cores_dir(), kova_core::CoreKind::Mihomo);
+        let granted = kova_engine::tun_linux::granted().is_some();
+        let outdated = tokio::task::spawn_blocking(move || kova_engine::tun_linux::outdated(&ours)).await.unwrap_or(false);
+        ServiceView { supported: true, installed: granted, running: granted, version: None, app_version, core_version: None, outdated }
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
+    {
+        let _ = &app;
+        ServiceView { supported: false, installed: false, running: false, version: None, app_version, core_version: None, outdated: false }
+    }
 }
 
 /// Run `--service-install` / `--service-uninstall` elevated (one UAC prompt).
@@ -376,7 +388,16 @@ async fn service_install(engine: Eng<'_>) -> R<()> {
         }
         Ok(())
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        let mihomo = kova_engine::cores::binary_path(&engine.paths.cores_dir(), kova_core::CoreKind::Mihomo);
+        tokio::task::spawn_blocking(move || kova_engine::tun_linux::grant(&mihomo)).await.map_err(|e| Error::Other(e.to_string()))??;
+        if engine.status().running && engine.settings().core.tun.enabled {
+            engine.restart().await?;
+        }
+        Ok(())
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = engine;
         Err(Error::Other("The Kova service is only available on Windows for now".into()))
@@ -394,7 +415,14 @@ async fn service_uninstall(engine: Eng<'_>) -> R<()> {
         }
         elevated("--service-uninstall").await
     }
-    #[cfg(not(windows))]
+    #[cfg(target_os = "linux")]
+    {
+        if engine.status().running && engine.settings().core.tun.enabled {
+            engine.stop().await?;
+        }
+        tokio::task::spawn_blocking(kova_engine::tun_linux::revoke).await.map_err(|e| Error::Other(e.to_string()))?
+    }
+    #[cfg(not(any(windows, target_os = "linux")))]
     {
         let _ = engine;
         Ok(())
