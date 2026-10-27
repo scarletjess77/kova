@@ -33,7 +33,7 @@ The latest build is on the [Releases](https://github.com/scarletjess77/kova/rele
 |---|---|
 | Windows 10/11 | `_x64-setup.exe` |
 | Android 7+, phones and TV | `_android-arm64.apk` (most devices); `_android-armv7.apk` (older and 32-bit devices, many TVs) |
-| Linux | `.AppImage` or `.deb` |
+| Linux | `.deb` (includes the cores) or `.AppImage` (smaller; downloads the cores on first start) |
 | macOS | `_aarch64.dmg` (Apple silicon); `_x64.dmg` (Intel) |
 
 Kova updates itself (Settings → Updates). Windows and Android are the most tested; Linux and macOS builds are newer. The Windows installer is not code-signed yet, so SmartScreen may warn.

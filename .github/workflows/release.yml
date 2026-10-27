@@ -32,7 +32,13 @@ jobs:
           - os: windows-latest
             bundles: nsis
           - os: ubuntu-22.04
-            bundles: deb,appimage
+            bundles: deb
+          # The AppImage already carries WebKit and GTK (most of its size), so it skips
+          # the bundled cores and downloads them on first start; the .deb keeps them for
+          # places where GitHub is blocked.
+          - os: ubuntu-22.04
+            bundles: appimage
+            no_cores: true
           # Apple silicon and Intel separately and side by side: one universal build
           # compiles everything twice in a row.
           - os: macos-latest
@@ -67,6 +73,7 @@ jobs:
       # The installer carries verified cores and routing data, so a first start needs
       # nothing from GitHub, which is blocked in some countries.
       - name: Cores for the installer
+        if: ${{ !matrix.no_cores }}
         run: cargo run -q -p kova-engine --example bundle_cores -- src-tauri/resources/cores ${{ matrix.target }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -86,7 +93,7 @@ jobs:
           # copies don't update to them.
           prerelease: ${{ contains(github.ref_name, '-') }}
           includeUpdaterJson: true
-          args: ${{ format('--bundles {0} {1} --config {{"bundle":{{"createUpdaterArtifacts":true,"resources":{{"resources/cores/":"cores/"}}}}}}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '') }}
+          args: ${{ format('--bundles {0} {1} --config {2}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '', matrix.no_cores && '{"bundle":{"createUpdaterArtifacts":true}}' || '{"bundle":{"createUpdaterArtifacts":true,"resources":{"resources/cores/":"cores/"}}}') }}
 
   # One APK per processor, side by side: 64-bit phones, and 32-bit phones and TVs. Each
   # build gets only its own cores, so an APK never lists a processor it can't run on.
