@@ -45,6 +45,8 @@ export interface RuntimeOptions {
   smart_routing: boolean;
   smart_profile_rules: boolean;
   smart_learn_direct: boolean;
+  /** Beta: split the TLS handshake and add UDP noise on connections to the servers. */
+  anti_dpi: boolean;
 }
 
 export type Route = 'proxy' | 'direct';

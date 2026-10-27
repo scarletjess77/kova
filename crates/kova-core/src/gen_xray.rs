@@ -156,23 +156,48 @@ fn sniffing(opts: &RuntimeOptions) -> Value {
     json!({ "enabled": opts.sniff, "destOverride": ["http", "tls", "quic"], "routeOnly": true })
 }
 
-/// Sidecar for a Mihomo-fronted profile: one local SOCKS inbound per bridged node.
+/// The Anti-DPI outbound: a direct connection whose TLS handshake goes out in small
+/// pieces with short pauses, and whose UDP starts with a few random packets, so DPI that
+/// reads one packet at a time can't match it.
+pub const ANTI_DPI_TAG: &str = "anti-dpi";
+
+fn anti_dpi_outbound() -> Value {
+    json!({
+        "tag": ANTI_DPI_TAG,
+        "protocol": "freedom",
+        "settings": {
+            "fragment": { "packets": "tlshello", "length": "100-200", "interval": "10-20" },
+            "noises": [{ "type": "rand", "packet": "10-20", "delay": "10-16" }],
+        },
+    })
+}
+
+/// Sidecar for a Mihomo-fronted profile: one local SOCKS inbound per bridged node, and
+/// with Anti-DPI one more that Mihomo dials every server through.
 pub fn sidecar(bridged: &[(&Node, u16)], opts: &RuntimeOptions) -> String {
     let mut inbounds = Vec::new();
     let mut outbounds = Vec::new();
     let mut rules = Vec::new();
+    // Only Mihomo uses these ports; with a login no other local program can.
+    let settings = if opts.local_password.is_empty() {
+        json!({ "udp": true, "auth": "noauth" })
+    } else {
+        json!({ "udp": true, "auth": "password", "accounts": [{ "user": crate::options::LOCAL_USER, "pass": opts.local_password }] })
+    };
     for (i, (n, port)) in bridged.iter().enumerate() {
-        let Some(o) = outbound(n) else { continue };
+        let Some(mut o) = outbound(n) else { continue };
+        if opts.anti_dpi_port.is_some() {
+            o["streamSettings"]["sockopt"]["dialerProxy"] = ANTI_DPI_TAG.into();
+        }
         let tag = format!("in-{i}");
-        // Only Mihomo uses the bridge; with a login no other local program can.
-        let settings = if opts.local_password.is_empty() {
-            json!({ "udp": true, "auth": "noauth" })
-        } else {
-            json!({ "udp": true, "auth": "password", "accounts": [{ "user": crate::options::LOCAL_USER, "pass": opts.local_password }] })
-        };
         inbounds.push(json!({ "tag": tag, "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": settings }));
         rules.push(json!({ "inboundTag": [tag], "outboundTag": n.name }));
         outbounds.push(o);
+    }
+    if let Some(port) = opts.anti_dpi_port {
+        inbounds.push(json!({ "tag": "in-anti-dpi", "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": settings }));
+        rules.push(json!({ "inboundTag": ["in-anti-dpi"], "outboundTag": ANTI_DPI_TAG }));
+        outbounds.push(anti_dpi_outbound());
     }
     outbounds.push(json!({ "tag": "block", "protocol": "blackhole" }));
     let doc = json!({

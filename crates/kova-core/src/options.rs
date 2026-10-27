@@ -354,6 +354,13 @@ pub struct RuntimeOptions {
     /// through which the data is then fetched. Set per run.
     #[serde(skip)]
     pub without_geodata: bool,
+    /// Beta. Make connections to the servers harder for DPI to recognise: the TLS
+    /// handshake goes out in small pieces and UDP connections start with random packets.
+    /// Done by a local Xray that every server connection is dialled through.
+    pub anti_dpi: bool,
+    /// Local port of that Xray, set per run when Anti-DPI is on and Xray is installed.
+    #[serde(skip)]
+    pub anti_dpi_port: Option<u16>,
 }
 
 /// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
@@ -401,6 +408,8 @@ impl Default for RuntimeOptions {
             smart: None,
             tun_fd: None,
             without_geodata: false,
+            anti_dpi: false,
+            anti_dpi_port: None,
         }
     }
 }

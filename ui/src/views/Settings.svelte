@@ -153,6 +153,8 @@
             <button class="switch" role="switch" aria-label="IPv6" aria-checked={s.core.ipv6} onclick={() => toggle((x) => x.core.ipv6, (x, v) => (x.core.ipv6 = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Sniff domains')}</div><div class="d">{t('Reads TLS and HTTP hostnames so domain rules also work for raw IP connections')}</div></div>
             <button class="switch" role="switch" aria-label={t('Sniff domains')} aria-checked={s.core.sniff} onclick={() => toggle((x) => x.core.sniff, (x, v) => (x.core.sniff = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Anti-DPI')} <span class="chip">beta</span></div><div class="d">{t('Sends the start of each connection to the server in small pieces, so simpler blocking equipment can’t recognise it. Try it when servers stop connecting; it doesn’t help against whitelists. Needs the Xray core')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Anti-DPI')} aria-checked={s.core.anti_dpi} onclick={() => toggle((x) => x.core.anti_dpi, (x, v) => (x.core.anti_dpi = v))}></button></div>
         </div>
       </section>
 

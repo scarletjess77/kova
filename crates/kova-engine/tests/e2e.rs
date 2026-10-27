@@ -585,3 +585,64 @@ async fn first_start_gets_routing_data_through_the_server() {
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
+
+/// Anti-DPI (beta): every server connection goes through the local Xray, which sends the
+/// TLS handshake in small pieces. The server here speaks VLESS over TLS, so the pieces
+/// must reassemble into a handshake it accepts, and pages must still load.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn anti_dpi_carries_tls_traffic() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let xray = cores::binary_path(&cores_cache, CoreKind::Xray);
+    let cert = std::process::Command::new(&xray).args(["tls", "cert", "-domain=localhost", "-json"]).output().unwrap();
+    let cert: serde_json::Value = serde_json::from_slice(&cert.stdout).expect("a certificate");
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let tls_port = free_port();
+    let target = target_server().await;
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": tls_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" }, "security": "tls",
+                                               "tlsSettings": { "certificates": [{ "certificate": cert["certificate"], "key": cert["key"] }] } } }],
+            "outbounds": [{ "protocol": "freedom" }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(&xray).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.core.anti_dpi = true;
+    engine.update_settings(s.clone()).await.unwrap();
+    let link = format!("vless://{uuid}@127.0.0.1:{tls_port}?encryption=none&security=tls&sni=localhost&allowInsecure=1&type=ws&path=%2Fws#TLS");
+    engine.add_profile(&link, Some("Anti-DPI".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    assert!(engine.status().sidecar, "Anti-DPI runs in the Xray sidecar");
+
+    // The server is dialled through the anti-DPI hop.
+    let cfg = std::fs::read_to_string(root.path().join("runtime/main/mihomo/config.yaml")).unwrap();
+    assert!(cfg.contains("dialer-proxy: Kova anti-DPI"), "{cfg}");
+
+    let client = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", s.core.mixed_port)).unwrap()).timeout(Duration::from_secs(10)).build().unwrap();
+    let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Anti-DPI").text().await.unwrap();
+    assert_eq!(body, "hello from target");
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}

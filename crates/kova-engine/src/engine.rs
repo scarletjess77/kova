@@ -210,20 +210,21 @@ impl Engine {
 /// IP addresses (as /32 or /128) of the given servers; hostnames are looked up. Best
 /// effort: a name that doesn't resolve now is skipped.
 async fn resolve_servers<'a>(servers: impl Iterator<Item = (&'a str, u16)>) -> Vec<String> {
-    let mut out = Vec::new();
-    for (host, port) in servers {
-        let addrs: Vec<std::net::IpAddr> = match host.parse::<std::net::IpAddr>() {
+    // All at once: with Anti-DPI this is every server of the profile.
+    let lookups = servers.map(|(host, port)| async move {
+        match host.parse::<std::net::IpAddr>() {
             Ok(ip) => vec![ip],
             Err(_) => match tokio::time::timeout(Duration::from_secs(3), tokio::net::lookup_host((host, port))).await {
                 Ok(Ok(it)) => it.map(|a| a.ip()).collect(),
                 _ => Vec::new(),
             },
-        };
-        for ip in addrs {
-            let cidr = if ip.is_ipv4() { format!("{ip}/32") } else { format!("{ip}/128") };
-            if !out.contains(&cidr) {
-                out.push(cidr);
-            }
+        }
+    });
+    let mut out = Vec::new();
+    for ip in futures_util::future::join_all(lookups).await.into_iter().flatten() {
+        let cidr = if ip.is_ipv4() { format!("{ip}/32") } else { format!("{ip}/128") };
+        if !out.contains(&cidr) {
+            out.push(cidr);
         }
     }
     out
@@ -971,7 +972,12 @@ impl Engine {
         let main_group = if profile.format == Format::Clash { gen_mihomo::main_group_of(&body) } else { PROXY.to_string() };
         let mut bridges = Bridges::new();
         let mut sidecar = None;
-        if plan.needs_sidecar() {
+        // Anti-DPI (beta) runs in the same Xray, which then starts even with nothing to bridge.
+        let anti_dpi = opts.anti_dpi && !quiet;
+        if anti_dpi && !xray_bin.exists() {
+            warning.get_or_insert_with(|| "Anti-DPI needs the Xray core. Install it in Settings, Cores".to_string());
+        }
+        if plan.needs_sidecar() || (anti_dpi && xray_bin.exists()) {
             if !xray_bin.exists() {
                 for b in std::mem::take(&mut plan.bridged) {
                     plan.dropped.push((b, "needs Xray, which is not installed".into()));
@@ -981,12 +987,21 @@ impl Engine {
                 for (n, port) in &bridged {
                     bridges.insert(n.name.clone(), *port);
                 }
-                // In TUN mode the bridge's own connections to its servers would be captured
-                // and routed back into the bridge. Exempt them by process (rule mode) and by
-                // destination address (all modes, rules or not).
+                if anti_dpi {
+                    opts.anti_dpi_port = Some(free_port());
+                }
+                // In TUN mode Xray's own connections to the servers would be captured and
+                // routed back into it, and TUN would also undo Anti-DPI's small pieces.
+                // Exempt them by process (rule mode) and by destination address (all modes,
+                // rules or not). With Anti-DPI Xray connects to every server.
                 opts.bypass_processes = vec![cores::binary_name(CoreKind::Xray).to_string()];
-                if opts.tun.enabled {
-                    opts.tun_exclude = resolve_servers(bridged.iter().map(|(n, _)| (n.server.as_str(), n.port))).await;
+                // On Android Kova's own traffic, Xray's included, is outside the VPN already.
+                if opts.tun.enabled && opts.tun_fd.is_none() {
+                    opts.tun_exclude = if anti_dpi {
+                        resolve_servers(nodes.iter().map(|n| (n.server.as_str(), n.port))).await
+                    } else {
+                        resolve_servers(bridged.iter().map(|(n, _)| (n.server.as_str(), n.port))).await
+                    };
                 }
                 let cfg = run_dir.join("xray-sidecar.json");
                 std::fs::write(&cfg, gen_xray::sidecar(&bridged, &opts))?;
