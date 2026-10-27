@@ -17,7 +17,7 @@
   let sel = $derived(app.profiles.find((p) => p.id === (selectedId ?? app.settings?.active_profile)) ?? app.profiles[0]);
   $effect(() => { void sel?.id; confirmDelete = false; });
 
-  let FORMAT = $derived<Record<Profile['format'], string>>({ clash: 'Clash / Mihomo YAML', 'sing-box': 'sing-box JSON', links: t('Share links') });
+  let FORMAT = $derived<Record<Profile['format'], string>>({ clash: 'Clash / Mihomo YAML', 'sing-box': 'sing-box JSON', xray: 'Xray JSON', links: t('Share links') });
   const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
 
   async function update(id: string) {

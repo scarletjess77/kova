@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::model::{Node, dedupe_names};
-use crate::{clash, links, singbox};
+use crate::{clash, links, singbox, xray_json};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -12,6 +12,8 @@ pub enum Format {
     /// A full Clash / Mihomo config. Kept verbatim so its groups and rules survive.
     Clash,
     SingBox,
+    /// An Xray config, or a list of them (one per server, as panels send it).
+    Xray,
     /// Plain or base64 list of share links.
     Links,
 }
@@ -21,6 +23,7 @@ impl Format {
         match self {
             Format::Clash => "Clash / Mihomo YAML",
             Format::SingBox => "sing-box JSON",
+            Format::Xray => "Xray JSON",
             Format::Links => "Share links",
         }
     }
@@ -49,8 +52,12 @@ pub fn parse(body: &str) -> Result<Parsed, ParseError> {
         return Err(ParseError::Empty);
     }
 
-    if body.starts_with('{') {
+    if body.starts_with('{') || body.starts_with('[') {
         if let Ok(doc) = serde_json::from_str::<Value>(body) {
+            if xray_json::looks_like(&doc) {
+                let (mut nodes, warnings) = xray_json::parse(&doc);
+                return finish(Format::Xray, &mut nodes, warnings);
+            }
             if doc.get("outbounds").is_some() {
                 let (mut nodes, warnings) = singbox::parse_outbounds(&doc);
                 return finish(Format::SingBox, &mut nodes, warnings);

@@ -114,7 +114,7 @@ export interface Profile {
   id: string;
   name: string;
   source: Source;
-  format: 'clash' | 'sing-box' | 'links';
+  format: 'clash' | 'sing-box' | 'xray' | 'links';
   core: CorePreference;
   node_count: number;
   usage: UserInfo | null;
