@@ -54,13 +54,14 @@
   let svcOutdated = $derived(!!svc?.running && svc.outdated);
   async function installSvc() {
     svcBusy = 'install';
-    await app.run(() => api.serviceInstall(), svc?.installed ? t('Kova service updated') : t('Kova service installed. TUN mode no longer needs administrator rights'));
+    const linux = app.platform === 'linux';
+    await app.run(() => api.serviceInstall(), linux ? t('TUN mode can be used now') : svc?.installed ? t('Kova service updated') : t('Kova service installed. TUN mode no longer needs administrator rights'));
     svcBusy = null;
     await loadSvc();
   }
   async function removeSvc() {
     svcBusy = 'remove';
-    await app.run(() => api.serviceUninstall(), t('Kova service removed'));
+    await app.run(() => api.serviceUninstall(), app.platform === 'linux' ? t('Network rights taken back') : t('Kova service removed'));
     svcBusy = null;
     await loadSvc();
   }
@@ -198,8 +199,10 @@
             {/each}
           </div>
         </div>
-        {#if app.platform === 'linux' || app.platform === 'macos'}
-          <p class="hint">{t('TUN captures every app, including games and UDP. On Linux and macOS it needs administrator rights for now: start Kova with sudo to use it. The system proxy works without them.')}</p>
+        {#if app.platform === 'linux'}
+          <p class="hint">{t('TUN captures every app, including games and UDP. It needs network rights: Kova asks for your password once and gives them to its copy of Mihomo only, so Kova itself never runs as root.')}</p>
+        {:else if app.platform === 'macos'}
+          <p class="hint">{t('TUN captures every app, including games and UDP. On macOS it needs administrator rights for now: start Kova with sudo to use it. The system proxy works without them.')}</p>
         {:else}
           <p class="hint">{t('TUN captures every app, including games and UDP. It needs system rights, which the Kova service provides so Kova itself never runs as administrator.')}</p>
         {/if}
@@ -207,17 +210,25 @@
           <div class="svc">
             <span class="led" class:on={svc.running}></span>
             <div class="svc-text">
-              <div class="t">{t('Kova service')}</div>
-              <div class="d">
-                {#if svc.running}{t('Running · version {version}', { version: svc.version ?? '' })}{svc.core_version ? ` · Mihomo ${svc.core_version}` : ''}{svcOutdated ? ` · ${t('from another Kova build, update it')}` : ''}
-                {:else if svc.installed}{t('Installed but not running')}
-                {:else}{t('Not installed. Installing asks for administrator approval once.')}{/if}
-              </div>
+              {#if app.platform === 'linux'}
+                <div class="t">{t('Network rights for TUN')}</div>
+                <div class="d">
+                  {#if svc.installed}{t('Given')}{svcOutdated ? ` · ${t('Mihomo was updated since; give them again')}` : ''}
+                  {:else}{t('Not given yet. Giving them asks for your password once.')}{/if}
+                </div>
+              {:else}
+                <div class="t">{t('Kova service')}</div>
+                <div class="d">
+                  {#if svc.running}{t('Running · version {version}', { version: svc.version ?? '' })}{svc.core_version ? ` · Mihomo ${svc.core_version}` : ''}{svcOutdated ? ` · ${t('from another Kova build, update it')}` : ''}
+                  {:else if svc.installed}{t('Installed but not running')}
+                  {:else}{t('Not installed. Installing asks for administrator approval once.')}{/if}
+                </div>
+              {/if}
             </div>
             <div class="actions">
               {#if !svc.installed || !svc.running || svcOutdated}
                 <button class="btn primary" class:busy={svcBusy === 'install'} disabled={svcBusy !== null} onclick={installSvc}>
-                  {#if svcBusy === 'install'}<Icon name="refresh" />{t('Waiting for approval…')}{:else}{svc.installed ? t('Repair or update') : t('Install')}{/if}</button>
+                  {#if svcBusy === 'install'}<Icon name="refresh" />{t('Waiting for approval…')}{:else if app.platform === 'linux'}{svc.installed ? t('Give again') : t('Give rights')}{:else}{svc.installed ? t('Repair or update') : t('Install')}{/if}</button>
               {/if}
               {#if svc.installed}
                 <button class="btn ghost danger" class:busy={svcBusy === 'remove'} disabled={svcBusy !== null} onclick={removeSvc}>{t('Remove')}</button>

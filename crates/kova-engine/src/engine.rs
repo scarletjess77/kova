@@ -930,7 +930,8 @@ impl Engine {
             plan = compat::plan(&nodes, CorePreference::Auto);
         }
         let xray_bin = cores::binary_path(&cores_dir, CoreKind::Xray);
-        let mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
+        #[allow(unused_mut)]
+        let mut mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
         let asset_env: [(&str, &Path); 1] = [("XRAY_LOCATION_ASSET", cores_dir.as_path())];
 
         if plan.front == CoreKind::Xray {
@@ -986,6 +987,21 @@ impl Engine {
             opts.tun.enabled = true;
             opts.tun_fd = Some(fd);
         } else if opts.tun.enabled && !crate::process::is_elevated() {
+            #[cfg(target_os = "linux")]
+            match crate::tun_linux::granted() {
+                // The copy of Mihomo with network rights runs TUN.
+                Some(granted) if !quiet => mihomo_bin = granted,
+                _ => {
+                    opts.tun.enabled = false;
+                    warning = Some("TUN mode needs network rights once. Allow them in Settings, TUN mode".to_string());
+                }
+            }
+            #[cfg(target_os = "macos")]
+            {
+                opts.tun.enabled = false;
+                warning = Some("TUN mode on macOS needs Kova to run as administrator for now".to_string());
+            }
+            #[cfg(windows)]
             if !quiet && crate::service::hello().await.is_some() {
                 via_service = true;
             } else {

@@ -14,6 +14,8 @@ pub mod sitecheck;
 pub mod smart;
 pub mod store;
 pub mod sysproxy;
+#[cfg(target_os = "linux")]
+pub mod tun_linux;
 
 pub use engine::{Engine, Event, NodeView, Status};
 
