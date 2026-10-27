@@ -17,6 +17,7 @@
 
   async function poll() {
     now = Date.now();
+    if (document.hidden) return;
     if (paused || !app.status.running) { if (!app.status.running) rows = []; return; }
     try {
       const snap = await api.getConnections();

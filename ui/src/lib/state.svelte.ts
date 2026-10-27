@@ -189,6 +189,8 @@ class AppState {
     void this.openImportLink();
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
     window.addEventListener('popstate', this.onPopState);
+    // Hidden (tray, background app), the engine stops sending per-second figures.
+    document.addEventListener('visibilitychange', () => void api.pageVisible(!document.hidden).catch(() => {}));
     this.ready = true;
     void this.refreshProxies();
     if (this.settings?.check_updates) setTimeout(() => void this.checkForUpdate(true), 5000);

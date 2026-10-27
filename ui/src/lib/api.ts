@@ -169,6 +169,7 @@ export interface Snapshot { status: Status; settings: Settings; profiles: Profil
 export const api = {
   getState: () => invoke<Snapshot>('get_state'),
   takeImportLink: () => invoke<string | null>('take_import_link'),
+  pageVisible: (visible: boolean) => invoke<void>('page_visible', { visible }),
   connect: () => invoke<void>('connect'),
   disconnect: () => invoke<void>('disconnect'),
   saveSettings: (settings: Settings) => invoke<Settings>('save_settings', { settings }),

@@ -49,7 +49,7 @@
   });
 
   let now = $state(Date.now());
-  const tick = setInterval(() => (now = Date.now()), 1000);
+  const tick = setInterval(() => { if (!document.hidden) now = Date.now(); }, 1000);
 
   let exit = $state<ExitInfo | null>(null);
   let exitErr = $state<string | null>(null);
@@ -74,6 +74,7 @@
 
   let connCount = $state(0);
   const poll = setInterval(async () => {
+    if (document.hidden) return;
     if (!app.status.running) { connCount = 0; return; }
     try { connCount = (await api.getConnections()).connections.length; } catch { /* core restarting */ }
   }, 3000);
