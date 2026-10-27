@@ -12,6 +12,11 @@
   import Icon from '../components/Icon.svelte';
 
   let appVersion = $state('');
+  // Members of the group traffic starts in ("Proxy", or an imported config's first
+  // selector), for the server used on mobile data.
+  let mainServers = $derived(
+    (app.proxies.groups.find((g) => g.name === 'Proxy') ?? app.proxies.groups.find((g) => g.type === 'Selector' && g.name !== 'GLOBAL'))?.all ?? [],
+  );
   let pickingApps = $state(false);
   let lanIp = $state<string | null>(null);
   $effect(() => { if (app.settings?.core.allow_lan) void api.lanAddress().then((v) => (lanIp = v), () => {}); });
@@ -167,6 +172,13 @@
               ? tn(s.vpn_apps.apps.length, 'Only {n} chosen app', 'Only {n} chosen apps')
               : tn(s.vpn_apps.apps.length, 'All but {n} chosen app', 'All but {n} chosen apps')}</div></div>
             <button class="btn" onclick={() => (pickingApps = true)}>{t('Choose')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Server on mobile data')}</div><div class="d">{t('Mobile networks may only let through whitelisted sites. Choose a server that works there, such as one in Russia or behind a CDN; Kova switches to it on mobile data and back on Wi-Fi.')}</div></div>
+            <select class="input mobile-server" aria-label={t('Server on mobile data')} value={s.mobile_server ?? ''}
+              onchange={(e) => { const v = e.currentTarget.value; void app.saveSettings((x) => (x.mobile_server = v || null)); }}>
+              <option value="">{t('Same as on Wi-Fi')}</option>
+              {#each mainServers as n (n)}<option value={n}>{n}</option>{/each}
+              {#if s.mobile_server && !mainServers.includes(s.mobile_server)}<option value={s.mobile_server}>{s.mobile_server}</option>{/if}
+            </select></div>
           <div class="row-sw"><div><div class="t">{t('Always-on VPN')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN.')}</div></div>
             <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
           <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
@@ -439,4 +451,5 @@
   .sw.split { display: flex; }
   .sw.split > span { position: relative; flex: 1; background: var(--win); }
   .sw.split i { right: 8px; }
+  .mobile-server { max-width: 46%; }
 </style>

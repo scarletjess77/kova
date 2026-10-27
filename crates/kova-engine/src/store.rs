@@ -143,6 +143,9 @@ pub struct Settings {
     /// A random value made once per install and sent to subscription servers, which
     /// count devices by it. Not derived from the hardware.
     pub device_id: String,
+    /// Android: the server (or group) of the main group to use on mobile data, where
+    /// whitelists apply; Wi-Fi keeps the one chosen as usual. `None`: the same on both.
+    pub mobile_server: Option<String>,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -186,6 +189,7 @@ impl Default for Settings {
             vpn_apps: VpnApps::default(),
             auto_switch: true,
             device_id: String::new(),
+            mobile_server: None,
         }
     }
 }

@@ -7,6 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
 import androidx.core.app.NotificationCompat
@@ -157,6 +160,7 @@ class KovaVpnService : VpnService() {
             speeds = ""
             showNotification(waiting = false)
             stateChanged(this)
+            watchNetwork()
             // From here the descriptor belongs to the Rust side, which closes it.
             done(tunnel.detachFd(), null)
         } catch (e: Exception) {
@@ -171,6 +175,7 @@ class KovaVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        stopWatchingNetwork()
         if (instance === this) {
             active = false
             instance = null
@@ -179,7 +184,46 @@ class KovaVpnService : VpnService() {
         super.onDestroy()
     }
 
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var lastNetwork: String? = null
+
+    /**
+     * Tell Kova when the phone moves between Wi-Fi and mobile data, so it can use another
+     * server on mobile data. Kova itself is outside its own VPN, so its default network
+     * is the real one.
+     */
+    private fun watchNetwork() {
+        stopWatchingNetwork()
+        val cm = getSystemService(ConnectivityManager::class.java) ?: return
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+                val kind = if (caps.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) "mobile" else "wifi"
+                if (kind != lastNetwork) {
+                    lastNetwork = kind
+                    Actions.send("network:$kind", keep = true)
+                }
+            }
+        }
+        try {
+            cm.registerDefaultNetworkCallback(callback)
+            networkCallback = callback
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun stopWatchingNetwork() {
+        val callback = networkCallback ?: return
+        networkCallback = null
+        lastNetwork = null
+        try {
+            getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback)
+        } catch (_: Exception) {
+        }
+    }
+
     private fun shutdown() {
+        stopWatchingNetwork()
         if (Build.VERSION.SDK_INT >= 24) stopForeground(STOP_FOREGROUND_REMOVE) else @Suppress("DEPRECATION") stopForeground(true)
         stopSelf()
         stateChanged(this)

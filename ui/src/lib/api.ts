@@ -79,6 +79,8 @@ export interface Settings {
   auto_switch: boolean;
   /** Random per-install ID sent to subscription servers. */
   device_id: string;
+  /** Android: the main group's member to use on mobile data; null for the same as on Wi-Fi. */
+  mobile_server: string | null;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';

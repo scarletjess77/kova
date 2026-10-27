@@ -646,3 +646,67 @@ async fn anti_dpi_carries_tls_traffic() {
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
+
+/// Android: on mobile data Kova uses the server set for it, and on Wi-Fi the usual
+/// choice again, without overwriting that choice.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn mobile_data_uses_its_own_server() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom" }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.mobile_server = Some("Relay".into());
+    engine.update_settings(s).await.unwrap();
+    let links = format!(
+        "vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Home\n\
+         vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Relay\n"
+    );
+    engine.add_profile(&links, Some("Mobile".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    engine.select(PROXY, "Home").await.unwrap();
+    let now = |e: &std::sync::Arc<Engine>| {
+        let e = e.clone();
+        async move { e.proxies().await.unwrap().groups.into_iter().find(|g| g.name == PROXY).unwrap().now }
+    };
+
+    engine.network_changed(true).await;
+    assert_eq!(now(&engine).await, "Relay", "mobile data uses its own server");
+    engine.network_changed(false).await;
+    assert_eq!(now(&engine).await, "Home", "Wi-Fi goes back to the usual choice");
+    assert_eq!(engine.settings().selections.values().next().map(String::as_str), Some("Home"), "the usual choice is kept");
+
+    // Connecting while on mobile data starts on its server.
+    engine.network_changed(true).await;
+    engine.restart().await.unwrap();
+    assert_eq!(now(&engine).await, "Relay");
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}

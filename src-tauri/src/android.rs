@@ -242,6 +242,10 @@ pub fn listen_for_actions(app: AppHandle, engine: Arc<Engine>) {
             let done = match a.action.as_str() {
                 "connect" => connect(&app, &engine).await,
                 "disconnect" => disconnect(&app, &engine).await,
+                "network:mobile" | "network:wifi" => {
+                    engine.network_changed(a.action == "network:mobile").await;
+                    Ok(())
+                }
                 _ => Ok(()),
             };
             if let Err(e) = done {

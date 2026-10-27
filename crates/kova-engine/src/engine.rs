@@ -180,6 +180,8 @@ pub struct Engine {
     node_failures: std::sync::atomic::AtomicU32,
     /// The screen is off (Android): background checks run less often.
     quiet: std::sync::atomic::AtomicBool,
+    /// Android: the phone is on mobile data rather than Wi-Fi (see `mobile_server`).
+    on_mobile: std::sync::atomic::AtomicBool,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -287,6 +289,7 @@ impl Engine {
             tun_fd: std::sync::Mutex::new(None),
             node_failures: Default::default(),
             quiet: Default::default(),
+            on_mobile: Default::default(),
             events,
             me: me.clone(),
         }))
@@ -692,6 +695,12 @@ impl Engine {
                     // restored right after and wins.
                     let _ = api.select("GLOBAL", &main_group).await;
                     self.restore_selections(&api).await;
+                    // Connected on mobile data: its own server, over the saved choice.
+                    if self.on_mobile.load(std::sync::atomic::Ordering::Relaxed) {
+                        if let Some(server) = self.settings().mobile_server {
+                            let _ = api.select(&main_group, &server).await;
+                        }
+                    }
                 }
                 if let Err(e) = self.apply_system_proxy() {
                     self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("could not set the system proxy: {e}") });
@@ -1535,6 +1544,36 @@ impl Engine {
     /// Android: the screen went off or on.
     pub fn set_quiet(&self, quiet: bool) {
         self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Android: the phone moved between Wi-Fi and mobile data. With a server set for
+    /// mobile data, switch to it there and back to the usual choice on Wi-Fi. Neither
+    /// switch is saved as the user's choice, which stays the Wi-Fi one.
+    pub async fn network_changed(&self, mobile: bool) {
+        use std::sync::atomic::Ordering::Relaxed;
+        if self.on_mobile.swap(mobile, Relaxed) == mobile {
+            return;
+        }
+        let Some(server) = self.settings().mobile_server else { return };
+        let (api, main) = {
+            let run = self.run.lock().await;
+            match run.as_ref() {
+                Some(r) => (r.api.clone(), r.main_group.clone()),
+                None => return,
+            }
+        };
+        let Some(api) = api else { return };
+        let target = if mobile {
+            server
+        } else {
+            self.settings().selections.get(&self.selection_key(&main)).cloned().unwrap_or_else(|| AUTO.to_string())
+        };
+        if api.select(&main, &target).await.is_ok() {
+            // Connections made on the other network keep their old route; start them over.
+            let _ = api.close_all().await;
+            let text = if mobile { format!("Mobile data: switched to {target}") } else { format!("Wi-Fi: back to {target}") };
+            self.emit(Event::Notice { text });
+        }
     }
 
     /// The main group while connected: its name, its current choice and its members,
