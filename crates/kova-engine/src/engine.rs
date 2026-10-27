@@ -1522,6 +1522,19 @@ impl Engine {
         self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// The main group while connected: its name, its current choice and its members,
+    /// for picking a server outside the window (the tray).
+    pub async fn main_choices(&self) -> Option<(String, String, Vec<String>)> {
+        let (api, main) = {
+            let run = self.run.lock().await;
+            let r = run.as_ref()?;
+            (r.api.clone()?, r.main_group.clone())
+        };
+        let snap = api.proxies().await.ok()?;
+        let g = snap.groups.into_iter().find(|g| g.name == main)?;
+        Some((g.name, g.now, g.all))
+    }
+
     /// The node traffic goes through now: the main group's choice, followed through
     /// groups that choose themselves (Auto, Fallback).
     pub async fn current_node(&self) -> Option<String> {

@@ -269,8 +269,10 @@ async fn get_proxies(engine: Eng<'_>) -> R<ProxySnapshot> {
 }
 
 #[tauri::command]
-async fn select_proxy(engine: Eng<'_>, group: String, name: String) -> R<()> {
-    engine.select(&group, &name).await
+async fn select_proxy(app: AppHandle, engine: Eng<'_>, group: String, name: String) -> R<()> {
+    engine.select(&group, &name).await?;
+    refresh_ui(&app);
+    Ok(())
 }
 
 #[tauri::command]
@@ -566,7 +568,8 @@ fn forward_events(app: AppHandle, engine: Arc<Engine>) {
         loop {
             match rx.recv().await {
                 Ok(ev) => {
-                    let is_status = matches!(ev, Event::Status(_));
+                    // The tray lists the profiles and the servers, and shows the status.
+                    let is_status = matches!(ev, Event::Status(_) | Event::Profiles);
                     let _ = app.emit("engine", &ev);
                     if is_status {
                         refresh_ui(&app);
