@@ -124,12 +124,25 @@
   --ok: #74c79a; --ok-soft: #0e1c14; --warn: #d9b061; --warn-soft: #221c0e; --bad: #e5756c; --bad-soft: #240f0e;
   --shadow: 0 0 0 1px #26262c, 0 18px 50px rgb(0 0 0 / .8);
   --f-display: 'Press Start 2P', ui-monospace, monospace;
-  --f-ui: 'Pixelify Sans Variable', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Kova Pixel Digits', 'Pixelify Sans Variable', 'Segoe UI', system-ui, sans-serif;
   --r: 0px;
   color-scheme: dark;
 }
-/* The pixel fonts have one weight each; faux bold would smear them. */
-:root[data-theme='night'] { font-synthesis: none; }
+/* Pixelify's 5 reads as an S, so digits come from Press Start 2P, scaled to sit with the
+   letters. */
+@font-face {
+  font-family: 'Kova Pixel Digits';
+  src: url('@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+  size-adjust: 72%;
+  font-display: swap;
+}
+/* The pixel fonts have one weight each; faux bold would smear them. Ligatures off: its
+   "fi" joins into one blob. */
+:root[data-theme='night'] { font-synthesis: none; font-variant-ligatures: none; }
+/* Square corners turn the round connecting spinner into a spinning bar: blink a pixel frame instead. */
+:root[data-theme='night'] .power.busy::before { border: 2px dashed var(--accent); animation: night-busy .8s steps(2, jump-none) infinite; }
+@keyframes night-busy { 0% { opacity: 1; } 100% { opacity: .2; } }
 :root[data-theme='night'] .app { background: transparent; position: relative; z-index: 1; }
 :root[data-theme='night'] *, :root[data-theme='night'] *::before, :root[data-theme='night'] *::after { border-radius: 0 !important; }
 :root[data-theme='night'] .titlebar { background: rgb(0 0 0 / .6); }
