@@ -87,9 +87,11 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
     let update = builder.build().map_err(update_error)?.check().await.map_err(update_error)?;
     let mut info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
     // latest.json is written by the build, before the release notes are; take them from
-    // the release itself.
-    if let Some(i) = info.as_mut().filter(|i| i.body.as_deref().is_none_or(|b| b.trim().is_empty())) {
-        i.body = release_notes(engine.proxy_url().as_deref(), &i.version).await;
+    // the release itself, keeping latest.json's only if GitHub doesn't answer.
+    if let Some(i) = info.as_mut()
+        && let Some(notes) = release_notes(engine.proxy_url().as_deref(), &i.version).await
+    {
+        i.body = Some(notes);
     }
     *app.state::<PendingUpdate>().0.lock().await = update;
     Ok(info)

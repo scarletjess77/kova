@@ -99,8 +99,21 @@ jobs:
           # Tags like v0.2.0-alpha.1 become pre-releases: never "latest", so installed
           # copies don't update to them.
           prerelease: ${{ contains(github.ref_name, '-') }}
-          includeUpdaterJson: true
+          # latest.json is written once, by the updater job below.
+          includeUpdaterJson: false
           args: ${{ format('--bundles {0} {1} --config {2}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '', matrix.no_cores && '{"bundle":{"createUpdaterArtifacts":true}}' || '{"bundle":{"createUpdaterArtifacts":true,"resources":{"resources/cores/":"cores/"}}}') }}
+
+  # The desktop updater's manifest, written once every desktop build has uploaded its
+  # signed package: builds that each added their part could overwrite each other's.
+  updater:
+    needs: desktop
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: node scripts/updater-json.mjs "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # One APK per processor, side by side: 64-bit phones, and 32-bit phones and TVs. Each
   # build gets only its own cores, so an APK never lists a processor it can't run on.
