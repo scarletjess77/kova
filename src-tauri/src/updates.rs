@@ -85,9 +85,23 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
         builder = builder.proxy(tauri::Url::parse(&p).map_err(|e| Error::Other(e.to_string()))?);
     }
     let update = builder.build().map_err(update_error)?.check().await.map_err(update_error)?;
-    let info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
+    let mut info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
+    // latest.json is written by the build, before the release notes are; take them from
+    // the release itself.
+    if let Some(i) = info.as_mut().filter(|i| i.body.as_deref().is_none_or(|b| b.trim().is_empty())) {
+        i.body = release_notes(engine.proxy_url().as_deref(), &i.version).await;
+    }
     *app.state::<PendingUpdate>().0.lock().await = update;
     Ok(info)
+}
+
+/// The notes of the release tagged `v{version}`, if GitHub answers.
+#[cfg(desktop)]
+async fn release_notes(proxy: Option<&str>, version: &str) -> Option<String> {
+    let c = kova_engine::fetch::client(proxy, kova_engine::fetch::APP_UA).ok()?;
+    let url = format!("https://api.github.com/repos/{RELEASES}/releases/tags/v{version}");
+    let r: serde_json::Value = c.get(url).header("Accept", "application/vnd.github+json").send().await.ok()?.error_for_status().ok()?.json().await.ok()?;
+    r["body"].as_str().map(str::to_string).filter(|b| !b.trim().is_empty())
 }
 
 /// Download, install and restart, reporting progress (0..1) as `update-progress`.
