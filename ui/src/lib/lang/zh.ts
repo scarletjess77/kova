@@ -669,6 +669,7 @@ export const zh: Dict = {
   'The server answered {status}': '服务器返回 {status}',
   '{domain} opens only directly. See Rules → Smart routing': '{domain} 只能直连打开。参见 规则 → 智能路由',
   'Add your servers': '添加服务器',
+  'Could not download the update. Connect Kova and try again': '无法下载更新。请连接 Kova 后重试',
   'No answer': '无响应',
   'Night sky': '夜空',
   'Where are you?': '你在哪里？',

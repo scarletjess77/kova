@@ -670,6 +670,7 @@ export const fa: Dict = {
   'The server answered {status}': 'سرور پاسخ {status} داد',
   '{domain} opens only directly. See Rules → Smart routing': '{domain} فقط مستقیم باز می‌شود. قوانین ← مسیریابی هوشمند را ببینید',
   'Add your servers': 'سرورهایتان را اضافه کنید',
+  'Could not download the update. Connect Kova and try again': 'دانلود به‌روزرسانی ممکن نشد. Kova را وصل کنید و دوباره تلاش کنید',
   'No answer': 'بدون پاسخ',
   'Night sky': 'آسمان شب',
   'Where are you?': 'کجا هستید؟',
