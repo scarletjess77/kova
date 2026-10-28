@@ -105,9 +105,11 @@ jobs:
 
   # The desktop updater's manifest, written once every desktop build has uploaded its
   # signed package: builds that each added their part could overwrite each other's.
+  # It runs even when a build failed or found no machine (GitHub's Macs are often busy),
+  # so the other systems still get the update; re-running that build writes it again.
   updater:
     needs: desktop
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: always() && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4

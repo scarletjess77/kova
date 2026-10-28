@@ -39,7 +39,10 @@ for (const [key, pattern] of Object.entries(PACKAGES)) {
     url: `https://github.com/${repo}/releases/download/${tag}/${name}`,
   };
 }
-if (missing.length) throw new Error(`no signed package for ${missing.join(', ')}`);
+if (!Object.keys(platforms).length) throw new Error('no signed packages in this release');
+// A system whose build is missing (say, no Mac machine was free) goes without the update
+// until its build is re-run, which writes this file again.
+if (missing.length) console.warn(`no signed package yet for ${missing.join(', ')}`);
 
 // Kova shows the release's own notes; they are written after the build.
 const manifest = { version: tag.replace(/^v/, ''), notes: '', pub_date: new Date().toISOString(), platforms };
