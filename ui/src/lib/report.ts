@@ -2,7 +2,7 @@
 // someone else use the subscription. Left in English, for whoever reads it.
 
 import { getVersion } from '@tauri-apps/api/app';
-import type { Check } from './api';
+import { api, type Check } from './api';
 import { app } from './state.svelte';
 
 /** Takes out what identifies the subscription or the device: links (which carry the
@@ -38,6 +38,10 @@ export async function buildReport(checks?: Check[] | null): Promise<string> {
   if (checks?.length) {
     lines.push('', 'Checks:');
     for (const c of checks) lines.push(`  ${c.state.padEnd(7)} ${c.id}${c.detail ? `: ${c.detail}` : ''}`);
+  }
+  const crash = await api.lastCrash().catch(() => null);
+  if (crash) {
+    lines.push('', `Last crash, ${new Date(crash.time * 1000).toISOString()}:`, ...crash.text.trim().split('\n').slice(0, 60));
   }
   const logs = app.logs.slice(-200);
   if (logs.length) {

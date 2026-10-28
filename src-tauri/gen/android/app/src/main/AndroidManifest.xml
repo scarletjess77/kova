@@ -10,6 +10,8 @@
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
     <!-- Installing Kova's own updates; Android asks the user first. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Asking once to be left out of battery saving, which stops background VPNs. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <!-- AndroidTV support -->
     <uses-feature android:name="android.software.leanback" android:required="false" />

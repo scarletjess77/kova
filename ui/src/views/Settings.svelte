@@ -8,6 +8,7 @@
   import { app } from '../lib/state.svelte';
   import { THEMES } from '../lib/themes';
   import AppPicker from '../components/AppPicker.svelte';
+  import BackupModal from '../components/BackupModal.svelte';
   import Donate from '../components/Donate.svelte';
   import Icon from '../components/Icon.svelte';
 
@@ -18,6 +19,9 @@
     (app.proxies.groups.find((g) => g.name === 'Proxy') ?? app.proxies.groups.find((g) => g.type === 'Selector' && g.name !== 'GLOBAL'))?.all ?? [],
   );
   let pickingApps = $state(false);
+  let backup = $state<'save' | 'restore' | null>(null);
+  // Makers whose phones stop apps beyond Android's own battery saving.
+  const OWN_AUTOSTART = ['xiaomi', 'redmi', 'poco', 'huawei', 'honor', 'oppo', 'realme', 'oneplus', 'vivo', 'iqoo'];
   let lanIp = $state<string | null>(null);
   $effect(() => { if (app.settings?.core.allow_lan) void api.lanAddress().then((v) => (lanIp = v), () => {}); });
   getVersion().then((v) => (appVersion = v), () => {});
@@ -186,6 +190,15 @@
             </select></div>
           <div class="row-sw"><div><div class="t">{t('Always-on VPN and kill switch')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN; also turn on Block connections without VPN to keep apps offline whenever Kova isn’t connected.')}</div></div>
             <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
+          {#if !app.tv}
+            <div class="row-sw"><div><div class="t">{t('Keep running in the background')}</div>
+              <div class="d">{app.batteryFree ? t('Battery saving leaves Kova alone.') : t('Android may stop Kova to save battery while the screen is off. Allow it to keep running.')}</div></div>
+              {#if !app.batteryFree}<button class="btn" onclick={() => app.run(() => api.allowBackground())}>{t('Allow')}</button>{/if}</div>
+            {#if OWN_AUTOSTART.includes(app.maker)}
+              <div class="row-sw"><div><div class="t">{t('Autostart')}</div><div class="d">{t('Phones by this maker also stop apps on their own. Turn on autostart for Kova there.')}</div></div>
+                <button class="btn" onclick={() => app.run(() => api.openAutostart())}>{t('Open')}</button></div>
+            {/if}
+          {/if}
           <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
         </div>
       </section>
@@ -335,7 +348,10 @@
           {/if}
           <div class="row-sw"><div><div class="t">{t('Connect on launch')}</div></div>
             <button class="switch" role="switch" aria-label={t('Connect on launch')} aria-checked={s.connect_on_launch} onclick={() => toggle((x) => x.connect_on_launch, (x, v) => (x.connect_on_launch = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Backup')}</div><div class="d">{t('All profiles and settings in one file, for another device or for safekeeping.')}</div></div>
+            <div class="actions"><button class="btn" onclick={() => (backup = 'save')}>{t('Save…')}</button><button class="btn" onclick={() => (backup = 'restore')}>{t('Restore…')}</button></div></div>
         </div>
+        {#if backup}<BackupModal mode={backup} onclose={() => (backup = null)} />{/if}
         <div class="form gap">
           <div class="fld full"><span class="lbl">{t('Theme')}</span>
             <!-- Each preview carries its own data-theme, so it shows that theme's colours. -->

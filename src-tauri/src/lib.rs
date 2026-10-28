@@ -3,10 +3,12 @@
 
 #[cfg(target_os = "android")]
 mod android;
+mod backup;
 #[cfg(desktop)]
 mod desktop;
 mod i18n;
 mod links;
+mod logfile;
 mod receive;
 mod updates;
 
@@ -498,6 +500,49 @@ async fn exit_info(engine: Eng<'_>) -> R<ExitInfo> {
     Ok(ExitInfo { ip: s("ip"), country: s("country"), country_code: s("country"), city: s("city"), network: s("org") })
 }
 
+#[derive(Serialize)]
+struct Crash {
+    /// Unix seconds.
+    time: i64,
+    text: String,
+}
+
+/// What the last crash left in the logs folder, for the report.
+#[tauri::command]
+fn last_crash() -> Option<Crash> {
+    logfile::last_crash().map(|(time, text)| Crash { time, text })
+}
+
+/// Whether Kova crashed since the window last asked: said once at start.
+#[tauri::command]
+fn crash_notice() -> bool {
+    logfile::crash_is_new()
+}
+
+/// Android: ask to be left out of battery saving.
+#[tauri::command]
+async fn allow_background(app: AppHandle) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::allow_background(&app).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(Error::Other("Only on Android".into()))
+    }
+}
+
+/// Android: the phone maker's autostart settings.
+#[tauri::command]
+async fn open_autostart(app: AppHandle) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::open_autostart(&app).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = app;
+        Err(Error::Other("Only on Android".into()))
+    }
+}
+
 /// Read a user-chosen config file for import (size-capped).
 #[tauri::command]
 fn read_text_file(path: String) -> R<String> {
@@ -688,7 +733,15 @@ fn first_run_presets(engine: &Arc<Engine>) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt().with_env_filter(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into())).init();
+    {
+        use tracing_subscriber::prelude::*;
+        // To the console, and to the log file once the data folder is known (`logfile`).
+        tracing_subscriber::registry()
+            .with(tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()))
+            .with(tracing_subscriber::fmt::layer())
+            .with(tracing_subscriber::fmt::layer().with_ansi(false).with_writer(|| logfile::Writer))
+            .init();
+    }
 
     let builder = tauri::Builder::default();
     #[cfg(desktop)]
@@ -720,6 +773,8 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             let dir: std::path::PathBuf = std::env::var_os("KOVA_DATA_DIR").map(Into::into).unwrap_or(app.path().app_data_dir()?);
+            logfile::start(&dir);
+            tracing::info!("Kova {} starting", env!("CARGO_PKG_VERSION"));
             let first_run = !kova_engine::store::Paths::new(&dir).map(|p| p.settings().exists()).unwrap_or(true);
             let engine = Engine::new(dir).map_err(|e| e.to_string())?;
             if first_run {
@@ -738,6 +793,7 @@ pub fn run() {
             #[cfg(desktop)]
             desktop::setup(app, &engine)?;
             app.manage(updates::PendingUpdate::default());
+            app.manage(backup::Opened::default());
             links::setup(app);
             let handle = app.handle().clone();
             forward_events(handle.clone(), engine.clone());
@@ -792,6 +848,14 @@ pub fn run() {
             install_core,
             exit_info,
             read_text_file,
+            last_crash,
+            crash_notice,
+            allow_background,
+            open_autostart,
+            backup::backup_save,
+            backup::backup_open,
+            backup::backup_restore,
+            backup::pick_text_file,
             geodata_info,
             update_geodata,
             service_status,
