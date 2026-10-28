@@ -719,6 +719,7 @@ export const ru: Dict = {
   'The server answered {status}': 'Сервер ответил {status}',
   '{domain} opens only directly. See Rules → Smart routing': '{domain} открывается только напрямую. См. Правила → Умная маршрутизация',
   'Add your servers': 'Добавьте серверы',
+  'Could not download the update. Connect Kova and try again': 'Не удалось скачать обновление. Подключите Kova и попробуйте снова',
   'No answer': 'Нет ответа',
   'Night sky': 'Ночное небо',
   'Where are you?': 'Где вы находитесь?',

@@ -44,6 +44,7 @@ const RULES: Rule[] = [
   [/^Enter an address starting with https:\/\/$/, () => t('Enter an address starting with https://')],
   [/^That file is larger than 8 MB/, () => t('That file is larger than 8 MB; it is unlikely to be a config')],
   [/^Check for updates first$/, () => t('Check for updates first')],
+  [/^Could not download the update\. Connect Kova and try again$/, () => t('Could not download the update. Connect Kova and try again')],
   [/^Allow Kova to install apps, then press Download update again$/, () => t('Allow Kova to install apps, then press Download update again')],
   [/^Connected without the routing data/, () => t('Connected without the routing data, which couldn’t be downloaded directly; getting it through the server')],
   [/^Routing data downloaded through the server/, () => t('Routing data downloaded through the server; every rule works now')],

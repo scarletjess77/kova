@@ -80,6 +80,10 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
             builder = builder.endpoints(vec![url]).map_err(update_error)?;
         }
     }
+    // Through Kova's proxy when connected, like the download below.
+    if let Some(p) = engine.proxy_url() {
+        builder = builder.proxy(tauri::Url::parse(&p).map_err(|e| Error::Other(e.to_string()))?);
+    }
     let update = builder.build().map_err(update_error)?.check().await.map_err(update_error)?;
     let info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
     *app.state::<PendingUpdate>().0.lock().await = update;
@@ -87,28 +91,43 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
 }
 
 /// Download, install and restart, reporting progress (0..1) as `update-progress`.
-/// Disconnects first: the installer closes Kova without the usual shutdown, which would
-/// leave the system proxy pointing at it.
+/// Downloads while still connected, through Kova's proxy: GitHub's downloads are often
+/// slow or blocked directly where Kova is needed. Then disconnects, because the installer
+/// closes Kova without the usual shutdown, which would leave the system proxy pointing at it.
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<()> {
     use tauri::Emitter;
-    let update = app.state::<PendingUpdate>().0.lock().await.clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
+    let mut update = app.state::<PendingUpdate>().0.lock().await.clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
+    update.proxy = engine.proxy_url().and_then(|p| tauri::Url::parse(&p).ok());
+    let mut attempts = 0;
+    let bytes = loop {
+        attempts += 1;
+        let (progress, mut got, mut total) = (app.clone(), 0u64, 0u64);
+        let result = update
+            .download(
+                move |chunk, len| {
+                    got += chunk as u64;
+                    total = len.unwrap_or(total);
+                    let _ = progress.emit("update-progress", if total > 0 { got as f64 / total as f64 } else { 0.0 });
+                },
+                || {},
+            )
+            .await;
+        match result {
+            Ok(bytes) => break bytes,
+            Err(e) if attempts < 3 => tracing::warn!("update download failed, trying again: {e}"),
+            Err(e) if update.proxy.is_none() => {
+                tracing::warn!("update download failed: {e}");
+                return Err(Error::Other("Could not download the update. Connect Kova and try again".into()));
+            }
+            Err(e) => return Err(update_error(e)),
+        }
+    };
     if engine.status().running {
         engine.stop().await?;
     }
-    let (progress, mut got, mut total) = (app.clone(), 0u64, 0u64);
-    update
-        .download_and_install(
-            move |chunk, len| {
-                got += chunk as u64;
-                total = len.unwrap_or(total);
-                let _ = progress.emit("update-progress", if total > 0 { got as f64 / total as f64 } else { 0.0 });
-            },
-            || {},
-        )
-        .await
-        .map_err(update_error)?;
+    update.install(bytes).map_err(update_error)?;
     // Windows has already closed Kova to run the installer; elsewhere start the new one.
     app.restart()
 }
