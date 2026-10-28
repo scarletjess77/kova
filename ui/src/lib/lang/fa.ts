@@ -575,6 +575,8 @@ export const fa: Dict = {
   '{name} ends in {n} days. Renew it with your provider.': ['{name} تا {n} روز دیگر تمام می‌شود. آن را نزد ارائه‌دهنده تمدید کنید.', '{name} تا {n} روز دیگر تمام می‌شود. آن را نزد ارائه‌دهنده تمدید کنید.', '{name} تا {n} روز دیگر تمام می‌شود. آن را نزد ارائه‌دهنده تمدید کنید.'],
   'Address for other devices': 'نشانی برای دستگاه‌های دیگر',
   '(HTTP and SOCKS5)': '(HTTP و SOCKS5)',
+  '(HTTP)': '(HTTP)',
+  '(SOCKS5)': '(SOCKS5)',
   'What Kova connects to': 'Kova به چه چیزهایی وصل می‌شود',
   'Besides your servers, Kova contacts only these, and the last four only when you use that feature:': 'جز سرورهای شما، Kova فقط با این‌ها تماس می‌گیرد، و با چهار مورد آخر فقط وقتی از آن قابلیت استفاده کنید:',
   'Kova updates, cores and routing data': 'به‌روزرسانی‌های Kova، هسته‌ها و داده‌های مسیریابی',

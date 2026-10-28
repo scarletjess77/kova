@@ -148,8 +148,30 @@ mod imp {
         Command::new("gsettings").args(args).output().ok().filter(|o| o.status.success()).map(|o| String::from_utf8_lossy(&o.stdout).trim().trim_matches('\'').to_string())
     }
 
+    /// KDE's setting, as `set` writes it: `ProxyType` 1 and `httpProxy` "http://host port".
+    fn kde() -> Option<ProxyState> {
+        let read = |key: &str| {
+            ["kreadconfig6", "kreadconfig5"].iter().find_map(|tool| {
+                Command::new(tool)
+                    .args(["--file", "kioslaverc", "--group", "Proxy Settings", "--key", key])
+                    .output()
+                    .ok()
+                    .filter(|o| o.status.success())
+                    .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
+            })
+        };
+        let kind = read("ProxyType")?;
+        let http = read("httpProxy").unwrap_or_default();
+        let (host, port) = http.trim_start_matches("http://").split_once(' ').unwrap_or((http.as_str(), ""));
+        Some(ProxyState { enabled: kind == "1", server: format!("{host}:{}", port.trim()), bypass: String::new() })
+    }
+
     pub fn get() -> Result<ProxyState, Error> {
-        let mode = gs(&["get", "org.gnome.system.proxy", "mode"]).unwrap_or_default();
+        // Without GNOME's settings (a plain KDE desktop) the state is KDE's; reading
+        // nothing there would look like "off", and disconnecting would never undo Kova's.
+        let Some(mode) = gs(&["get", "org.gnome.system.proxy", "mode"]) else {
+            return Ok(kde().unwrap_or_default());
+        };
         let host = gs(&["get", "org.gnome.system.proxy.http", "host"]).unwrap_or_default();
         let port = gs(&["get", "org.gnome.system.proxy.http", "port"]).unwrap_or_default();
         Ok(ProxyState { enabled: mode == "manual", server: format!("{host}:{port}"), bypass: String::new() })

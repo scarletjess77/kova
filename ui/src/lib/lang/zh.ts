@@ -574,6 +574,8 @@ export const zh: Dict = {
   '{name} ends in {n} days. Renew it with your provider.': ['{name} 将在 {n} 天后到期。请向服务商续费。', '{name} 将在 {n} 天后到期。请向服务商续费。', '{name} 将在 {n} 天后到期。请向服务商续费。'],
   'Address for other devices': '供其他设备使用的地址',
   '(HTTP and SOCKS5)': '（HTTP 和 SOCKS5）',
+  '(HTTP)': '（HTTP）',
+  '(SOCKS5)': '（SOCKS5）',
   'What Kova connects to': 'Kova 会连接哪些地方',
   'Besides your servers, Kova contacts only these, and the last four only when you use that feature:': '除你的服务器外，Kova 只会连接以下地址，最后四项仅在你使用相应功能时连接：',
   'Kova updates, cores and routing data': 'Kova 更新、内核和路由数据',

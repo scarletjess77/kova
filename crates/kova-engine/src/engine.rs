@@ -1078,7 +1078,12 @@ impl Engine {
             }
             if !quiet {
                 let socks = opts.mixed_port.checked_add(1).ok_or_else(|| Error::Other("Xray profiles also use the port above the proxy port; choose a proxy port below 65535".into()))?;
-                port_available(opts.listen_addr(), socks)?;
+                port_available("127.0.0.1", socks)?;
+                if opts.allow_lan {
+                    let (http_lan, socks_lan) = gen_xray::lan_ports(&opts).ok_or_else(|| Error::Other("Sharing an Xray profile with the network uses the three ports above the proxy port; choose a lower proxy port".into()))?;
+                    port_available("0.0.0.0", http_lan)?;
+                    port_available("0.0.0.0", socks_lan)?;
+                }
             }
             let selection = match self.settings().xray_selection {
                 Some(n) => Selection::Node(n),

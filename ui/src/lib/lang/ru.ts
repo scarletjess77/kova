@@ -624,6 +624,8 @@ export const ru: Dict = {
   '{name} ends in {n} days. Renew it with your provider.': ['Подписка {name} закончится через {n} день. Продлите её у провайдера.', 'Подписка {name} закончится через {n} дня. Продлите её у провайдера.', 'Подписка {name} закончится через {n} дней. Продлите её у провайдера.'],
   'Address for other devices': 'Адрес для других устройств',
   '(HTTP and SOCKS5)': '(HTTP и SOCKS5)',
+  '(HTTP)': '(HTTP)',
+  '(SOCKS5)': '(SOCKS5)',
   'What Kova connects to': 'Куда подключается Kova',
   'Besides your servers, Kova contacts only these, and the last four only when you use that feature:': 'Кроме ваших серверов, Kova обращается только сюда, причём к последним четырём — только когда вы пользуетесь этой функцией:',
   'Kova updates, cores and routing data': 'Обновления Kova, ядра и данные маршрутизации',
