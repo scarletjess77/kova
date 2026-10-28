@@ -481,13 +481,12 @@ async fn exit_info(engine: Eng<'_>) -> R<ExitInfo> {
         Ok(r) => r.json::<serde_json::Value>().await.ok(),
         Err(_) => None,
     };
-    if let Some(v) = first {
-        if v["success"].as_bool() == Some(true) {
+    if let Some(v) = first
+        && v["success"].as_bool() == Some(true) {
             let s = |k: &str| v[k].as_str().unwrap_or_default().to_string();
             let net = format!("AS{} · {}", v["connection"]["asn"].as_u64().unwrap_or(0), v["connection"]["isp"].as_str().unwrap_or_default());
             return Ok(ExitInfo { ip: s("ip"), country: s("country"), country_code: s("country_code"), city: s("city"), network: net });
         }
-    }
     let second = async { c.get("https://ipinfo.io/json").send().await?.json::<serde_json::Value>().await };
     let v = second.await.map_err(|e| {
         let mut why = kova_engine::fetch::describe(&e);
@@ -589,11 +588,10 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
         }
     }
     let s = engine.settings();
-    if s.connect_on_launch && s.active_profile.is_some() {
-        if let Err(e) = start(&app, &engine).await {
+    if s.connect_on_launch && s.active_profile.is_some()
+        && let Err(e) = start(&app, &engine).await {
             let _ = app.emit("toast", tr(l, "Could not connect: {}", &[&e.to_string()]));
         }
-    }
     // A subscription about to run out is announced a few days ahead, once a day.
     tauri::async_runtime::spawn({
         let (app, engine) = (app.clone(), engine.clone());
@@ -627,11 +625,10 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
                 tracing::warn!("auto-update of profile {id} failed: {e}");
             }
         }
-        if engine.geodata_due() {
-            if let Err(e) = engine.refresh_geodata_files(false).await {
+        if engine.geodata_due()
+            && let Err(e) = engine.refresh_geodata_files(false).await {
                 tracing::warn!("routing data update failed: {e}");
             }
-        }
         tokio::time::sleep(Duration::from_secs(15 * 60)).await;
     }
 }

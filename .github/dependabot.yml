@@ -1,0 +1,34 @@
+# Weekly pull requests for outdated dependencies, grouped so there are few of them. The
+# workflow actions are pinned to commits, and this is what keeps those pins current.
+# They go to beta, where releases start; scripts/release.mjs brings beta's commits
+# into the android branch first.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: cargo
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      cargo:
+        patterns: ["*"]
+        update-types: [minor, patch]
+  - package-ecosystem: npm
+    directory: /
+    target-branch: beta
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    groups:
+      npm:
+        patterns: ["*"]
+        update-types: [minor, patch]

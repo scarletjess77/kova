@@ -74,12 +74,11 @@ fn update_error(e: tauri_plugin_updater::Error) -> Error {
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     use tauri_plugin_updater::UpdaterExt;
     let mut builder = app.updater_builder();
-    if engine.settings().beta_updates {
-        if let Some(r) = newest_release(true, |name| name == "latest.json").await? {
+    if engine.settings().beta_updates
+        && let Some(r) = newest_release(true, |name| name == "latest.json").await? {
             let url = tauri::Url::parse(&r.asset).map_err(|e| Error::Other(e.to_string()))?;
             builder = builder.endpoints(vec![url]).map_err(update_error)?;
         }
-    }
     // Through Kova's proxy when connected, like the download below.
     if let Some(p) = engine.proxy_url() {
         builder = builder.proxy(tauri::Url::parse(&p).map_err(|e| Error::Other(e.to_string()))?);

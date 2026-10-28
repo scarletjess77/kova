@@ -153,8 +153,7 @@ mod tests {
 
     #[test]
     fn explicit_setting_wins_over_the_system() {
-        let mut s = Settings::default();
-        s.language = "ru".into();
+        let mut s = Settings { language: "ru".into(), ..Default::default() };
         assert_eq!(lang(&s), Lang::Ru);
         s.language = "en".into();
         assert_eq!(lang(&s), Lang::En);

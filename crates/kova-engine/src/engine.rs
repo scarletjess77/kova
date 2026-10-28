@@ -105,6 +105,8 @@ enum Purpose {
 }
 
 /// The core that owns the ports: a child process, or Mihomo inside the Kova service.
+/// One exists per connection, so the size difference between the two doesn't matter.
+#[allow(clippy::large_enum_variant)]
 enum Front {
     Local(CoreProcess),
     Service(crate::service::RemoteCore),
@@ -261,7 +263,7 @@ async fn cert_pins<'a>(xray: &Path, nodes: impl Iterator<Item = &'a Node>) -> Ha
         let out = tokio::time::timeout(Duration::from_secs(6), tokio::process::Command::from(cmd).kill_on_drop(true).output()).await.ok()?.ok()?;
         // The last one is the handshake made with the name.
         let text = String::from_utf8_lossy(&out.stdout);
-        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).last()?.to_string();
+        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).next_back()?.to_string();
         Some((n.name.clone(), pin))
     });
     futures_util::future::join_all(pings).await.into_iter().flatten().collect()
