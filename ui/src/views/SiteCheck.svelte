@@ -217,7 +217,7 @@
 
 <style>
   .tests { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; align-items: start; }
-  .aside-btn { margin-left: auto; }
+  .aside-btn { margin-inline-start: auto; }
   .small { font-size: 12.5px; margin: 0; }
   .speeds { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0 0 6px; }
   .speeds dt { color: var(--muted); }

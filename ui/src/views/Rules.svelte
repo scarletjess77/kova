@@ -397,7 +397,7 @@
   .preset { display: flex; gap: 12px; align-items: flex-start; }
   .preset .t { font-weight: 600; font-size: 13.5px; }
   .preset .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .preset .switch { margin-left: auto; margin-top: 2px; }
+  .preset .switch { margin-inline-start: auto; margin-top: 2px; }
   .link { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
   .add { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px auto; gap: 8px; }
   .ai { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }
@@ -405,7 +405,7 @@
   @container (max-width: 760px) { .add { grid-template-columns: 1fr 1fr; } }
   .list { margin-top: 12px; }
   .small { font-size: 12px; }
-  .grip-cell { width: 1%; padding-right: 0; }
+  .grip-cell { width: 1%; padding-inline-end: 0; }
   .grip { border: 0; background: none; color: var(--faint); width: 22px; height: 26px; border-radius: 5px; display: grid; place-items: center; cursor: grab; touch-action: none; }
   .grip:hover { color: var(--fg); background: var(--sunk); }
   .grip:active { cursor: grabbing; }
@@ -425,7 +425,7 @@
   .sugg-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; font-size: 13px; }
   .sugg-text span { color: var(--muted); }
   .smart .card-h { gap: 8px; }
-  .aside-sw { margin-left: auto; }
+  .aside-sw { margin-inline-start: auto; }
   .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
   .small-btn { height: 26px; padding: 0 9px; font-size: 12px; }
   .gap { margin-top: 10px; }

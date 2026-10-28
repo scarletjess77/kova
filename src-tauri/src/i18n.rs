@@ -7,6 +7,8 @@ use kova_engine::store::Settings;
 pub enum Lang {
     En,
     Ru,
+    Fa,
+    Zh,
 }
 
 /// The system's display language as a BCP 47 tag, such as "ru-RU".
@@ -14,13 +16,22 @@ pub fn system_language() -> String {
     sys_locale::get_locale().unwrap_or_else(|| "en-US".into())
 }
 
-/// The language to show for the `language` setting ("system", "en" or "ru").
+/// The language to show for the `language` setting ("system" or a language code).
 pub fn lang(s: &Settings) -> Lang {
     let tag = match s.language.as_str() {
-        "en" | "ru" => s.language.clone(),
+        "en" | "ru" | "fa" | "zh" => s.language.clone(),
         _ => system_language(),
     };
-    if tag.to_ascii_lowercase().starts_with("ru") { Lang::Ru } else { Lang::En }
+    let tag = tag.to_ascii_lowercase();
+    if tag.starts_with("ru") {
+        Lang::Ru
+    } else if tag.starts_with("fa") {
+        Lang::Fa
+    } else if tag.starts_with("zh") {
+        Lang::Zh
+    } else {
+        Lang::En
+    }
 }
 
 const RU: &[(&str, &str)] = &[
@@ -48,12 +59,68 @@ const RU: &[(&str, &str)] = &[
     ("{} has used {}% of its traffic", "Подписка {} израсходовала {}% трафика"),
 ];
 
+const FA: &[(&str, &str)] = &[
+    ("Connect", "اتصال"),
+    ("Disconnect", "قطع اتصال"),
+    ("Routing mode", "حالت مسیریابی"),
+    ("Rule", "قوانین"),
+    ("Global", "سراسری"),
+    ("Direct", "مستقیم"),
+    ("System proxy", "پراکسی سیستم"),
+    ("TUN mode", "حالت TUN"),
+    ("Open Kova", "باز کردن Kova"),
+    ("Server", "سرور"),
+    ("Profile", "پروفایل"),
+    ("Quit Kova", "خروج از Kova"),
+    ("Kova: connected ({})", "Kova: متصل ({})"),
+    ("Kova: disconnected", "Kova: قطع"),
+    ("Downloading {}…", "در حال دانلود {}…"),
+    ("{} {} installed", "{} {} نصب شد"),
+    ("Could not install {}: {}", "نصب {} ممکن نشد: {}"),
+    ("Could not connect: {}", "اتصال ممکن نشد: {}"),
+    ("{} stopped answering; switched to {}", "{} پاسخ نمی‌دهد؛ به {} تغییر کرد"),
+    ("{} has expired", "اشتراک {} منقضی شده است"),
+    ("{} ends in {} days", "اشتراک {} تا {} روز دیگر تمام می‌شود"),
+    ("{} has used {}% of its traffic", "اشتراک {} {}% از ترافیکش را مصرف کرده است"),
+];
+
+const ZH: &[(&str, &str)] = &[
+    ("Connect", "连接"),
+    ("Disconnect", "断开连接"),
+    ("Routing mode", "路由模式"),
+    ("Rule", "规则"),
+    ("Global", "全局"),
+    ("Direct", "直连"),
+    ("System proxy", "系统代理"),
+    ("TUN mode", "TUN 模式"),
+    ("Open Kova", "打开 Kova"),
+    ("Server", "服务器"),
+    ("Profile", "配置"),
+    ("Quit Kova", "退出 Kova"),
+    ("Kova: connected ({})", "Kova：已连接（{}）"),
+    ("Kova: disconnected", "Kova：已断开"),
+    ("Downloading {}…", "正在下载 {}…"),
+    ("{} {} installed", "已安装 {} {}"),
+    ("Could not install {}: {}", "无法安装 {}：{}"),
+    ("Could not connect: {}", "无法连接：{}"),
+    ("{} stopped answering; switched to {}", "{} 无响应；已切换到 {}"),
+    ("{} has expired", "{} 已过期"),
+    ("{} ends in {} days", "{} 将在 {} 天后到期"),
+    ("{} has used {}% of its traffic", "{} 已使用 {}% 的流量"),
+];
+
 /// `en` in `lang`, with each `{}` replaced by the next of `args`.
 pub fn tr(lang: Lang, en: &'static str, args: &[&str]) -> String {
-    let text = match lang {
-        Lang::En => en,
-        Lang::Ru => RU.iter().find(|(k, _)| *k == en).map_or(en, |(_, v)| v),
+    let table = match lang {
+        Lang::En => return fill(en, args),
+        Lang::Ru => RU,
+        Lang::Fa => FA,
+        Lang::Zh => ZH,
     };
+    fill(table.iter().find(|(k, _)| *k == en).map_or(en, |(_, v)| v), args)
+}
+
+fn fill(text: &str, args: &[&str]) -> String {
     let mut parts = text.split("{}");
     let mut out = parts.next().unwrap_or_default().to_string();
     for (i, part) in parts.enumerate() {
@@ -69,8 +136,11 @@ mod tests {
 
     #[test]
     fn translations_keep_their_placeholders() {
-        for (en, ru) in RU {
-            assert_eq!(en.matches("{}").count(), ru.matches("{}").count(), "{en}");
+        for table in [RU, FA, ZH] {
+            assert_eq!(table.len(), RU.len());
+            for (en, t) in table {
+                assert_eq!(en.matches("{}").count(), t.matches("{}").count(), "{en}");
+            }
         }
     }
 
@@ -88,5 +158,9 @@ mod tests {
         assert_eq!(lang(&s), Lang::Ru);
         s.language = "en".into();
         assert_eq!(lang(&s), Lang::En);
+        s.language = "fa".into();
+        assert_eq!(lang(&s), Lang::Fa);
+        s.language = "zh".into();
+        assert_eq!(lang(&s), Lang::Zh);
     }
 }

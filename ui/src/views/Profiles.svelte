@@ -157,7 +157,7 @@
   .pf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
   @container (max-width: 820px) { .pf { grid-template-columns: minmax(0, 1fr); } }
   .plist { display: flex; flex-direction: column; gap: 10px; }
-  .prof { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: left; }
+  .prof { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; }
   .prof:hover { border-color: var(--line-2); }
   .prof[aria-current='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-2); margin-top: 2px; display: grid; place-items: center; }
@@ -174,6 +174,6 @@
   .ua { width: 220px; font-size: 12px; }
   .announce { margin: 0; padding: 9px 11px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
   .warn-box { font-size: 12.5px; color: var(--warn); }
-  .warn-box ul { margin: 8px 0 0; padding-left: 18px; color: var(--muted); font-size: 11.5px; }
+  .warn-box ul { margin: 8px 0 0; padding-inline-start: 18px; color: var(--muted); font-size: 11.5px; }
   .confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 </style>

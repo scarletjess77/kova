@@ -35,7 +35,7 @@
   .modal.wide { width: min(860px, 100%); }
   header { display: flex; align-items: center; gap: 10px; padding: 16px 18px; border-bottom: 1px solid var(--line); }
   h3 { margin: 0; font: 600 16px var(--f-ui); }
-  header .x { margin-left: auto; }
+  header .x { margin-inline-start: auto; }
   .body { padding: 18px; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   footer { display: flex; justify-content: flex-end; gap: 8px; padding: 14px 18px; border-top: 1px solid var(--line); }
 </style>

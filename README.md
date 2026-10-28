@@ -19,7 +19,7 @@
 - **Checks.** "What's wrong?" diagnostics, a site check (direct and through Kova), a privacy check (exit IP, encrypted DNS, IPv6 leaks) and a speed test.
 - **TUN mode** on Windows without running as administrator, through a small [service](docs/how-it-works.md#tun-mode-and-the-kova-service); on Linux after granting rights once. On Android: a per-app VPN, a quick-settings tile, a widget and always-on support.
 - **Safe by default.** Subscriptions are stored encrypted on Windows (DPAPI) and owner-only elsewhere, downloads are checked by SHA-256, updates are signed, the core controller listens on localhost only with a secret, and the system proxy is restored after a crash.
-- **English and Russian**, and 11 themes: dark, light, OLED black, dim, warm paper, high contrast, Nord, Catppuccin, Dracula, Gruvbox and Solarized.
+- **English, Russian, Persian and Chinese**, and 12 themes: dark, light, OLED black, dim, warm paper, high contrast, Night sky (pixel stars, with the moon showing what is left of the subscription), Nord, Catppuccin, Dracula, Gruvbox and Solarized.
 
 <p>
   <img src=".github/screenshots/proxies.png" width="49%" alt="Proxies">

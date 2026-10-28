@@ -99,7 +99,7 @@
                 <span class="r1">
                   <span class="cc">{#if sub}<Icon name="bolt" />{:else}{countryCode(name) ?? '··'}{/if}</span>
                   <b title={name}>{displayName(name)}</b>
-                  <Latency delay={app.delayOf(name)} testing={app.testing.has(app.resolve(name))} />
+                  <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
                 </span>
                 {#if sub}
                   <span class="r2"><span class="chip mono">{t('group')}</span><span class="tr">{t('now {name}', { name: displayName(app.resolve(name)) })}</span></span>
@@ -126,16 +126,16 @@
   .px { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; align-items: start; }
   @container (max-width: 700px) { .px { grid-template-columns: minmax(0, 1fr); } }
   .groups { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; }
-  .grp { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: left; min-width: 0; }
+  .grp { display: flex; flex-direction: column; gap: 3px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; min-width: 0; }
   .grp:hover { border-color: var(--line-2); }
   .grp[aria-current='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .top b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .top .chip { margin-left: auto; height: 19px; font-size: 10.5px; }
+  .top .chip { margin-inline-start: auto; height: 19px; font-size: 10.5px; }
   .now { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .grp-note { font-size: 12.5px; color: var(--muted); margin: 0 0 12px; display: flex; gap: 8px; align-items: center; min-height: 22px; }
   .nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
-  .node { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: left; min-width: 0; }
+  .node { display: flex; flex-direction: column; gap: 9px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; min-width: 0; }
   .node:hover { border-color: var(--line-2); }
   .node[aria-pressed='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
   .r1 { display: flex; align-items: center; gap: 8px; min-width: 0; }

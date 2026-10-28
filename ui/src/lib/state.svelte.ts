@@ -4,7 +4,7 @@ import { listen } from '@tauri-apps/api/event';
 import { friendly } from './errors';
 import { enableTvNavigation } from './tvnav';
 import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo } from './api';
-import { i18n, resolveLang, t, tn } from './i18n.svelte';
+import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
@@ -301,6 +301,7 @@ class AppState {
     else document.documentElement.setAttribute('data-theme', theme.id);
     i18n.lang = resolveLang(this.settings?.language, this.systemLang);
     document.documentElement.lang = i18n.lang;
+    document.documentElement.dir = isRtl(i18n.lang) ? 'rtl' : 'ltr';
   }
 
   async toggleConnection() {
@@ -396,6 +397,12 @@ class AppState {
 
   delayOf(name: string): number | null {
     return this.delays[this.resolve(name)] ?? this.proxies.proxies[this.resolve(name)]?.delay ?? null;
+  }
+
+  /** Tested and gave no answer, as opposed to not tested yet. */
+  isDead(name: string): boolean {
+    const k = this.resolve(name);
+    return k in this.delays && this.delays[k] === null;
   }
 }
 

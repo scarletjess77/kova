@@ -101,6 +101,6 @@
   .nm .t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nm .p { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
-  .count { margin-right: auto; font-size: 12.5px; }
+  .count { margin-inline-end: auto; font-size: 12.5px; }
   .muted { padding: 8px 2px; }
 </style>

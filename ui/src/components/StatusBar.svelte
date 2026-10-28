@@ -25,6 +25,6 @@
   .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
   .sp { flex: 1; }
   .num { font-size: 11.5px; }
-  .led { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; margin-right: 6px; }
+  .led { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; margin-inline-end: 6px; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 </style>

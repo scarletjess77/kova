@@ -352,7 +352,7 @@
           <div class="fld full"><span class="lbl">{t('Language')}</span>
             <!-- Language names stay in their own language, so they can be found whatever is shown. -->
             <div class="seg" role="group" aria-label={t('Language')}>
-              {#each [['system', t('Match system')], ['en', 'English'], ['ru', 'Русский']] as [v, l] (v)}
+              {#each [['system', t('Match system')], ['en', 'English'], ['ru', 'Русский'], ['fa', 'فارسی'], ['zh', '中文']] as [v, l] (v)}
                 <button aria-pressed={s.language === v} onclick={() => set((x) => (x.language = v))}>{l}</button>
               {/each}
             </div></div>
@@ -432,7 +432,7 @@
   .set { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
   .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   @container (max-width: 900px) { .set { grid-template-columns: minmax(0, 1fr); } }
-  .aside-btn, .aside-sw { margin-left: auto; }
+  .aside-btn, .aside-sw { margin-inline-start: auto; }
   .core { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
   .core:first-of-type { border-top: 0; padding-top: 0; }
   .ico { grid-row: span 2; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--sunk); border: 1px solid var(--line); font: 700 12px var(--f-display); }

@@ -1,4 +1,4 @@
-// Checks the Russian dictionary against the texts in the UI: every t()/tn()/tx() text
+// Checks each translation (ru, fa, zh) against the texts in the UI: every t()/tn()/tx() text
 // needs a translation, every translation must still be used, counted texts need their
 // plural forms, and a text and its translation must have the same {placeholders}.
 // Run by `npm run check`.
@@ -28,24 +28,27 @@ for (const f of files(root)) {
   for (const m of src.matchAll(/(?<![\w.$])tx?\(\s*(?!')/g)) console.log(`note: ${name}:${src.slice(0, m.index).split('\n').length} translates a computed text`);
 }
 
-const dict = new Map(); // text -> { vals, counted }
-const ruSrc = readFileSync(join(root, 'lib', 'lang', 'ru.ts'), 'utf8');
-for (const m of ruSrc.matchAll(re(String.raw`^\s*${STR}:\s*(\[[^\]]*\]|${STR})`, 'gm'))) {
-  dict.set(m[1], { vals: [...m[2].matchAll(re(STR))].map((v) => v[1]), counted: m[2].startsWith('[') });
-}
-
 const holes = (s) => [...s.matchAll(/\{(\w+)\}/g)].map((x) => x[1]).sort().join(',');
-const problems = [];
-for (const [text, u] of used) {
-  const d = dict.get(text);
-  if (!d) { problems.push(`missing: '${text}' (${u.file})`); continue; }
-  if (u.counted !== d.counted) problems.push(u.counted ? `needs plural forms: '${text}'` : `has plural forms but isn't counted: '${text}'`);
-  for (const v of d.vals) if (holes(v) !== holes(text)) problems.push(`placeholders differ: '${text}' -> '${v}'`);
+let failed = false;
+for (const lang of ['ru', 'fa', 'zh']) {
+  const dict = new Map(); // text -> { vals, counted }
+  const src = readFileSync(join(root, 'lib', 'lang', `${lang}.ts`), 'utf8');
+  for (const m of src.matchAll(re(String.raw`^\s*${STR}:\s*(\[[^\]]*\]|${STR})`, 'gm'))) {
+    dict.set(m[1], { vals: [...m[2].matchAll(re(STR))].map((v) => v[1]), counted: m[2].startsWith('[') });
+  }
+  const problems = [];
+  for (const [text, u] of used) {
+    const d = dict.get(text);
+    if (!d) { problems.push(`missing: '${text}' (${u.file})`); continue; }
+    if (u.counted !== d.counted) problems.push(u.counted ? `needs plural forms: '${text}'` : `has plural forms but isn't counted: '${text}'`);
+    for (const v of d.vals) if (holes(v) !== holes(text)) problems.push(`placeholders differ: '${text}' -> '${v}'`);
+  }
+  for (const text of dict.keys()) if (!used.has(text)) problems.push(`unused: '${text}'`);
+  if (problems.length) {
+    console.error(`${problems.join('\n')}\n\n${problems.length} problem(s) in ui/src/lib/lang/${lang}.ts`);
+    failed = true;
+  } else {
+    console.log(`${lang}: all ${used.size} texts translated`);
+  }
 }
-for (const text of dict.keys()) if (!used.has(text)) problems.push(`unused: '${text}'`);
-
-if (problems.length) {
-  console.error(`${problems.join('\n')}\n\n${problems.length} problem(s) in ui/src/lib/lang/ru.ts`);
-  process.exit(1);
-}
-console.log(`ru: all ${used.size} texts translated`);
+if (failed) process.exit(1);
