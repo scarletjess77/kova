@@ -158,9 +158,8 @@ pub struct PendingUpdate(std::sync::Mutex<Option<Release>>);
 #[tauri::command]
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     let current = semver::Version::parse(&app.package_info().version.to_string()).map_err(|e| Error::Other(e.to_string()))?;
-    // The APK built for this device's processor: 64-bit phones, or 32-bit phones and TVs.
-    let suffix = if std::env::consts::ARCH == "arm" { "_android-armv7.apk" } else { "_android-arm64.apk" };
-    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with(suffix)).await?.filter(|r| r.version > current);
+    // Since 0.1.18 one APK serves every device, 64-bit phones and 32-bit phones and TVs.
+    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with("_Android.apk")).await?.filter(|r| r.version > current);
     let info = found.as_ref().map(|r| UpdateInfo { version: r.version.to_string(), date: r.date.clone(), body: r.body.clone() });
     *app.state::<PendingUpdate>().0.lock().unwrap() = found;
     Ok(info)
@@ -176,7 +175,7 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
     use std::time::Duration;
     use tauri::Emitter;
     let r = app.state::<PendingUpdate>().0.lock().unwrap().clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
-    // A 50 MB file on mobile data takes minutes, so there is no limit on the whole
+    // An 80 MB file on mobile data takes minutes, so there is no limit on the whole
     // download, only on silence. Through Kova's proxy when connected: GitHub's downloads
     // are often slow or blocked directly where Kova is needed.
     let mut b = kova_engine::fetch::builder().user_agent(kova_engine::fetch::APP_UA).connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(30));

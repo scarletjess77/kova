@@ -29,16 +29,16 @@
 
 ## Download
 
-The latest build is on the [Releases](https://github.com/scarletjess77/kova/releases/latest) page:
+The latest build is on the [Releases](https://github.com/scarletjess77/kova/releases/latest) page, one file per system:
 
 | System | File |
 |---|---|
-| Windows 10/11 | `_x64-setup.exe` |
-| Android 7+, phones and TV | `_android-arm64.apk` (most devices); `_android-armv7.apk` (older and 32-bit devices, many TVs) |
-| Linux | `.deb` (includes the cores) or `.AppImage` (smaller; downloads the cores on first start) |
-| macOS | `_aarch64.dmg` (Apple silicon); `_x64.dmg` (Intel) |
+| Windows 10/11 | `Kova_<version>_Windows.exe` |
+| Android 7+, phones and TV | `Kova_<version>_Android.apk` |
+| Linux | `Kova_<version>_Linux.deb` (includes the cores) or `Kova_<version>_Linux.AppImage` (smaller; downloads the cores on first start) |
+| macOS, Apple silicon and Intel | `Kova_<version>_macOS.dmg` |
 
-Kova updates itself (Settings → Updates). Windows and Android are the most tested; Linux and macOS builds are newer. The Windows installer is not code-signed yet, so SmartScreen may warn.
+`latest.json` and the `.app.tar.gz` are for Kova's own updater. Kova updates itself (Settings → Updates). Windows and Android are the most tested; Linux and macOS builds are newer. The Windows installer is not code-signed yet, so SmartScreen may warn.
 
 ## Privacy
 
