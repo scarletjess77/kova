@@ -6,9 +6,16 @@
 <title>Kova guide</title>
 <meta name="description" content="How to use Kova: add a subscription, connect, send Russian sites direct, fix problems.">
 <link rel="icon" href="icon.png">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Kova">
+<meta property="og:title" content="How to use Kova">
+<meta property="og:description" content="Add a subscription, connect, send local sites direct, fix problems. In English, Russian, Persian and Chinese.">
+<meta property="og:url" content="https://scarletjess77.github.io/kova/guide.html">
+<meta property="og:image" content="https://scarletjess77.github.io/kova/og.png">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;700&family=Vazirmatn:wght@400;500;600;700&display=swap">
 <style>
 /* Same tokens as index.html: graphite neutrals, near-white emphasis, colour only for state. */
 :root {
@@ -17,8 +24,8 @@
   --accent: #f2f2f4; --accent-fg: #111113; --accent-soft: #232327;
   --ok: #74c79a; --ok-soft: #16241c; --warn: #d9b061; --warn-soft: #2a2416;
   --head-bg: rgb(9 9 10 / .82);
-  --f-display: 'Unbounded', 'Segoe UI', system-ui, sans-serif;
-  --f-ui: 'Onest', 'Segoe UI', system-ui, sans-serif;
+  --f-display: 'Unbounded', 'Vazirmatn', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Onest', 'Vazirmatn', 'Segoe UI', system-ui, sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
   color-scheme: dark;
 }
@@ -64,7 +71,7 @@ h2 { font: 600 21px/1.3 var(--f-display); margin: 0 0 12px; display: flex; gap: 
 h2 .n { font: 500 14px var(--f-mono); color: var(--faint); }
 h3 { font-size: 16px; margin: 18px 0 6px; }
 p, li { max-width: 720px; }
-ol, ul { padding-left: 22px; }
+ol, ul { padding-inline-start: 22px; }
 li { margin: 4px 0; }
 /* What to press in the app, shown like its buttons. */
 .ui { display: inline-block; padding: 0 7px; border: 1px solid var(--line-2); border-radius: 6px; background: var(--panel); font-size: .92em; font-weight: 500; white-space: nowrap; }
@@ -78,7 +85,7 @@ code { font: .9em var(--f-mono); background: var(--sunk); border: 1px solid var(
 .card b { display: block; margin-bottom: 3px; }
 .card span { color: var(--muted); font-size: 14.5px; }
 table { border-collapse: collapse; width: 100%; max-width: 760px; font-size: 15px; margin: 10px 0; }
-th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th, td { text-align: start; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 500; font-size: 13.5px; }
 .table-scroll { overflow-x: auto; }
 footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px; padding: 24px 0 40px; }
@@ -92,8 +99,10 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
     <div class="seg" role="group" aria-label="Language">
       <button type="button" data-lang="en" aria-pressed="true">EN</button>
       <button type="button" data-lang="ru" aria-pressed="false">RU</button>
+      <button type="button" data-lang="fa" aria-pressed="false" lang="fa">FA</button>
+      <button type="button" data-lang="zh" aria-pressed="false" lang="zh">ZH</button>
     </div>
-    <a class="btn primary" href="./#download" data-en="Download" data-ru="Скачать">Download</a>
+    <a class="btn primary" href="./#download" data-en="Download" data-ru="Скачать" data-fa="دانلود" data-zh="下载">Download</a>
   </div>
 </header>
 
@@ -173,6 +182,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <p>On Linux: <span class="ui">Settings</span> → <span class="ui">TUN mode</span> → <span class="ui">Give rights</span>, then enter the password once. Kova itself still never runs as root.</p>
       <h3>On Android</h3>
       <p>Kova works as a VPN: Android asks for permission on the first connect. By default every app goes through it. To choose apps: <span class="ui">Settings</span> → <span class="ui">Apps through the VPN</span> (only the chosen ones, or all except the chosen ones). There is also a quick-settings tile and a home-screen widget for one-tap connecting.</p>
+      <p>If Android stops Kova in the background, allow it in <span class="ui">Settings</span> → <span class="ui">Keep running in the background</span>. On Xiaomi, Huawei, Oppo and Vivo phones also turn on <span class="ui">Autostart</span> there.</p>
     </section>
 
     <section id="en-russia">
@@ -241,6 +251,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <li><b>Updates</b>: Kova checks for new versions itself. <span class="ui">Settings</span> → <span class="ui">Updates</span> → <span class="ui">Check now</span>. Updates are signed, so only genuine Kova versions install.</li>
         <li><b>Start with the computer</b>: <span class="ui">Launch at sign-in</span>, <span class="ui">Start in the tray</span> and <span class="ui">Connect on launch</span>. The tray icon's menu also switches the server and the profile.</li>
         <li><b>Kill switch</b> (beta, computer): <span class="ui">Settings</span> → <span class="ui">Network</span> → <span class="ui">Kill switch</span>. If the connection drops on its own, apps that use the system proxy stay offline instead of going around Kova, and Kova reconnects. <span class="ui">Disconnect</span> lifts it. On Android use the system's <b>Always-on VPN</b> and <b>Block connections without VPN</b>.</li>
+        <li><b>Backup</b>: <span class="ui">Settings</span> → <span class="ui">App</span> → <span class="ui">Backup</span> → <span class="ui">Save…</span> keeps every profile and the settings in one file, encrypted if you give a password. <span class="ui">Restore…</span> brings them back on another device.</li>
         <li><b>Look</b>: <span class="ui">Settings</span> → <b>Theme</b> (12 themes, from OLED black and Night sky to Nord and Dracula) and <b>Language</b> (English, Russian, Persian or Chinese). In Night sky the moon shows what is left of the subscription: full while there is plenty of time and traffic, a thin crescent near the end.</li>
       </ul>
     </section>
@@ -252,7 +263,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <h3>Is it free? Does it collect data?</h3>
       <p>Kova is free and open source, with no accounts, ads or tracking. The servers come from a VPN provider; Kova only connects to them.</p>
       <h3>Where are my profiles stored?</h3>
-      <p>Only on the device. Updating Kova keeps them.</p>
+      <p>Only on the device. Updating Kova keeps them, and <span class="ui">Backup</span> saves them to a file.</p>
     </section>
   </main>
 </div>
@@ -333,6 +344,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <p>На Linux: <span class="ui">Настройки</span> → <span class="ui">Режим TUN</span> → <span class="ui">Выдать права</span> и один раз введите пароль. Сама Kova при этом не работает от root.</p>
       <h3>На Android</h3>
       <p>Kova работает как VPN: при первом подключении Android попросит разрешение. По умолчанию через неё идут все приложения. Выбрать приложения: <span class="ui">Настройки</span> → <span class="ui">Приложения через VPN</span> (только выбранные или все, кроме выбранных). Есть плитка в шторке и виджет на главный экран для подключения одним касанием.</p>
+      <p>Если Android останавливает Kova в фоне, разрешите ей работать: <span class="ui">Настройки</span> → <span class="ui">Работа в фоне</span>. На телефонах Xiaomi, Huawei, Oppo и Vivo включите там же <span class="ui">Автозапуск</span>.</p>
     </section>
 
     <section id="ru-russia">
@@ -401,6 +413,7 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
         <li><b>Обновления</b>: Kova сама проверяет новые версии. <span class="ui">Настройки</span> → <span class="ui">Обновления</span> → <span class="ui">Проверить сейчас</span>. Обновления подписаны, поэтому устанавливаются только настоящие версии Kova.</li>
         <li><b>Запуск вместе с компьютером</b>: <span class="ui">Запускать при входе в систему</span>, <span class="ui">Запускать свёрнутой в трей</span> и <span class="ui">Подключаться при запуске</span>. Через меню значка в трее также можно сменить сервер и профиль.</li>
         <li><b>Защита от утечек</b> (бета, компьютер): <span class="ui">Настройки</span> → <span class="ui">Сеть</span> → <span class="ui">Защита от утечек</span>. Если соединение оборвётся само, программы через системный прокси останутся без сети, а не пойдут в обход Kova, и Kova переподключится. <span class="ui">Отключить</span> снимает защиту. На Android используйте системные <b>Постоянный VPN</b> и <b>Блокировать соединения без VPN</b>.</li>
+        <li><b>Резервная копия</b>: <span class="ui">Настройки</span> → <span class="ui">Приложение</span> → <span class="ui">Резервная копия</span> → <span class="ui">Сохранить…</span> сохраняет все профили и настройки в один файл, зашифрованный, если задать пароль. <span class="ui">Восстановить…</span> возвращает их на другом устройстве.</li>
         <li><b>Внешний вид</b>: <span class="ui">Настройки</span> → <b>Тема</b> (12 тем, от чёрной OLED и «Ночного неба» до Nord и Dracula) и <b>Язык</b> (русский, английский, персидский или китайский). В «Ночном небе» луна показывает, сколько осталось от подписки: полная, пока времени и трафика много, и тонкий серп ближе к концу.</li>
       </ul>
     </section>
@@ -412,7 +425,313 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
       <h3>Это бесплатно? Kova собирает данные?</h3>
       <p>Kova бесплатна и с открытым кодом: без аккаунтов, рекламы и слежки. Серверы даёт VPN-сервис, Kova только подключается к ним.</p>
       <h3>Где хранятся мои профили?</h3>
-      <p>Только на устройстве. При обновлении Kova они сохраняются.</p>
+      <p>Только на устройстве. При обновлении Kova они сохраняются, а <span class="ui">Резервная копия</span> сохраняет их в файл.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ======================= فارسی ======================= -->
+<div class="wrap layout" data-l="fa" dir="rtl" hidden>
+  <nav class="toc" aria-label="فهرست">
+    <a href="#fa-install">۱. نصب</a>
+    <a href="#fa-add">۲. افزودن اشتراک</a>
+    <a href="#fa-connect">۳. اتصال</a>
+    <a href="#fa-capture">۴. کدام برنامه‌ها از Kova عبور می‌کنند</a>
+    <a href="#fa-local">۵. سایت‌های ایرانی مستقیم</a>
+    <a href="#fa-rules">۶. قوانین خودتان</a>
+    <a href="#fa-smart">۷. مسیریابی هوشمند</a>
+    <a href="#fa-trouble">۸. وقتی چیزی کار نمی‌کند</a>
+    <a href="#fa-settings">۹. به‌روزرسانی‌ها و تنظیمات</a>
+    <a href="#fa-faq">۱۰. پرسش‌ها</a>
+  </nav>
+  <main>
+    <h1>چگونه از Kova استفاده کنیم</h1>
+    <p class="lede">از نصب تا یک اتصال کارا در پنج دقیقه، سپس تنظیماتی که دانستنشان می‌ارزد. به تجربهٔ قبلی نیازی نیست.</p>
+
+    <section id="fa-install">
+      <h2><span class="n">01</span>نصب</h2>
+      <p>Kova را از <a href="./#download">بخش دانلود</a> بگیرید:</p>
+      <ul>
+        <li><b>ویندوز</b>: نصب‌کننده را اجرا کنید و یک بار درخواست مدیر را تأیید کنید. اگر ویندوز «Windows protected your PC» نشان داد، روی <span class="ui">More info</span> ← <span class="ui">Run anyway</span> بزنید؛ نصب‌کننده امن است، فقط هنوز با گواهی پولی امضا نشده است.</li>
+        <li><b>گوشی اندرویدی</b>: فایل APK نسخهٔ <code>arm64</code> را بگیرید. اندروید می‌خواهد نصب از مرورگر را مجاز کنید؛ اجازه دهید. ممکن است پنجرهٔ Google Play Protect باز شود: <span class="ui">Scan</span> را بزنید و نصب ادامه پیدا می‌کند.</li>
+        <li><b>Android TV و گوشی‌های قدیمی</b>: فایل APK نسخهٔ <code>armv7</code> را بگیرید (روی دستگاه‌های ۳۲ بیتی هم کار می‌کند).</li>
+        <li><b>لینوکس</b>: <code>.deb</code> یا <code>.AppImage</code>. <b>macOS</b>: فایل <code>.dmg</code> برای Apple silicon یا Intel.</li>
+      </ul>
+    </section>
+
+    <section id="fa-add">
+      <h2><span class="n">02</span>افزودن اشتراک</h2>
+      <p>اشتراک لینکی است که ارائه‌دهندهٔ VPN می‌دهد (معمولاً با <code>https://</code> شروع می‌شود). لینک‌های تک‌سرور مانند <code>vless://</code> هم کار می‌کنند.</p>
+      <ol>
+        <li><span class="ui">پروفایل‌ها</span> ← <span class="ui">افزودن پروفایل</span> را باز کنید.</li>
+        <li>روش افزودن را انتخاب کنید:
+          <ul>
+            <li><span class="ui">لینک</span>: نشانی اشتراک را جای‌گذاری کنید.</li>
+            <li><span class="ui">کلیپ‌بورد</span>: اگر لینک را از قبل کپی کرده‌اید. روی رایانه، <code>Ctrl+V</code> هر جای Kova همین کار را می‌کند.</li>
+            <li><span class="ui">کد QR</span> (گوشی): دوربین را به سمت کد QR بگیرید.</li>
+            <li><span class="ui">فایل</span> (رایانه): یک پیکربندی <code>.yaml</code> یا <code>.json</code>.</li>
+            <li><span class="ui">دستگاه دیگر</span>: فرستادن پروفایل به تلویزیون یا گوشی روی همان Wi-Fi: این زبانه را روی تلویزیون باز کنید، سپس نشانی‌ای را که نشان می‌دهد روی گوشی باز کنید و لینک را آنجا جای‌گذاری کنید.</li>
+          </ul>
+        </li>
+        <li><span class="ui">وارد کردن</span> را بزنید. پروفایل با سرورها، ترافیک باقی‌مانده و تاریخ انقضا نمایش داده می‌شود.</li>
+      </ol>
+      <p>اگر صفحهٔ اشتراک ارائه‌دهنده دکمهٔ <b>Add to Kova</b> داشته باشد، همین پنجره را با لینکِ از پیش پرشده باز می‌کند. پیام‌های ارائه‌دهنده (مثلاً دربارهٔ تعمیرات) در داشبورد نمایش داده می‌شوند.</p>
+      <p>اشتراک‌ها خودشان به‌روز می‌شوند. برای به‌روزرسانی همین حالا: <span class="ui">پروفایل‌ها</span> ← <span class="ui">به‌روزرسانی همه</span>.</p>
+    </section>
+
+    <section id="fa-connect">
+      <h2><span class="n">03</span>اتصال</h2>
+      <ol>
+        <li>در <span class="ui">داشبورد</span> دکمهٔ گرد بزرگ را بزنید. سفید می‌شود و <b>محافظت‌شده</b> را نشان می‌دهد.</li>
+        <li>برای تغییر سرور، یکی را در <span class="ui">تعویض سریع</span> پایین انتخاب کنید، یا <span class="ui">پراکسی‌ها</span> ← <span class="ui">آزمون تأخیر</span> را باز کنید و سروری با میلی‌ثانیهٔ کم (سبز) برگزینید.</li>
+        <li>کارت <b>نقطهٔ خروج</b> کشور و نشانی‌ای را که سایت‌ها اکنون می‌بینند نشان می‌دهد.</li>
+      </ol>
+      <p><b>حالت مسیریابی</b> در داشبورد:</p>
+      <div class="cards">
+        <div class="card"><b>قوانین</b><span>پیشنهادی. قوانین تصمیم می‌گیرند: سایت‌های مسدود از طریق سرور، بقیه طبق تنظیمات.</span></div>
+        <div class="card"><b>سراسری</b><span>همه‌چیز از طریق سرور می‌رود.</span></div>
+        <div class="card"><b>مستقیم</b><span>هیچ‌چیز از سرور نمی‌رود؛ Kova روشن می‌ماند.</span></div>
+      </div>
+      <div class="note tip"><b>نکته</b>گزینهٔ <span class="ui">تنظیمات</span> ← <span class="ui">رها کردن سرور ازکارافتاده</span> را روشن کنید: اگر سرور انتخاب‌شده پاسخ ندهد، Kova به سریع‌ترین سرور سالم می‌رود و اطلاع می‌دهد.</div>
+    </section>
+
+    <section id="fa-capture">
+      <h2><span class="n">04</span>کدام برنامه‌ها از Kova عبور می‌کنند</h2>
+      <h3>روی رایانه</h3>
+      <div class="cards">
+        <div class="card"><b>پراکسی سیستم</b><span>به‌طور پیش‌فرض روشن است. مرورگرها، تلگرام، دیسکورد و بیشتر برنامه‌ها. بازی‌ها معمولاً از آن استفاده نمی‌کنند.</span></div>
+        <div class="card"><b>حالت TUN</b><span>همه‌چیز، از جمله بازی‌ها و تماس صوتی (UDP). در ویندوز یک بار به سرویس Kova نیاز دارد.</span></div>
+      </div>
+      <p>روشن کردن TUN در ویندوز: <span class="ui">داشبورد</span> ← <span class="ui">حالت TUN</span>. این حالت به <b>سرویس Kova</b> نیاز دارد: نصب‌کننده آن را نصب می‌کند، وگرنه از <span class="ui">تنظیمات</span> ← <span class="ui">حالت TUN</span> ← <span class="ui">نصب</span> استفاده کنید و یک بار درخواست مدیر را تأیید کنید. خود Kova هرگز با دسترسی مدیر اجرا نمی‌شود.</p>
+      <p>در لینوکس: <span class="ui">تنظیمات</span> ← <span class="ui">حالت TUN</span> ← <span class="ui">دادن دسترسی</span> و یک بار رمز عبور را وارد کنید. خود Kova باز هم با root اجرا نمی‌شود.</p>
+      <h3>روی اندروید</h3>
+      <p>Kova مانند یک VPN کار می‌کند: اندروید در اولین اتصال اجازه می‌خواهد. به‌طور پیش‌فرض همهٔ برنامه‌ها از آن عبور می‌کنند. برای انتخاب برنامه‌ها: <span class="ui">تنظیمات</span> ← <span class="ui">برنامه‌ها از طریق VPN</span> (فقط انتخاب‌شده‌ها، یا همه به‌جز انتخاب‌شده‌ها). یک کاشی تنظیمات سریع و یک ویجت صفحهٔ اصلی هم برای اتصال با یک لمس هست.</p>
+      <p>اگر اندروید Kova را در پس‌زمینه متوقف کرد، در <span class="ui">تنظیمات</span> ← <span class="ui">اجرا در پس‌زمینه</span> اجازه دهید. در گوشی‌های شیائومی، هواوی، اوپو و ویوو <span class="ui">اجرای خودکار</span> را هم روشن کنید.</p>
+    </section>
+
+    <section id="fa-local">
+      <h2><span class="n">05</span>سایت‌های ایرانی مستقیم</h2>
+      <p>سرویس‌های ایرانی (بانک‌ها، درگاه‌های پرداخت، فروشگاه‌ها) اغلب نشانی‌های خارجی را نمی‌پذیرند و نیازی هم نیست از سروری در خارج بروند. Kova آن‌ها را مستقیم می‌فرستد.</p>
+      <p><b>GeoSite و GeoIP چیستند؟</b> دو فهرستی که Kova دانلود می‌کند: <b>GeoSite</b> نام سایت‌ها را بر اساس موضوع یا کشور دسته‌بندی می‌کند و <b>GeoIP</b> نشانی‌ها را بر اساس کشور (<code>IR</code>: شبکه‌های ایران). قوانین به‌جای هزاران سایت جداگانه از این فهرست‌ها استفاده می‌کنند.</p>
+      <ol>
+        <li>در اولین اجرا، Kova می‌پرسد <b>کجا هستید؟</b>؛ <span class="ui">ایران</span> را انتخاب کنید.</li>
+        <li>یا بعداً: <span class="ui">قوانین</span> ← <b>پیش‌تنظیم‌های مسیریابی</b> ← <b>مستقیم برای سایت‌های ایرانی</b>. دامنه‌های <code>.ir</code> و شبکه‌های ایران مستقیم می‌روند و بقیه از طریق سرور.</li>
+        <li><b>مسدود کردن تبلیغات و ردیاب‌ها</b> اختیاری است و با آن کار می‌کند.</li>
+      </ol>
+      <div class="note"><b>اشتراک‌های Clash</b>اگر اشتراک قوانین خودش را دارد، گزینهٔ <span class="ui">اعمال روی پروفایل‌های Clash واردشده</span> را (در <span class="ui">قوانین</span>) روشن نگه دارید تا پیش‌تنظیم‌ها و قوانین شما اول بیایند.</div>
+    </section>
+
+    <section id="fa-rules">
+      <h2><span class="n">06</span>قوانین خودتان</h2>
+      <p><span class="ui">قوانین</span> ← <b>قوانین شما</b>: نوع را انتخاب کنید، مقدار را بنویسید، مقصد را انتخاب کنید (<b>پراکسی</b>، <b>مستقیم</b> یا مسدود) و <span class="ui">افزودن قانون</span> را بزنید. قوانین شما اول بررسی می‌شوند.</p>
+      <div class="table-scroll"><table>
+        <tr><th>نوع</th><th>نمونه</th><th>معنا</th></tr>
+        <tr><td>دامنه و زیردامنه‌ها</td><td><code>youtube.com</code></td><td>سایت و همهٔ زیردامنه‌هایش.</td></tr>
+        <tr><td>دامنهٔ دقیق</td><td><code>api.github.com</code></td><td>فقط همان یک نشانی.</td></tr>
+        <tr><td>دامنه شامل</td><td><code>google</code></td><td>هر سایتی که این کلمه در نامش باشد.</td></tr>
+        <tr><td>فهرست Geosite</td><td><code>category-ir</code>، <code>youtube</code></td><td>یک فهرست کامل از GeoSite.</td></tr>
+        <tr><td>کشور (GeoIP)</td><td><code>IR</code>، <code>DE</code></td><td>همهٔ نشانی‌های یک کشور.</td></tr>
+        <tr><td>بازهٔ IP</td><td><code>203.0.113.0/24</code></td><td>یک بلوک نشانی.</td></tr>
+        <tr><td>برنامه (نام فرایند)</td><td><code>steam.exe</code></td><td>یک برنامه روی رایانه. <span class="ui">مسیریابی یک برنامه…</span> آن را از فهرست انتخاب می‌کند.</td></tr>
+      </table></div>
+      <h3>از طریق یک کشور مشخص</h3>
+      <p>به‌جز <b>پراکسی</b> و <b>مستقیم</b>، یک قانون می‌تواند به <b>سریع‌ترین در US</b>، <b>سریع‌ترین در DE</b> و غیره برود: Kova سریع‌ترین سرور اشتراک را در آن کشور انتخاب می‌کند. صفحهٔ قوانین برای سرویس‌های هوش مصنوعی یک خط آماده دارد: <span class="ui">ChatGPT، Claude، Gemini و سایر سرویس‌های هوش مصنوعی از طریق</span> یک کشور ← <span class="ui">افزودن قانون</span>.</p>
+    </section>
+
+    <section id="fa-smart">
+      <h2><span class="n">07</span>مسیریابی هوشمند</h2>
+      <p><span class="ui">قوانین</span> ← <span class="ui">مسیریابی هوشمند</span> (بتا، به‌طور پیش‌فرض خاموش). Kova سایت‌هایی را که در مسیر معمولشان شکست می‌خورند تشخیص می‌دهد، هر دو راه را امتحان می‌کند و هر کدام را از راهی که کار می‌کند می‌فرستد: سایت تازه مسدودشده از طریق سرور و سایتی که نشانی‌های خارجی را نمی‌پذیرد مستقیم. فهرست زیر کلید نشان می‌دهد چه چیزی و چرا آموخته شده؛ <span class="ui">نگه داشتن</span> آن را به قانون دائمی تبدیل می‌کند. سایت‌های آموخته پس از ۳۰ روز فراموش می‌شوند، مگر دوباره شکست بخورند.</p>
+    </section>
+
+    <section id="fa-trouble">
+      <h2><span class="n">08</span>وقتی چیزی کار نمی‌کند</h2>
+      <ol>
+        <li><b><span class="ui">مشکل چیست؟</span></b> در داشبورد همه‌چیز را گام‌به‌گام بررسی می‌کند (اینترنت، هسته، سرور، DNS، گرفتن ترافیک) و می‌گوید چه چیزی را درست کنید.</li>
+        <li><b><span class="ui">بررسی سایت</span></b> سایت‌های پرطرفدار را هم مستقیم و هم از طریق Kova باز می‌کند تا معلوم شود چه چیزی مسدود است و آیا سرور کمک می‌کند. <b>بررسی حریم خصوصی</b> (آیا نشانی واقعی یا DNS نشت می‌کند) و <b>آزمون سرعت</b> هم هست.</li>
+        <li>سرور دیگری را امتحان کنید: <span class="ui">پراکسی‌ها</span> ← <span class="ui">آزمون تأخیر</span>.</li>
+        <li>اشتراک را به‌روز کنید: <span class="ui">پروفایل‌ها</span> ← <span class="ui">به‌روزرسانی همه</span>.</li>
+        <li><span class="ui">گزارش‌ها</span> همهٔ اتصال‌ها و خطاها را نشان می‌دهد. <span class="ui">کپی گزارش</span> (آنجا و در <span class="ui">مشکل چیست؟</span>) هر آنچه پشتیبانی لازم دارد را کپی می‌کند، بدون لینک‌ها، کلیدها و شناسه‌ها.</li>
+      </ol>
+      <h3>سرورها دیگر وصل نمی‌شوند</h3>
+      <ul>
+        <li><b>ضد DPI</b> (بتا): <span class="ui">تنظیمات</span> ← <span class="ui">شبکه</span> ← <span class="ui">ضد DPI</span>. Kova آغاز هر اتصال را در تکه‌های کوچک می‌فرستد تا تجهیزات ساده‌تر مسدودسازی آن را تشخیص ندهند. به هستهٔ Xray نیاز دارد (<span class="ui">تنظیمات</span> ← <span class="ui">هسته‌ها</span>).</li>
+        <li><b>فقط روی دادهٔ همراه</b> (اندروید): شبکه‌های موبایل ممکن است فقط سایت‌های فهرست سفید را عبور دهند و ضد DPI آنجا کمکی نمی‌کند. سروری را که آنجا کار می‌کند، مثلاً داخل کشور یا پشت CDN، در <span class="ui">تنظیمات</span> ← <span class="ui">VPN</span> ← <span class="ui">سرور در دادهٔ همراه</span> انتخاب کنید. Kova روی دادهٔ همراه به آن می‌رود و روی Wi-Fi برمی‌گردد.</li>
+      </ul>
+      <div class="note warn"><b>بازی با ExitLag یا تقویت‌کننده‌های مشابه</b>وقتی حالت TUN روشن است، ترافیک بازی پیش از آنکه تقویت‌کننده آن را ببیند وارد Kova می‌شود. هنگام بازی با تقویت‌کننده، TUN را خاموش کنید و فقط پراکسی سیستم را نگه دارید، یا بازی را به Kova بسپارید (یک قانون <b>برنامه</b> برای بازی ← <b>پراکسی</b>).</div>
+    </section>
+
+    <section id="fa-settings">
+      <h2><span class="n">09</span>به‌روزرسانی‌ها و تنظیمات</h2>
+      <ul>
+        <li><b>به‌روزرسانی‌ها</b>: Kova خودش نسخه‌های جدید را بررسی می‌کند. <span class="ui">تنظیمات</span> ← <span class="ui">به‌روزرسانی‌ها</span> ← <span class="ui">بررسی اکنون</span>. به‌روزرسانی‌ها امضا شده‌اند، پس فقط نسخه‌های واقعی Kova نصب می‌شوند.</li>
+        <li><b>شروع همراه رایانه</b>: <span class="ui">اجرا هنگام ورود به سیستم</span>، <span class="ui">شروع در سینی سیستم</span> و <span class="ui">اتصال هنگام اجرا</span>. منوی نماد سینی سیستم هم سرور و پروفایل را عوض می‌کند.</li>
+        <li><b>کلید قطع اضطراری</b> (بتا، رایانه): <span class="ui">تنظیمات</span> ← <span class="ui">شبکه</span> ← <span class="ui">کلید قطع اضطراری</span>. اگر اتصال خودبه‌خود قطع شود، برنامه‌هایی که از پراکسی سیستم استفاده می‌کنند به‌جای دور زدن Kova آفلاین می‌مانند و Kova دوباره وصل می‌شود. <span class="ui">قطع اتصال</span> آن را برمی‌دارد. در اندروید از <b>VPN همیشه روشن</b> و <b>مسدود کردن اتصال‌های بدون VPN</b> خود سیستم استفاده کنید.</li>
+        <li><b>نسخهٔ پشتیبان</b>: <span class="ui">تنظیمات</span> ← <span class="ui">برنامه</span> ← <span class="ui">نسخهٔ پشتیبان</span> ← <span class="ui">ذخیره…</span> همهٔ پروفایل‌ها و تنظیمات را در یک فایل نگه می‌دارد، و اگر رمز عبور بدهید رمزگذاری‌شده. <span class="ui">بازگردانی…</span> آن‌ها را روی دستگاه دیگر برمی‌گرداند.</li>
+        <li><b>ظاهر</b>: <span class="ui">تنظیمات</span> ← <b>پوسته</b> (۱۲ پوسته، از مشکی OLED و آسمان شب تا Nord و Dracula) و <b>زبان</b> (فارسی، انگلیسی، روسی یا چینی). در آسمان شب، ماه نشان می‌دهد چقدر از اشتراک مانده است: کامل وقتی زمان و ترافیک زیاد است، هلالی باریک نزدیک پایان.</li>
+      </ul>
+    </section>
+
+    <section id="fa-faq">
+      <h2><span class="n">10</span>پرسش‌ها</h2>
+      <h3>GitHub جایی که زندگی می‌کنم مسدود است. Kova کار می‌کند؟</h3>
+      <p>بله. هسته‌ها و فهرست‌های مسیریابی همراه نصب‌کننده‌اند و هر چیز کم‌بود پس از اتصال از طریق سرور دانلود می‌شود.</p>
+      <h3>رایگان است؟ داده جمع می‌کند؟</h3>
+      <p>Kova رایگان و متن‌باز است، بدون حساب کاربری، تبلیغ یا ردیابی. سرورها را ارائه‌دهندهٔ VPN می‌دهد؛ Kova فقط به آن‌ها وصل می‌شود.</p>
+      <h3>پروفایل‌هایم کجا نگه داشته می‌شوند؟</h3>
+      <p>فقط روی دستگاه. به‌روزرسانی Kova آن‌ها را نگه می‌دارد و <span class="ui">نسخهٔ پشتیبان</span> آن‌ها را در یک فایل ذخیره می‌کند.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ======================= 中文 ======================= -->
+<div class="wrap layout" data-l="zh" hidden>
+  <nav class="toc" aria-label="目录">
+    <a href="#zh-install">1. 安装</a>
+    <a href="#zh-add">2. 添加订阅</a>
+    <a href="#zh-connect">3. 连接</a>
+    <a href="#zh-capture">4. 哪些应用经过 Kova</a>
+    <a href="#zh-local">5. 国内网站直连</a>
+    <a href="#zh-rules">6. 自己的规则</a>
+    <a href="#zh-smart">7. 智能路由</a>
+    <a href="#zh-trouble">8. 遇到问题时</a>
+    <a href="#zh-settings">9. 更新和设置</a>
+    <a href="#zh-faq">10. 常见问题</a>
+  </nav>
+  <main>
+    <h1>如何使用 Kova</h1>
+    <p class="lede">五分钟从安装到连上，再介绍值得了解的设置。无需任何经验。</p>
+
+    <section id="zh-install">
+      <h2><span class="n">01</span>安装</h2>
+      <p>从<a href="./#download">下载区</a>获取 Kova：</p>
+      <ul>
+        <li><b>Windows</b>：运行安装程序，并确认一次管理员权限请求。如果 Windows 显示“Windows 已保护你的电脑”，点击 <span class="ui">更多信息</span> → <span class="ui">仍要运行</span>；安装程序是安全的，只是还没有用付费证书签名。</li>
+        <li><b>Android 手机</b>：下载 <code>arm64</code> 的 APK。Android 会要求允许从浏览器安装，请允许。可能会弹出 Google Play 保护机制窗口：点击 <span class="ui">扫描</span>，安装会继续。</li>
+        <li><b>Android TV 和旧手机</b>：下载 <code>armv7</code> 的 APK（也适用于 32 位设备）。</li>
+        <li><b>Linux</b>：<code>.deb</code> 或 <code>.AppImage</code>。<b>macOS</b>：适用于 Apple 芯片或 Intel 的 <code>.dmg</code>。</li>
+      </ul>
+    </section>
+
+    <section id="zh-add">
+      <h2><span class="n">02</span>添加订阅</h2>
+      <p>订阅是 VPN 服务商提供的链接（通常以 <code>https://</code> 开头）。像 <code>vless://</code> 这样的单个服务器链接也可以。</p>
+      <ol>
+        <li>打开 <span class="ui">配置</span> → <span class="ui">添加配置</span>。</li>
+        <li>选择添加方式：
+          <ul>
+            <li><span class="ui">链接</span>：粘贴订阅地址。</li>
+            <li><span class="ui">剪贴板</span>：链接已复制时使用。在电脑上，在 Kova 任意位置按 <code>Ctrl+V</code> 效果相同。</li>
+            <li><span class="ui">二维码</span>（手机）：用相机对准二维码。</li>
+            <li><span class="ui">文件</span>（电脑）：<code>.yaml</code> 或 <code>.json</code> 配置文件。</li>
+            <li><span class="ui">其他设备</span>：把配置发送到同一 Wi-Fi 下的电视或手机：在电视上打开此标签页，再用手机打开它显示的地址，并在那里粘贴链接。</li>
+          </ul>
+        </li>
+        <li>点击 <span class="ui">导入</span>。配置会显示服务器、剩余流量和到期日期。</li>
+      </ol>
+      <p>如果服务商的订阅页面有 <b>Add to Kova</b> 按钮，它会打开这个窗口并自动填好链接。服务商的消息（例如维护通知）会显示在仪表盘上。</p>
+      <p>订阅会自动更新。要立即更新：<span class="ui">配置</span> → <span class="ui">全部更新</span>。</p>
+    </section>
+
+    <section id="zh-connect">
+      <h2><span class="n">03</span>连接</h2>
+      <ol>
+        <li>在 <span class="ui">仪表盘</span> 上点击大圆形按钮。它会变白并显示 <b>已保护</b>。</li>
+        <li>要更换服务器，在下方的 <span class="ui">快速切换</span> 中选择，或打开 <span class="ui">代理</span> → <span class="ui">测试延迟</span>，选一个毫秒数低（绿色）的。</li>
+        <li><b>出口</b> 卡片显示网站现在看到的国家和地址。</li>
+      </ol>
+      <p>仪表盘上的 <b>路由模式</b>：</p>
+      <div class="cards">
+        <div class="card"><b>规则</b><span>推荐。由规则决定：被封锁的网站走服务器，其余按设置处理。</span></div>
+        <div class="card"><b>全局</b><span>所有流量都走服务器。</span></div>
+        <div class="card"><b>直连</b><span>不走服务器；Kova 保持开启。</span></div>
+      </div>
+      <div class="note tip"><b>提示</b>开启 <span class="ui">设置</span> → <span class="ui">节点失效时自动切换</span>：如果所选服务器不再响应，Kova 会切换到可用的最快服务器并提示你。</div>
+    </section>
+
+    <section id="zh-capture">
+      <h2><span class="n">04</span>哪些应用经过 Kova</h2>
+      <h3>在电脑上</h3>
+      <div class="cards">
+        <div class="card"><b>系统代理</b><span>默认开启。浏览器、Telegram、Discord 和大多数程序。游戏通常会忽略它。</span></div>
+        <div class="card"><b>TUN 模式</b><span>所有流量，包括游戏和语音（UDP）。在 Windows 上需要安装一次 Kova 服务。</span></div>
+      </div>
+      <p>在 Windows 上开启 TUN：<span class="ui">仪表盘</span> → <span class="ui">TUN 模式</span>。它需要 <b>Kova 服务</b>：安装程序会安装它，否则在 <span class="ui">设置</span> → <span class="ui">TUN 模式</span> → <span class="ui">安装</span> 中安装，并确认一次管理员权限请求。Kova 本身从不以管理员身份运行。</p>
+      <p>在 Linux 上：<span class="ui">设置</span> → <span class="ui">TUN 模式</span> → <span class="ui">授予权限</span>，然后输入一次密码。Kova 本身仍然不以 root 运行。</p>
+      <h3>在 Android 上</h3>
+      <p>Kova 以 VPN 方式工作：第一次连接时 Android 会请求许可。默认所有应用都走 VPN。要选择应用：<span class="ui">设置</span> → <span class="ui">走 VPN 的应用</span>（仅选中的，或除选中外的全部）。还有快捷设置图块和桌面小部件，一点即可连接。</p>
+      <p>如果 Android 在后台停止了 Kova，请在 <span class="ui">设置</span> → <span class="ui">后台运行</span> 中允许。小米、华为、OPPO 和 vivo 手机还需要开启 <span class="ui">自启动</span>。</p>
+    </section>
+
+    <section id="zh-local">
+      <h2><span class="n">05</span>国内网站直连</h2>
+      <p>国内的服务（银行、支付、购物网站）常常不接受境外地址，也没有必要绕到国外的服务器。Kova 会让它们直连。</p>
+      <p><b>GeoSite 和 GeoIP 是什么？</b>Kova 下载的两个列表：<b>GeoSite</b> 按主题或国家对网站名称分组（例如 <code>cn</code>：中国网站），<b>GeoIP</b> 按国家对地址分组（<code>CN</code>：中国的网络）。规则使用这些列表，而不是成千上万个单独的网站。</p>
+      <ol>
+        <li>第一次启动时，Kova 会问 <b>你在哪里？</b>：选择 <span class="ui">中国</span>。</li>
+        <li>或者之后在 <span class="ui">规则</span> → <b>路由预设</b> 中开启 <b>中国网站直连</b>。<code>geosite:cn</code> 和中国 IP 段直连，其余走服务器。</li>
+        <li><b>拦截广告和跟踪器</b> 可选，可与上面的预设同时使用。</li>
+      </ol>
+      <div class="note"><b>Clash 订阅</b>如果订阅自带规则，请保持 <span class="ui">应用于导入的 Clash 配置</span>（在 <span class="ui">规则</span> 中）开启，让预设和你的规则优先。</div>
+    </section>
+
+    <section id="zh-rules">
+      <h2><span class="n">06</span>自己的规则</h2>
+      <p><span class="ui">规则</span> → <b>你的规则</b>：选择类型，输入值，选择去向（<b>代理</b>、<b>直连</b> 或拦截），然后点击 <span class="ui">添加规则</span>。你的规则最先检查。</p>
+      <div class="table-scroll"><table>
+        <tr><th>类型</th><th>示例</th><th>含义</th></tr>
+        <tr><td>域名及子域名</td><td><code>youtube.com</code></td><td>该网站及其所有子域名。</td></tr>
+        <tr><td>精确域名</td><td><code>api.github.com</code></td><td>只有这一个地址。</td></tr>
+        <tr><td>域名包含</td><td><code>google</code></td><td>名称中包含这个词的任何网站。</td></tr>
+        <tr><td>Geosite 列表</td><td><code>cn</code>、<code>youtube</code></td><td>GeoSite 中的整个列表。</td></tr>
+        <tr><td>国家（GeoIP）</td><td><code>CN</code>、<code>JP</code></td><td>一个国家的所有地址。</td></tr>
+        <tr><td>IP 段</td><td><code>203.0.113.0/24</code></td><td>一段地址。</td></tr>
+        <tr><td>应用（进程名）</td><td><code>steam.exe</code></td><td>电脑上的某个程序。<span class="ui">为应用设置路由…</span> 可以从列表中选择。</td></tr>
+      </table></div>
+      <h3>经由指定国家</h3>
+      <p>除了 <b>代理</b> 和 <b>直连</b>，规则还可以发送到 <b>US 最快</b>、<b>JP 最快</b> 等：Kova 会在订阅中该国家的服务器里选最快的。规则页面为 AI 服务准备了一行：<span class="ui">ChatGPT、Claude、Gemini 和其他 AI 服务经由</span> 某个国家 → <span class="ui">添加规则</span>。</p>
+    </section>
+
+    <section id="zh-smart">
+      <h2><span class="n">07</span>智能路由</h2>
+      <p><span class="ui">规则</span> → <span class="ui">智能路由</span>（测试版，默认关闭）。Kova 会发现走常规路线失败的网站，用两条路分别测试，然后让每个网站走能用的路线：新被封锁的网站走服务器，不接受境外地址的网站直连。开关下方的列表显示学习到的网站和原因；<span class="ui">保留</span> 可把它变成永久规则。学习到的网站 30 天后会被忘记，除非再次失败。</p>
+    </section>
+
+    <section id="zh-trouble">
+      <h2><span class="n">08</span>遇到问题时</h2>
+      <ol>
+        <li>仪表盘上的 <b><span class="ui">出了什么问题？</span></b> 会逐步检查一切（网络、内核、服务器、DNS、流量接管），并告诉你该修复什么。</li>
+        <li><b><span class="ui">网站检测</span></b> 会分别直连和经 Kova 打开常用网站，看清哪些被封锁、服务器是否有帮助。还有 <b>隐私检查</b>（真实地址或 DNS 是否泄露）和 <b>测速</b>。</li>
+        <li>换一个服务器：<span class="ui">代理</span> → <span class="ui">测试延迟</span>。</li>
+        <li>更新订阅：<span class="ui">配置</span> → <span class="ui">全部更新</span>。</li>
+        <li><span class="ui">日志</span> 显示每个连接和错误。<span class="ui">复制报告</span>（在这里和 <span class="ui">出了什么问题？</span> 中）会复制客服所需的全部信息，并去除链接、密钥和 ID。</li>
+      </ol>
+      <h3>服务器连不上了</h3>
+      <ul>
+        <li><b>抗 DPI</b>（测试版）：<span class="ui">设置</span> → <span class="ui">网络</span> → <span class="ui">抗 DPI</span>。Kova 会把每个连接的开头分成小块发送，让较简单的封锁设备无法识别。需要 Xray 内核（<span class="ui">设置</span> → <span class="ui">内核</span>）。</li>
+        <li><b>只在移动数据下</b>（Android）：移动网络可能只放行白名单网站，这时抗 DPI 也帮不上忙。在 <span class="ui">设置</span> → <span class="ui">VPN</span> → <span class="ui">移动数据下的服务器</span> 中选择一个在那里可用的服务器，例如境内服务器或 CDN 后面的服务器。Kova 在移动数据下切换到它，回到 Wi-Fi 时切回。</li>
+      </ul>
+      <div class="note warn"><b>使用 ExitLag 等加速器玩游戏</b>开启 TUN 模式时，游戏流量会先进入 Kova，加速器看不到它。使用加速器玩游戏时，请关闭 TUN，只保留系统代理；或者让 Kova 来承载游戏（为游戏添加一条 <b>应用</b> 规则 → <b>代理</b>）。</div>
+    </section>
+
+    <section id="zh-settings">
+      <h2><span class="n">09</span>更新和设置</h2>
+      <ul>
+        <li><b>更新</b>：Kova 会自己检查新版本。<span class="ui">设置</span> → <span class="ui">更新</span> → <span class="ui">立即检查</span>。更新均已签名，只会安装真正的 Kova 版本。</li>
+        <li><b>随电脑启动</b>：<span class="ui">登录时启动</span>、<span class="ui">启动到托盘</span> 和 <span class="ui">启动时连接</span>。托盘图标的菜单也可以切换服务器和配置。</li>
+        <li><b>断网保护</b>（测试版，电脑）：<span class="ui">设置</span> → <span class="ui">网络</span> → <span class="ui">断网保护</span>。如果连接意外中断，使用系统代理的应用会保持断网，而不会绕过 Kova，同时 Kova 会重新连接。<span class="ui">断开连接</span> 即可解除。在 Android 上请使用系统的 <b>始终开启的 VPN</b> 和 <b>屏蔽未使用 VPN 的连接</b>。</li>
+        <li><b>备份</b>：<span class="ui">设置</span> → <span class="ui">应用</span> → <span class="ui">备份</span> → <span class="ui">保存…</span> 会把所有配置和设置保存到一个文件中，设置密码后会加密。<span class="ui">恢复…</span> 可以在另一台设备上把它们恢复回来。</li>
+        <li><b>外观</b>：<span class="ui">设置</span> → <b>主题</b>（12 个主题，从 OLED 纯黑、夜空到 Nord 和 Dracula）和 <b>语言</b>（中文、英语、俄语或波斯语）。在夜空主题中，月亮显示订阅还剩多少：时间和流量充足时是满月，快到期时是一弯细月。</li>
+      </ul>
+    </section>
+
+    <section id="zh-faq">
+      <h2><span class="n">10</span>常见问题</h2>
+      <h3>我所在的地方 GitHub 被封锁了，Kova 还能用吗？</h3>
+      <p>可以。内核和路由列表随安装程序附带，缺少的内容会在连接后通过服务器下载。</p>
+      <h3>免费吗？会收集数据吗？</h3>
+      <p>Kova 免费且开源，无账户、无广告、无追踪。服务器由 VPN 服务商提供，Kova 只负责连接。</p>
+      <h3>我的配置保存在哪里？</h3>
+      <p>只保存在设备上。更新 Kova 不会丢失它们，<span class="ui">备份</span> 还能把它们保存到文件中。</p>
     </section>
   </main>
 </div>
@@ -425,16 +744,19 @@ footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px
   // Same language choice as the main page (stored under the same key).
   function setLang(next, remember) {
     document.documentElement.lang = next;
+    document.documentElement.dir = next === 'fa' ? 'rtl' : 'ltr';
     for (const el of document.querySelectorAll('[data-l]')) el.hidden = el.dataset.l !== next;
     for (const b of document.querySelectorAll('[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === next));
     for (const el of document.querySelectorAll('[data-en]')) el.textContent = el.dataset[next];
-    document.title = next === 'ru' ? 'Руководство Kova' : 'Kova guide';
+    document.title = { ru: 'Руководство Kova', fa: 'راهنمای Kova', zh: 'Kova 使用指南' }[next] ?? 'Kova guide';
     if (remember) { try { localStorage.setItem('kova-lang', next); } catch (e) { /* private window */ } }
   }
   for (const b of document.querySelectorAll('[data-lang]')) b.addEventListener('click', () => setLang(b.dataset.lang, true));
   let saved = null;
   try { saved = localStorage.getItem('kova-lang'); } catch (e) { /* storage blocked */ }
-  setLang(saved === 'ru' || saved === 'en' ? saved : (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en', false);
+  const LANGS = ['en', 'ru', 'fa', 'zh'];
+  const browser = (navigator.language || '').toLowerCase();
+  setLang(LANGS.includes(saved) ? saved : LANGS.find((l) => browser.startsWith(l)) ?? 'en', false);
 </script>
 </body>
 </html>

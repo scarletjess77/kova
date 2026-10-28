@@ -6,9 +6,18 @@
 <link rel="icon" href="icon.png">
 <title>Kova</title>
 <meta name="description" content="Kova is a free, open-source VPN client for the Mihomo and Xray cores, for Windows, Android, Linux and macOS.">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Kova">
+<meta property="og:title" content="Kova: Mihomo and Xray in one VPN client">
+<meta property="og:description" content="A free, open-source VPN client for Windows, Android (phones and TV), Linux and macOS. Any subscription, routing for Russia, China and Iran, TUN without admin rights.">
+<meta property="og:url" content="https://scarletjess77.github.io/kova/">
+<meta property="og:image" content="https://scarletjess77.github.io/kova/og.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600;700&family=Vazirmatn:wght@400;500;600;700&display=swap">
 <style>
 /* Layout: product first. A left-aligned headline over a working Kova window, then quiet
    sections on one 1160px column, with Mihomo's own log lines as the recurring texture.
@@ -21,8 +30,8 @@
   --glow: rgb(255 255 255 / .05); --head-bg: rgb(9 9 10 / .82);
   --shadow: 0 1px 2px rgb(0 0 0 / .5), 0 40px 90px rgb(0 0 0 / .6);
   --qr-bg: #ffffff; --qr-fg: #111113;
-  --f-display: 'Unbounded', 'Segoe UI', system-ui, sans-serif;
-  --f-ui: 'Onest', 'Segoe UI', system-ui, sans-serif;
+  --f-display: 'Unbounded', 'Vazirmatn', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Onest', 'Vazirmatn', 'Segoe UI', system-ui, sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
   --r: 10px;
   color-scheme: dark;
@@ -430,6 +439,8 @@ p { text-wrap: pretty; }
       <div class="seg" role="group" aria-label="Language">
         <button type="button" id="lang-en" data-lang="en" aria-pressed="true">EN</button>
         <button type="button" id="lang-ru" data-lang="ru" aria-pressed="false">RU</button>
+        <button type="button" id="lang-fa" data-lang="fa" aria-pressed="false" lang="fa">FA</button>
+        <button type="button" id="lang-zh" data-lang="zh" aria-pressed="false" lang="zh">ZH</button>
       </div>
       <a class="btn small gh" href="https://github.com/scarletjess77/kova" target="_blank" rel="noopener">GitHub</a>
       <a class="btn small primary" href="#download" data-t="nav.download">Download</a>
@@ -443,7 +454,7 @@ p { text-wrap: pretty; }
     <div class="eyebrow" data-t="hero.eyebrow">Free, open-source VPN client for Windows, Android, Linux and macOS</div>
     <h1 data-t="hero.title">Mihomo and Xray in one client</h1>
     <div class="hero-row">
-      <p class="lede" data-t="hero.lede">Kova is a desktop VPN client written in Rust. Import any subscription and connect with one click. Every node runs on the core that supports it, with rules, TUN and live traffic in one window.</p>
+      <p class="lede" data-t="hero.lede">Kova is a VPN client written in Rust, for computers, phones and TVs. Import any subscription and connect with one click. Every node runs on the core that supports it, with rules, TUN and live traffic in one window.</p>
       <div class="ctas">
         <div class="btn-row">
           <a class="btn primary" id="hero-dl" href="#download"><svg class="i"><use href="#i-down"/></svg><span id="hero-cta">Download</span><span class="meta" id="hero-ver"></span></a>
@@ -601,7 +612,7 @@ p { text-wrap: pretty; }
     <div class="sec-head">
       <div class="eyebrow" data-t="imp.eyebrow">Import</div>
       <h2 data-t="imp.title">Every common format, nothing lost</h2>
-      <p data-t="imp.p">Clash and Mihomo profiles are kept word for word, so their groups and rules survive. Share links, base64 subscriptions and sing-box JSON are converted. Subscriptions show the traffic used and days left, and update on their own.</p>
+      <p data-t="imp.p">Clash and Mihomo profiles are kept word for word, so their groups and rules survive. Share links, base64 subscriptions, sing-box JSON and Xray JSON are converted. Subscriptions show the traffic used and days left, and update on their own.</p>
       <p class="note" data-t="imp.note">Paste from the clipboard, open a file, or add a subscription address.</p>
     </div>
     <div class="formats">
@@ -687,7 +698,7 @@ p { text-wrap: pretty; }
         <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small>
         <small><a id="apk32" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener" data-t="dl.and32">32-bit APK for older phones and most TVs</a></small></article>
       <article class="rel" data-os="linux"><div class="rel-h"><b>Linux</b><span class="pill warn" data-t="pl.new">New</span></div>
-        <p data-t="dl.lin.p">AppImage and .deb, x64. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
+        <p data-t="dl.lin.p">AppImage and .deb, x64. TUN mode asks for the password once to give Mihomo network rights.</p>
         <a class="btn" href="https://github.com/scarletjess77/kova/releases/latest" target="_blank" rel="noopener"><svg class="i"><use href="#i-down"/></svg><span data-t="dl.btn">Download</span></a><small class="size"></small></article>
       <article class="rel" data-os="macos"><div class="rel-h"><b>macOS</b><span class="pill warn" data-t="pl.new">New</span></div>
         <p data-t="dl.mac.p">.dmg for Apple silicon Macs. New in 0.1.4 and lightly tested; TUN mode needs sudo for now.</p>
@@ -696,7 +707,7 @@ p { text-wrap: pretty; }
     </div>
     <div class="dl-notes">
       <p class="note" data-t="dl.n1">The installer isn’t code-signed yet, so Windows SmartScreen may warn you. Choose <b>More info → Run anyway</b>.</p>
-      <p class="note" data-t="dl.n2">It asks for admin rights once, to set up the Kova service for TUN mode. On first launch Kova downloads the cores it needs.</p>
+      <p class="note" data-t="dl.n2">It asks for admin rights once, to set up the Kova service for TUN mode. The cores come with the installer, so a first start needs nothing from GitHub.</p>
       <p class="note" data-t="dl.n3">Android asks to allow installing apps from your browser the first time. Later updates install from inside Kova.</p>
       <p class="note" data-t="dl.n4">The Mac app isn’t notarized yet: the first time, right-click Kova in Applications and choose <b>Open</b>.</p>
       <p class="note"><a href="https://github.com/scarletjess77/kova/releases" target="_blank" rel="noopener" data-t="dl.all">All releases and changelogs on GitHub</a></p>
@@ -752,7 +763,7 @@ p { text-wrap: pretty; }
     'nav.cores': 'Два ядра', 'nav.smart': 'Умная маршрутизация', 'nav.import': 'Импорт', 'nav.safety': 'Безопасность', 'nav.guide': 'Руководство', 'nav.download': 'Скачать',
     'hero.eyebrow': 'Бесплатный VPN-клиент с открытым кодом для Windows, Android, Linux и macOS',
     'hero.title': 'Mihomo и Xray в одном клиенте',
-    'hero.lede': 'Kova — VPN-клиент для компьютера, написанный на Rust. Импортируйте любую подписку и подключайтесь в один клик. Каждый узел работает на ядре, которое его поддерживает, а правила, TUN и трафик собраны в одном окне.',
+    'hero.lede': 'Kova — VPN-клиент на Rust для компьютеров, телефонов и телевизоров. Импортируйте любую подписку и подключайтесь в один клик. Каждый узел работает на ядре, которое его поддерживает, а правила, TUN и трафик собраны в одном окне.',
     'hero.source': 'Исходный код',
     'hero.fine': 'Без рекламы, слежки и регистрации. Обновления подписаны.',
     'demo.tag': 'Живое демо: нажмите кнопку питания',
@@ -779,7 +790,7 @@ p { text-wrap: pretty; }
     'panel.h': 'Один сайт не открылся', 'panel.reset': 'сброс через 0,4 с после TLS-приветствия', 'panel.direct': 'Напрямую', 'panel.reset2': 'соединение сброшено',
     'panel.proxy': 'Через прокси', 'panel.opens': 'открывается · 312 мс', 'panel.sugg': 'Предложения',
     'imp.eyebrow': 'Импорт', 'imp.title': 'Все популярные форматы, без потерь',
-    'imp.p': 'Профили Clash и Mihomo сохраняются слово в слово, вместе с группами и правилами. Ссылки, подписки base64 и JSON sing-box конвертируются. Подписки показывают израсходованный трафик и оставшиеся дни и обновляются сами.',
+    'imp.p': 'Профили Clash и Mihomo сохраняются слово в слово, вместе с группами и правилами. Ссылки, подписки base64, JSON sing-box и Xray JSON конвертируются. Подписки показывают израсходованный трафик и оставшиеся дни и обновляются сами.',
     'imp.note': 'Вставьте из буфера обмена, откройте файл или добавьте адрес подписки.',
     'imp.links': 'Ссылки', 'imp.subs': 'Профили и подписки', 'imp.verbatim': 'как есть',
     'rt.eyebrow': 'Правила', 'rt.title': 'Готовая маршрутизация для России, Китая и Ирана',
@@ -807,13 +818,13 @@ p { text-wrap: pretty; }
     'dl.win.p': 'Установщик для Windows 10 и 11, x64. Дальше Kova обновляется сама, прямо из приложения.',
     'dl.and.p': 'APK для Android 7 и новее — телефоны и Android TV. Выбор приложений для VPN, импорт по QR-коду, плитка в быстрых настройках и виджет.',
     'dl.and32': '32-битный APK для старых телефонов и большинства телевизоров',
-    'dl.lin.p': 'AppImage и .deb, x64. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
+    'dl.lin.p': 'AppImage и .deb, x64. Для режима TUN Kova один раз спросит пароль, чтобы выдать Mihomo права на сеть.',
     'dl.mac.p': '.dmg для Mac на Apple silicon. Появилось в 0.1.4 и пока мало проверено; для режима TUN пока нужен sudo.',
     'dl.mac.intel': 'Для Mac с процессором Intel',
     'pl.ready': 'Доступно',
     'pl.new': 'Новое',
     'dl.n1': 'Установщик пока не подписан сертификатом, поэтому SmartScreen может показать предупреждение. Нажмите <b>Подробнее → Выполнить в любом случае</b>.',
-    'dl.n2': 'Он один раз попросит права администратора, чтобы установить службу Kova для режима TUN. При первом запуске Kova скачает нужные ядра.',
+    'dl.n2': 'Он один раз попросит права администратора, чтобы установить службу Kova для режима TUN. Ядра идут в комплекте, поэтому первому запуску GitHub не нужен.',
     'dl.all': 'Все выпуски и списки изменений на GitHub',
     'dl.n3': 'При первой установке Android попросит разрешить установку приложений из браузера. Дальше обновления ставятся прямо из Kova.',
     'dl.n4': 'Приложение для Mac пока не заверено Apple: в первый раз нажмите на Kova в «Программах» правой кнопкой и выберите <b>Открыть</b>.',
@@ -822,6 +833,155 @@ p { text-wrap: pretty; }
     'os.support': 'Поддержать Kova', 'os.support.p': 'Если Kova вам помогает, можно поддержать разработку в TON.', 'os.tonkeeper': 'Открыть в Tonkeeper',
     'ft.releases': 'Выпуски', 'ft.issues': 'Сообщить о проблеме',
   };
+  const FA = {
+    'nav.cores': 'دو هسته', 'nav.smart': 'مسیریابی هوشمند', 'nav.import': 'وارد کردن', 'nav.safety': 'امنیت', 'nav.guide': 'راهنما', 'nav.download': 'دانلود',
+    'hero.eyebrow': 'کلاینت VPN رایگان و متن‌باز برای ویندوز، اندروید، لینوکس و macOS',
+    'hero.title': 'Mihomo و Xray در یک کلاینت',
+    'hero.lede': 'Kova یک کلاینت VPN نوشته‌شده با Rust برای رایانه، گوشی و تلویزیون است. هر اشتراکی را وارد کنید و با یک کلیک وصل شوید. هر سرور روی هسته‌ای اجرا می‌شود که از آن پشتیبانی می‌کند و قوانین، TUN و ترافیک زنده در یک پنجره‌اند.',
+    'hero.source': 'کد منبع',
+    'hero.fine': 'بدون تبلیغ، ردیابی یا ثبت‌نام. به‌روزرسانی‌ها امضا شده‌اند.',
+    'demo.tag': 'دموی زنده: دکمهٔ روشن/خاموش را بزنید',
+    'w.dashboard': 'داشبورد', 'w.proxies': 'پراکسی‌ها', 'w.profiles': 'پروفایل‌ها', 'w.connections': 'اتصال‌ها', 'w.rules': 'قوانین',
+    'w.check': 'بررسی سایت', 'w.logs': 'گزارش‌ها', 'w.settings': 'تنظیمات', 'w.active': 'پروفایل فعال', 'w.home': 'خانه',
+    'w.days': '۱۸ روز مانده', 'w.headsub': 'خانه · ۲۴ سرور', 'w.status': 'وضعیت', 'w.mode': 'حالت مسیریابی',
+    'w.rule': 'قوانین', 'w.global': 'سراسری', 'w.direct': 'مستقیم', 'w.capture': 'گرفتن ترافیک', 'w.sysproxy': 'پراکسی سیستم',
+    'w.sysproxy.d': 'برنامه‌هایی که از پراکسی سیستم پیروی می‌کنند', 'w.tun': 'حالت TUN', 'w.tun.d': 'همهٔ برنامه‌ها، بازی‌ها و UDP',
+    'w.exit': 'نقطهٔ خروج', 'w.ip': 'IP عمومی', 'w.loc': 'مکان', 'w.net': 'شبکه', 'w.lat': 'تأخیر',
+    'w.traffic': 'ترافیک', 'w.dl': 'دریافت', 'w.ul': 'ارسال', 'w.session': 'این نشست',
+    'cores.eyebrow': 'دو هسته',
+    'cores.title': 'Mihomo در جلو، و Xray هر وقت سروری به آن نیاز داشته باشد',
+    'cores.p': 'Mihomo قوانین، گروه‌های پراکسی، TUN و اتصال‌ها را اداره می‌کند. سرورهایی که فقط Xray می‌تواند اجرا کند، مانند <b>VLESS روی XHTTP</b>، از طریق یک پل محلی Xray می‌روند که Kova خودش راه می‌اندازد. چیزی برای تنظیم نیست و در صورت تمایل می‌توان پروفایل را به یک هسته محدود کرد.',
+    'flow.apps': 'برنامه‌ها و بازی‌های شما', 'flow.apps.d': 'از طریق پراکسی سیستم روی 127.0.0.1:7890، یا همه از طریق TUN',
+    'flow.core.d': 'قوانین · گروه‌ها · TUN · اتصال‌ها', 'flow.native': 'سرورهایی که Mihomo خودش اجرا می‌کند',
+    'flow.bridge': 'پل Xray', 'flow.bridge.d': 'VLESS روی XHTTP و سرورهای دیگری که فقط Xray اجرا می‌کند. وقتی پروفایل به آن نیاز دارد راه می‌افتد.',
+    'flow.direct': 'مستقیم', 'flow.direct.d': 'سایت‌هایی که قوانین شما از کنار پراکسی می‌فرستند',
+    'smart.beta': 'بتا', 'smart.title': 'Kova یاد می‌گیرد هر سایت از کدام راه باز می‌شود',
+    'smart.p': 'دیگر لازم نیست وقتی سایتی باز نمی‌شود، دامنه‌ها را دستی وارد کنید. Kova خطا را تشخیص می‌دهد، سایت را از هر دو راه امتحان می‌کند و آن را از راهی که کار می‌کند می‌فرستد: سایت‌های مسدود از طریق پراکسی و سایت‌هایی که پراکسی را نمی‌پذیرند مستقیم.',
+    'smart.s1': 'تشخیص', 'smart.s1.p': 'سایت از راه معمول باز نمی‌شود: خطای اتصال، قطع درست پس از سلام TLS یا ۶ ثانیه بدون پاسخ.',
+    'smart.s2': 'آزمایش هر دو راه', 'smart.s2.p': 'Kova سایت را مستقیم و از طریق پراکسی روی پورت‌های آزمایشی جداگانه باز می‌کند، بدون دست زدن به ترافیک شما.',
+    'smart.s3': 'مسیریابی یا پرسیدن', 'smart.s3.p': 'اگر هیچ قانونی مسیر را تعیین نکرده باشد، Kova سایت را ۳۰ روز به خاطر می‌سپارد. اگر قانون خودتان مسیر را تعیین کرده باشد، یک استثنا پیشنهاد می‌کند و قوانین شما را دست نمی‌زند.',
+    'smart.note': 'هم با پراکسی سیستم و هم با TUN کار می‌کند؛ با TUN برنامه‌هایی را هم که با نشانی IP وصل می‌شوند می‌آموزد. آن را در <b>قوانین ← مسیریابی هوشمند</b> روشن کنید. سایت‌هایی که پراکسی را نمی‌پذیرند فقط با اجازهٔ شما مستقیم فرستاده می‌شوند، چون آن‌وقت نشانی واقعی شما را می‌بینند.',
+    'panel.h': 'یک سایت باز نشد', 'panel.reset': 'قطع ۰٫۴ ثانیه پس از سلام TLS', 'panel.direct': 'مستقیم', 'panel.reset2': 'اتصال قطع شد',
+    'panel.proxy': 'از طریق پراکسی', 'panel.opens': 'باز می‌شود · ۳۱۲ میلی‌ثانیه', 'panel.sugg': 'پیشنهادها',
+    'imp.eyebrow': 'وارد کردن', 'imp.title': 'همهٔ قالب‌های رایج، بدون از دست رفتن چیزی',
+    'imp.p': 'پروفایل‌های Clash و Mihomo کلمه‌به‌کلمه نگه داشته می‌شوند تا گروه‌ها و قوانینشان بمانند. لینک‌های اشتراک‌گذاری، اشتراک‌های base64، sing-box JSON و Xray JSON تبدیل می‌شوند. اشتراک‌ها ترافیک مصرف‌شده و روزهای باقی‌مانده را نشان می‌دهند و خودشان به‌روز می‌شوند.',
+    'imp.note': 'از کلیپ‌بورد جای‌گذاری کنید، فایلی باز کنید یا نشانی اشتراک را اضافه کنید.',
+    'imp.links': 'لینک‌ها', 'imp.subs': 'پروفایل‌ها و اشتراک‌ها', 'imp.verbatim': 'بدون تغییر',
+    'rt.eyebrow': 'قوانین', 'rt.title': 'مسیریابی آماده برای روسیه، چین و ایران',
+    'rt.p': 'یک پیش‌تنظیم را روشن کنید یا قوانین خودتان را بنویسید و با کشیدن مرتب کنید. روی هر پروفایل Clash واردشده هم کار می‌کنند.',
+    'rt.presets': 'پیش‌تنظیم‌ها', 'rt.presets.a': 'قوانین ← پیش‌تنظیم‌ها',
+    'p1': 'فقط سایت‌های مسدود از طریق پراکسی', 'p1.d': 'سایت‌های مسدود در روسیه از پراکسی می‌روند و بقیه مستقیم.',
+    'p2': 'مستقیم برای سایت‌های روسی', 'p2.d': '.ru، .рф، .su، سرویس‌ها و نشانی‌های IP روسیه بدون پراکسی می‌روند.',
+    'p3': 'مسدود کردن تبلیغات و ردیاب‌ها', 'p3.d': 'فهرست category-ads-all را مسدود می‌کند.',
+    'p4': 'مستقیم برای سایت‌های چینی', 'p4.d': 'geosite:cn و نشانی‌های IP چین مستقیم می‌روند.',
+    'p5': 'مستقیم برای سایت‌های ایرانی', 'p5.d': 'دامنه‌های .ir و نشانی‌های IP ایران مستقیم می‌روند.',
+    'rt.data': 'داده‌های مسیریابی', 'rt.th1': 'منبع', 'rt.th2': 'محتوا', 'rt.th3': 'به‌روزرسانی',
+    'rt.std': 'استاندارد', 'rt.std.d': 'همهٔ کشورها و دسته‌های سایت v2fly', 'rt.weekly': 'هفتگی',
+    'rt.ru': 'روسیه', 'rt.ru.d': 'مجموعهٔ استاندارد به‌علاوهٔ ru-blocked، refilter و دیگران', 'rt.12h': 'هر ۱۲ ساعت',
+    'rt.custom': 'سفارشی', 'rt.custom.d': 'هر دو لینکی به فایل‌های خودتان',
+    'rt.note': 'دانلودها با SHA-256 که GitHub منتشر می‌کند مقایسه می‌شوند. <b>بررسی سایت</b> نشان می‌دهد سایت‌های فهرست با Kova و بدون آن چگونه باز می‌شوند.',
+    'sf.eyebrow': 'امن به‌طور پیش‌فرض', 'sf.title': 'رایانه را همان‌طور که بود باقی می‌گذارد',
+    'sf1': 'هسته‌های بررسی‌شده', 'sf1.p': 'Mihomo و Xray از انتشارهای رسمی GitHub دانلود می‌شوند. Kova پیش از نصب SHA-256 را بررسی می‌کند.',
+    'sf2': 'بازگرداندن پراکسی', 'sf2.p': 'هنگام قطع اتصال، هنگام خروج و در اجرای بعدی پس از خرابی.',
+    'sf3': 'بدون فرایند رهاشده', 'sf3.p': 'هسته‌ها داخل یک Job Object ویندوز اجرا می‌شوند و همراه برنامه بسته می‌شوند.',
+    'sf4': 'پورت‌های محلی بسته', 'sf4.p': 'کنترل هسته و پورت‌های خود Kova به رمزی نیاز دارند که برای نصب شما ساخته شده است. در اندروید پورت پراکسی هم، تا برنامه‌های دیگر از آن استفاده نکنند.',
+    'sf5': 'TUN بدون دسترسی مدیر', 'sf5.p': 'یک سرویس کوچک ویندوز فقط Mihomo را روشن و خاموش می‌کند. بقیهٔ Kova با حساب شما اجرا می‌شود.',
+    'sf6': 'به‌روزرسانی‌های امضاشده', 'sf6.p': 'Kova هنگام اجرا به‌روزرسانی‌ها را بررسی می‌کند و فقط اگر با کلید پروژه امضا شده باشند نصبشان می‌کند.',
+    'dl.eyebrow': 'دانلود', 'dl.title': 'نصب Kova',
+    'dl.btn': 'دانلود',
+    'dl.win.p': 'نصب‌کننده برای ویندوز ۱۰ و ۱۱، x64. پس از آن Kova خودش از داخل برنامه به‌روز می‌شود.',
+    'dl.and.p': 'APK برای اندروید ۷ و جدیدتر، گوشی و Android TV. انتخاب برنامه‌ها برای VPN، وارد کردن با کد QR، کاشی تنظیمات سریع و ویجت.',
+    'dl.and32': 'APK ۳۲ بیتی برای گوشی‌های قدیمی و بیشتر تلویزیون‌ها',
+    'dl.lin.p': 'AppImage و .deb، x64. حالت TUN یک بار رمز عبور را می‌خواهد تا به Mihomo دسترسی شبکه بدهد.',
+    'dl.mac.p': '.dmg برای مک‌های Apple silicon. در 0.1.4 اضافه شد و کمتر آزمایش شده؛ حالت TUN فعلاً به sudo نیاز دارد.',
+    'dl.mac.intel': 'برای مک با پردازندهٔ Intel',
+    'pl.ready': 'آماده',
+    'pl.new': 'جدید',
+    'dl.n1': 'نصب‌کننده هنوز با گواهی امضا نشده، پس SmartScreen ممکن است هشدار دهد. روی <b>اطلاعات بیشتر ← اجرا به هر حال</b> بزنید.',
+    'dl.n2': 'یک بار دسترسی مدیر می‌خواهد تا سرویس Kova را برای حالت TUN نصب کند. هسته‌ها همراه نصب‌کننده‌اند، پس اجرای اول به GitHub نیازی ندارد.',
+    'dl.all': 'همهٔ انتشارها و تغییرات در GitHub',
+    'dl.n3': 'در نصب اول، اندروید می‌خواهد اجازهٔ نصب برنامه از مرورگر را بدهید. پس از آن به‌روزرسانی‌ها مستقیم از Kova نصب می‌شوند.',
+    'dl.n4': 'برنامهٔ مک هنوز توسط Apple تأیید نشده: بار اول روی Kova در Applications راست‌کلیک کنید و <b>Open</b> را بزنید.',
+    'os.eyebrow': 'متن‌باز', 'os.title': 'رایگان و بدون ثبت‌نام',
+    'os.p': 'Kova نرم‌افزار آزاد با مجوز GPL-3.0 است. بدون تبلیغ، ردیابی یا حساب کاربری. خودش فقط با GitHub (به‌روزرسانی‌ها، هسته‌ها و داده‌های مسیریابی)، با ipwho.is برای کارت نقطهٔ خروج و با نشانی اشتراک شما تماس می‌گیرد.',
+    'os.support': 'حمایت از Kova', 'os.support.p': 'اگر Kova به شما کمک می‌کند، می‌توانید با TON از توسعهٔ آن حمایت کنید.', 'os.tonkeeper': 'باز کردن در Tonkeeper',
+    'ft.releases': 'انتشارها', 'ft.issues': 'گزارش مشکل',
+  };
+  const ZH = {
+    'nav.cores': '双内核', 'nav.smart': '智能路由', 'nav.import': '导入', 'nav.safety': '安全', 'nav.guide': '指南', 'nav.download': '下载',
+    'hero.eyebrow': '适用于 Windows、Android、Linux 和 macOS 的免费开源 VPN 客户端',
+    'hero.title': 'Mihomo 和 Xray 合于一个客户端',
+    'hero.lede': 'Kova 是用 Rust 编写的 VPN 客户端，适用于电脑、手机和电视。导入任意订阅，一键连接。每个节点都运行在支持它的内核上，规则、TUN 和实时流量都在同一个窗口里。',
+    'hero.source': '源代码',
+    'hero.fine': '无广告、无追踪、无需注册。更新均已签名。',
+    'demo.tag': '在线演示：点击电源按钮',
+    'w.dashboard': '仪表盘', 'w.proxies': '代理', 'w.profiles': '配置', 'w.connections': '连接', 'w.rules': '规则',
+    'w.check': '网站检测', 'w.logs': '日志', 'w.settings': '设置', 'w.active': '当前配置', 'w.home': '家里',
+    'w.days': '剩余 18 天', 'w.headsub': '家里 · 24 个节点', 'w.status': '状态', 'w.mode': '路由模式',
+    'w.rule': '规则', 'w.global': '全局', 'w.direct': '直连', 'w.capture': '接管流量', 'w.sysproxy': '系统代理',
+    'w.sysproxy.d': '遵循系统代理的应用', 'w.tun': 'TUN 模式', 'w.tun.d': '所有应用、游戏和 UDP',
+    'w.exit': '出口', 'w.ip': '公网 IP', 'w.loc': '位置', 'w.net': '网络', 'w.lat': '延迟',
+    'w.traffic': '流量', 'w.dl': '下载', 'w.ul': '上传', 'w.session': '本次会话',
+    'cores.eyebrow': '双内核',
+    'cores.title': 'Mihomo 在前，节点需要时再用 Xray',
+    'cores.p': 'Mihomo 负责规则、代理组、TUN 和连接统计。只有 Xray 能运行的节点，例如 <b>基于 XHTTP 的 VLESS</b>，会经过 Kova 自动启动的本地 Xray 桥接。无需任何设置，也可以把配置固定到某一个内核。',
+    'flow.apps': '你的应用和游戏', 'flow.apps.d': '通过 127.0.0.1:7890 上的系统代理，或全部经由 TUN',
+    'flow.core.d': '规则 · 组 · TUN · 连接', 'flow.native': 'Mihomo 自己运行的节点',
+    'flow.bridge': 'Xray 桥接', 'flow.bridge.d': '基于 XHTTP 的 VLESS 以及其他只有 Xray 能运行的节点。配置需要时才启动。',
+    'flow.direct': '直连', 'flow.direct.d': '你的规则让其绕过代理的网站',
+    'smart.beta': '测试版', 'smart.title': 'Kova 会学习每个网站该走哪条路',
+    'smart.p': '网站打不开时，不必再手动填写域名。Kova 会发现故障，用两条路分别测试，然后让网站走能用的那条：被封锁的网站走代理，拒绝代理的网站直连。',
+    'smart.s1': '发现', 'smart.s1.p': '网站走常规路线打不开：连接错误、TLS 握手后立即被重置，或 6 秒无响应。',
+    'smart.s2': '测试两条路', 'smart.s2.p': 'Kova 在单独的测试端口上分别直连和经代理打开网站，不影响你的流量。',
+    'smart.s3': '路由或询问', 'smart.s3.p': '如果没有规则指定路线，Kova 会记住该网站 30 天。如果是你的规则指定的路线，它会建议添加例外，并保留你的规则不变。',
+    'smart.note': '系统代理和 TUN 下都能使用；在 TUN 下还会学习按 IP 地址连接的应用。在 <b>规则 → 智能路由</b> 中开启。拒绝代理的网站只有在你允许时才会改为直连，因为那样它们会看到你的真实地址。',
+    'panel.h': '一个网站打不开', 'panel.reset': 'TLS 握手 0.4 秒后被重置', 'panel.direct': '直连', 'panel.reset2': '连接被重置',
+    'panel.proxy': '经代理', 'panel.opens': '可以打开 · 312 ms', 'panel.sugg': '建议',
+    'imp.eyebrow': '导入', 'imp.title': '所有常见格式，毫无损失',
+    'imp.p': 'Clash 和 Mihomo 配置逐字保留，组和规则都不会丢。分享链接、base64 订阅、sing-box JSON 和 Xray JSON 会被转换。订阅会显示已用流量和剩余天数，并自动更新。',
+    'imp.note': '从剪贴板粘贴、打开文件，或添加订阅地址。',
+    'imp.links': '链接', 'imp.subs': '配置和订阅', 'imp.verbatim': '原样保留',
+    'rt.eyebrow': '规则', 'rt.title': '为俄罗斯、中国和伊朗准备好的路由',
+    'rt.p': '打开一个预设，或写自己的规则并拖动排序。它们在任何导入的 Clash 配置之上同样生效。',
+    'rt.presets': '预设', 'rt.presets.a': '规则 → 预设',
+    'p1': '仅被封锁的网站走代理', 'p1.d': '在俄罗斯被封锁的网站走代理，其余直连。',
+    'p2': '俄罗斯网站直连', 'p2.d': '.ru、.рф、.su、俄罗斯服务和 IP 地址不走代理。',
+    'p3': '拦截广告和跟踪器', 'p3.d': '拦截 category-ads-all 列表。',
+    'p4': '中国网站直连', 'p4.d': 'geosite:cn 和中国 IP 地址直连。',
+    'p5': '伊朗网站直连', 'p5.d': '.ir 域名和伊朗 IP 地址直连。',
+    'rt.data': '路由数据', 'rt.th1': '来源', 'rt.th2': '内容', 'rt.th3': '更新',
+    'rt.std': '标准', 'rt.std.d': '所有国家和 v2fly 网站分类', 'rt.weekly': '每周',
+    'rt.ru': '俄罗斯', 'rt.ru.d': '标准集合加上 ru-blocked、refilter 等', 'rt.12h': '每 12 小时',
+    'rt.custom': '自定义', 'rt.custom.d': '任意两个指向你自己文件的链接',
+    'rt.note': '下载会与 GitHub 公布的 SHA-256 核对。<b>网站检测</b> 显示列表中的网站在使用和不使用 Kova 时的打开情况。',
+    'sf.eyebrow': '默认安全', 'sf.title': '让电脑保持原样',
+    'sf1': '经过校验的内核', 'sf1.p': 'Mihomo 和 Xray 从 GitHub 官方发布下载。Kova 安装前会核对 SHA-256。',
+    'sf2': '代理会被恢复', 'sf2.p': '断开连接时、退出时，以及崩溃后的下次启动时。',
+    'sf3': '不留后台进程', 'sf3.p': '内核运行在 Windows Job Object 中，随应用一起关闭。',
+    'sf4': '受保护的本地端口', 'sf4.p': '内核控制和 Kova 自己的端口需要为你的安装生成的密钥。在 Android 上代理端口也是如此，防止其他应用使用它。',
+    'sf5': '无需管理员权限的 TUN', 'sf5.p': '一个小型 Windows 服务只负责启动和停止 Mihomo。Kova 的其余部分以你的身份运行。',
+    'sf6': '签名的更新', 'sf6.p': 'Kova 启动时检查更新，只安装用项目密钥签名的更新。',
+    'dl.eyebrow': '下载', 'dl.title': '安装 Kova',
+    'dl.btn': '下载',
+    'dl.win.p': '适用于 Windows 10 和 11 的 x64 安装程序。之后 Kova 会在应用内自动更新。',
+    'dl.and.p': '适用于 Android 7 及以上的 APK，手机和 Android TV 均可。可选择走 VPN 的应用、扫码导入，并提供快捷设置图块和桌面小部件。',
+    'dl.and32': '适用于旧手机和大多数电视的 32 位 APK',
+    'dl.lin.p': 'AppImage 和 .deb，x64。TUN 模式会询问一次密码，为 Mihomo 授予网络权限。',
+    'dl.mac.p': '适用于 Apple 芯片 Mac 的 .dmg。0.1.4 起提供，测试较少；TUN 模式目前需要 sudo。',
+    'dl.mac.intel': '适用于 Intel 处理器的 Mac',
+    'pl.ready': '可用',
+    'pl.new': '新',
+    'dl.n1': '安装程序尚未用证书签名，因此 SmartScreen 可能会显示警告。点击 <b>更多信息 → 仍要运行</b>。',
+    'dl.n2': '它会请求一次管理员权限，以安装用于 TUN 模式的 Kova 服务。内核随安装程序附带，首次启动无需访问 GitHub。',
+    'dl.all': 'GitHub 上的所有版本和更新日志',
+    'dl.n3': '首次安装时，Android 会要求允许从浏览器安装应用。之后可直接在 Kova 中安装更新。',
+    'dl.n4': 'Mac 应用尚未经过 Apple 公证：第一次请在“应用程序”中右键点击 Kova 并选择 <b>打开</b>。',
+    'os.eyebrow': '开源', 'os.title': '免费，无需注册',
+    'os.p': 'Kova 是采用 GPL-3.0 许可证的自由软件。无广告、无追踪、无账户。它本身只会连接 GitHub（更新、内核和路由数据）、用于“出口”卡片的 ipwho.is，以及你的订阅地址。',
+    'os.support': '支持 Kova', 'os.support.p': '如果 Kova 对你有帮助，可以用 TON 支持开发。', 'os.tonkeeper': '在 Tonkeeper 中打开',
+    'ft.releases': '版本', 'ft.issues': '报告问题',
+  };
+  const TR = { ru: RU, fa: FA, zh: ZH };
 
   // Texts the demo writes itself.
   const D = {
@@ -838,6 +998,7 @@ p { text-wrap: pretty; }
       added: 'Exception added: modrinth.com now goes through the proxy', dismissed: 'Suggestion hidden until Kova restarts', again: 'Show again',
       suffix: 'Domain and subdomains', geosite: 'Geosite list', proxy: 'Proxy', directR: 'Direct',
       copy: 'Copy address', copied: 'Copied', select: 'Selected, press Ctrl+C',
+      download: 'Download', downloadFor: 'Download for {os}', mbUnit: 'MB',
     },
     ru: {
       protected: 'Защищено', proxyOnly: 'Только прокси', off: 'Отключено', connecting: 'Подключение…',
@@ -852,6 +1013,37 @@ p { text-wrap: pretty; }
       added: 'Исключение добавлено: modrinth.com теперь идёт через прокси', dismissed: 'Предложение скрыто до перезапуска Kova', again: 'Показать снова',
       suffix: 'Домен и поддомены', geosite: 'Список geosite', proxy: 'Прокси', directR: 'Напрямую',
       copy: 'Копировать адрес', copied: 'Скопировано', select: 'Выделено, нажмите Ctrl+C',
+      download: 'Скачать', downloadFor: 'Скачать для {os}', mbUnit: 'МБ',
+    },
+    fa: {
+      protected: 'محافظت‌شده', proxyOnly: 'فقط پراکسی', off: 'قطع', connecting: 'در حال اتصال…',
+      bridge: 'Mihomo + پل Xray', connectedFor: 'مدت اتصال', direct: 'ترافیک شما مستقیم خارج می‌شود',
+      via: 'از طریق پراکسی', noVia: 'بدون پراکسی', loc: 'آمستردام، هلند',
+      running: 'در حال اجرا · Mihomo + Xray', stopped: 'متوقف', port: 'پورت', sys: 'پراکسی سیستم', portOnly: 'فقط پورت پراکسی',
+      modes: { rule: 'حالت قوانین', global: 'حالت سراسری', direct: 'حالت مستقیم' },
+      mb: 'MB/s', kb: 'KB/s', gb: 'GB', mbT: 'MB', ms: 'ms',
+      connect: 'اتصال', disconnect: 'قطع اتصال',
+      sugg: '<b class="mono">modrinth.com</b><span>به‌صورت مستقیم مسدود است (اتصال قطع شد)، اما قانون شمارهٔ ۶ شما (فهرست Geosite category-games) آن را مستقیم می‌فرستد. از طریق پراکسی باز می‌شود.</span>',
+      add: 'افزودن استثنا', dismiss: 'رد کردن',
+      added: 'استثنا افزوده شد: modrinth.com اکنون از پراکسی می‌رود', dismissed: 'پیشنهاد تا اجرای دوبارهٔ Kova پنهان شد', again: 'نمایش دوباره',
+      suffix: 'دامنه و زیردامنه‌ها', geosite: 'فهرست Geosite', proxy: 'پراکسی', directR: 'مستقیم',
+      copy: 'کپی نشانی', copied: 'کپی شد', select: 'انتخاب شد، Ctrl+C را بزنید',
+      download: 'دانلود', downloadFor: 'دانلود برای {os}', mbUnit: 'MB',
+    },
+    zh: {
+      protected: '已保护', proxyOnly: '仅代理', off: '已断开', connecting: '连接中…',
+      bridge: 'Mihomo + Xray 桥接', connectedFor: '已连接', direct: '你的流量直接出站',
+      via: '经过代理', noVia: '不经过代理', loc: '荷兰阿姆斯特丹',
+      running: '运行中 · Mihomo + Xray', stopped: '已停止', port: '端口', sys: '系统代理', portOnly: '仅代理端口',
+      modes: { rule: '规则模式', global: '全局模式', direct: '直连模式' },
+      mb: 'MB/s', kb: 'KB/s', gb: 'GB', mbT: 'MB', ms: 'ms',
+      connect: '连接', disconnect: '断开连接',
+      sugg: '<b class="mono">modrinth.com</b><span>直连被封锁（连接被重置），但你的第 6 条规则（Geosite 列表 category-games）让它直连。通过代理可以打开。</span>',
+      add: '添加例外', dismiss: '忽略',
+      added: '已添加例外：modrinth.com 现在走代理', dismissed: '建议已隐藏，Kova 重启后再显示', again: '再次显示',
+      suffix: '域名及子域名', geosite: 'Geosite 列表', proxy: '代理', directR: '直连',
+      copy: '复制地址', copied: '已复制', select: '已选中，请按 Ctrl+C',
+      download: '下载', downloadFor: '下载 {os} 版', mbUnit: 'MB',
     },
   };
 
@@ -987,7 +1179,7 @@ p { text-wrap: pretty; }
   const mine = /Android/i.test(ua) ? 'android' : /Windows/i.test(ua) ? 'windows' : /Mac OS X|Macintosh/i.test(ua) && !/iPhone|iPad/i.test(ua) ? 'macos' : /Linux/i.test(ua) ? 'linux' : null;
   const card = (os) => document.querySelector(`.rel[data-os="${os}"]`);
   if (mine) card(mine).classList.add('mine');
-  const ctaText = () => mine ? (lang === 'ru' ? 'Скачать для ' : 'Download for ') + OS_NAME[mine] : (lang === 'ru' ? 'Скачать' : 'Download');
+  const ctaText = () => (mine ? L().downloadFor.replace('{os}', OS_NAME[mine]) : L().download);
   let latest = null;
   function renderDownloads() {
     $('hero-cta').textContent = ctaText();
@@ -998,7 +1190,7 @@ p { text-wrap: pretty; }
       const el = card(os);
       if (!a) continue;
       el.querySelector('a.btn').href = a.browser_download_url;
-      el.querySelector('.size').textContent = `${latest.tag_name.replace(/^v/, '')} · ${num(a.size / 1048576, 1)} ${lang === 'ru' ? 'МБ' : 'MB'}`;
+      el.querySelector('.size').textContent = `${latest.tag_name.replace(/^v/, '')} · ${num(a.size / 1048576, 1)} ${L().mbUnit}`;
       if (os === mine) $('hero-dl').href = a.browser_download_url;
     }
     const apk32 = latest.assets.find((x) => /_android-armv7\.apk$/.test(x.name));
@@ -1017,7 +1209,8 @@ p { text-wrap: pretty; }
   function setLang(next, remember) {
     lang = next;
     document.documentElement.lang = next;
-    for (const el of texts) el.innerHTML = next === 'ru' && RU[el.dataset.t] != null ? RU[el.dataset.t] : english.get(el);
+    document.documentElement.dir = next === 'fa' ? 'rtl' : 'ltr';
+    for (const el of texts) el.innerHTML = TR[next]?.[el.dataset.t] ?? english.get(el);
     for (const b of document.querySelectorAll('[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === next));
     $('copy-label').textContent = L().copy;
     if (remember) { try { localStorage.setItem('kova-lang', next); } catch (e) { /* private window */ } }
@@ -1028,7 +1221,9 @@ p { text-wrap: pretty; }
   for (const b of document.querySelectorAll('[data-lang]')) b.addEventListener('click', () => setLang(b.dataset.lang, true));
   let saved = null;
   try { saved = localStorage.getItem('kova-lang'); } catch (e) { /* storage blocked */ }
-  setLang(saved === 'ru' || saved === 'en' ? saved : (navigator.language || '').toLowerCase().startsWith('ru') ? 'ru' : 'en', false);
+  const LANGS = ['en', 'ru', 'fa', 'zh'];
+  const browser = (navigator.language || '').toLowerCase();
+  setLang(LANGS.includes(saved) ? saved : LANGS.find((l) => browser.startsWith(l)) ?? 'en', false);
 
   // ---------- donate ----------
   $('copy-addr').addEventListener('click', () => {
