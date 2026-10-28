@@ -38,15 +38,16 @@ if (read(here, 'status', '--porcelain')) fail('commit or stash the changes first
 for (const b of pre ? ['beta'] : ['beta', 'main']) if (!trees[b]) fail(`no worktree has ${b} checked out`);
 if (read(here, 'tag', '--list', tag)) fail(`${tag} exists already`);
 
-// Commits made on beta meanwhile (dependency updates) come into android first, so beta
-// can move forward to it.
+// Commits made on GitHub's beta meanwhile (merged dependency updates) come into android
+// first, so beta can move forward to it and the push is a fast-forward.
+read(here, 'fetch', 'origin', 'beta');
 let behind = false;
 try {
-  read(here, 'merge-base', '--is-ancestor', 'beta', 'android');
+  read(here, 'merge-base', '--is-ancestor', 'origin/beta', 'android');
 } catch {
   behind = true;
 }
-if (behind) run(here, 'merge', '--no-edit', 'beta');
+if (behind) run(here, 'merge', '--no-edit', 'origin/beta');
 
 if (dry) console.log(`> node scripts/bump-version.mjs ${version}`);
 else execFileSync(process.execPath, ['scripts/bump-version.mjs', version], { cwd: here, stdio: 'inherit' });
