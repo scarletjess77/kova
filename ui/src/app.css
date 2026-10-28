@@ -1,6 +1,8 @@
 @import '@fontsource-variable/onest';
 @import '@fontsource/unbounded/700.css';
 @import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource/press-start-2p';
+@import '@fontsource-variable/pixelify-sans';
 
 /* Dark-first and monochrome: graphite neutrals, near-white emphasis, colour only for state.
    Each theme is a `data-theme` value (lib/themes.ts lists them); the theme picker's
@@ -112,6 +114,30 @@
   --shadow: 0 1px 2px rgb(7 54 66 / .06), 0 14px 44px rgb(7 54 66 / .1);
   color-scheme: light;
 }
+/* Night sky: black with pixel stars behind translucent panels (components/NightSky.svelte),
+   pixel fonts and square corners. */
+[data-theme='night'] {
+  --bg: #000000; --win: #000000; --panel: rgb(8 8 12 / .84); --sunk: rgb(0 0 0 / .6); --line: #26262c; --line-2: #3a3a42;
+  --fg: #ededef; --muted: #a0a0ab; --faint: #6c6c76;
+  --accent: #ededef; --accent-fg: #000000; --accent-soft: #1c1c22;
+  --upload: #6a6a75;
+  --ok: #74c79a; --ok-soft: #0e1c14; --warn: #d9b061; --warn-soft: #221c0e; --bad: #e5756c; --bad-soft: #240f0e;
+  --shadow: 0 0 0 1px #26262c, 0 18px 50px rgb(0 0 0 / .8);
+  --f-display: 'Press Start 2P', ui-monospace, monospace;
+  --f-ui: 'Pixelify Sans Variable', 'Segoe UI', system-ui, sans-serif;
+  --r: 0px;
+  color-scheme: dark;
+}
+/* The pixel fonts have one weight each; faux bold would smear them. */
+:root[data-theme='night'] { font-synthesis: none; }
+:root[data-theme='night'] .app { background: transparent; position: relative; z-index: 1; }
+:root[data-theme='night'] *, :root[data-theme='night'] *::before, :root[data-theme='night'] *::after { border-radius: 0 !important; }
+:root[data-theme='night'] .titlebar { background: rgb(0 0 0 / .6); }
+:root[data-theme='night'] .page-head h1 { font: 400 16px/1.5 var(--f-display); text-transform: uppercase; letter-spacing: .04em; }
+/* Press Start 2P is wide and sharpest at multiples of 8 px. */
+:root[data-theme='night'] .state, :root[data-theme='night'] .app.mobile .state { font-size: 20px; font-weight: 400; line-height: 1.35; letter-spacing: 0; }
+:root[data-theme='night'] .brand { font-size: 16px; font-weight: 400; letter-spacing: 0; }
+:root[data-theme='night'] .ico { font-size: 8px; font-weight: 400; }
 
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
