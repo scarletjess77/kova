@@ -19,7 +19,9 @@ const pre = version.includes('-');
 const tag = `v${version}`;
 
 const here = process.cwd();
-const read = (cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
+// The release commit and merge are dated in UTC, so they don't show the local time zone.
+process.env.TZ = 'UTC0';
+const read =(cwd, ...a) => execFileSync('git', a, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'inherit'] }).trim();
 const run = (cwd, ...a) => {
   console.log(`> git ${a.join(' ')}    (${cwd})`);
   if (!dry) execFileSync('git', a, { cwd, stdio: 'inherit' });
