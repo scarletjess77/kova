@@ -18,6 +18,7 @@ export const THEMES: ThemeInfo[] = [
   { id: 'dim', label: () => t('Dim'), light: false },
   { id: 'warm', label: () => t('Warm paper'), light: true },
   { id: 'contrast', label: () => t('High contrast'), light: false },
+  { id: 'night', label: () => t('Night sky'), light: false },
   { id: 'nord', label: () => 'Nord', light: false },
   { id: 'catppuccin', label: () => 'Catppuccin', light: false },
   { id: 'dracula', label: () => 'Dracula', light: false },

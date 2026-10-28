@@ -118,6 +118,7 @@ pub enum Theme {
     Dim,
     Warm,
     Contrast,
+    Night,
     Nord,
     Catppuccin,
     Dracula,

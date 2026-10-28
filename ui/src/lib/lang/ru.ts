@@ -719,6 +719,8 @@ export const ru: Dict = {
   'The server answered {status}': 'Сервер ответил {status}',
   '{domain} opens only directly. See Rules → Smart routing': '{domain} открывается только напрямую. См. Правила → Умная маршрутизация',
   'Add your servers': 'Добавьте серверы',
+  'No answer': 'Нет ответа',
+  'Night sky': 'Ночное небо',
   'Where are you?': 'Где вы находитесь?',
   'Local sites go direct, the rest through the server. Rules can change it later.': 'Местные сайты пойдут напрямую, остальное — через сервер. Потом это можно изменить в «Правилах».',
   'Iran': 'Иран',

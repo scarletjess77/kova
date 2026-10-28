@@ -2,25 +2,32 @@
 // translation, and anything without one shows in English. `npm run check` lists texts
 // that are missing a translation.
 
+import { fa } from './lang/fa';
 import { ru } from './lang/ru';
+import { zh } from './lang/zh';
 
-export type Lang = 'en' | 'ru';
+export type Lang = 'en' | 'ru' | 'fa' | 'zh';
 /** A translation, or for counted texts (see `tn`) the forms for one, few and many. */
 export type Dict = Record<string, string | readonly [string, string, string]>;
 type Params = Record<string, string | number>;
 
-const DICTS: Record<Exclude<Lang, 'en'>, Dict> = { ru };
+const DICTS: Record<Exclude<Lang, 'en'>, Dict> = { ru, fa, zh };
+const LANGS: Lang[] = ['en', 'ru', 'fa', 'zh'];
 
 class I18n {
   lang = $state<Lang>('en');
 }
 export const i18n = new I18n();
 
-/** The language to show for the `language` setting ("system", "en" or "ru"). */
+/** The language to show for the `language` setting ("system" or a language code). */
 export function resolveLang(setting: string | undefined, system: string): Lang {
-  if (setting === 'en' || setting === 'ru') return setting;
-  return system.toLowerCase().startsWith('ru') ? 'ru' : 'en';
+  if (LANGS.includes(setting as Lang)) return setting as Lang;
+  const sys = system.toLowerCase();
+  return LANGS.find((l) => sys.startsWith(l)) ?? 'en';
 }
+
+/** Persian reads right to left. */
+export const isRtl = (lang: Lang) => lang === 'fa';
 
 const fill = (s: string, p?: Params) => (p ? s.replace(/\{(\w+)\}/g, (m, k: string) => (k in p ? String(p[k]) : m)) : s);
 

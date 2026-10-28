@@ -1,7 +1,7 @@
 {
   "name": "kova",
   "private": true,
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "VPN client for the Mihomo and Xray cores",
   "author": "scarletjess77",
   "license": "GPL-3.0-or-later",
@@ -26,6 +26,9 @@
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@fontsource-variable/onest": "^5.3.1",
+    "@fontsource-variable/pixelify-sans": "^5.3.0",
+    "@fontsource-variable/vazirmatn": "^5.3.0",
+    "@fontsource/press-start-2p": "^5.3.0",
     "@fontsource/unbounded": "^5.3.0",
     "@tauri-apps/api": "^2.12.4",
     "@tauri-apps/plugin-autostart": "^2.7.0",

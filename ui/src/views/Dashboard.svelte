@@ -215,7 +215,7 @@
       <dt>{t('Location')}</dt><dd>{exit ? [exit.city, exit.country].filter(Boolean).join(', ') : exitErr ? t('Could not check') : '…'}</dd>
       {#if exitErr && !exit}<dt></dt><dd class="why selectable">{exitErr}</dd>{/if}
       <dt>{t('Network')}</dt><dd title={exit?.network}>{exit?.network || '—'}</dd>
-      <dt>{t('Latency')}</dt><dd>{#if s.running && endNode}<Latency delay={app.delays[endNode]} />{:else}—{/if}</dd>
+      <dt>{t('Latency')}</dt><dd>{#if s.running && endNode}<Latency delay={app.delays[endNode]} dead={app.isDead(endNode)} />{:else}—{/if}</dd>
       {#if settings}<dt>DNS</dt><dd>{settings.core.dns.fake_ip ? 'Fake-IP' : 'Redir-host'} · {settings.core.dns.nameservers[0]?.replace(/^https:\/\//, '').replace(/\/dns-query$/, '') ?? '—'}</dd>{/if}
     </dl>
     <div class="foot">
@@ -245,7 +245,7 @@
           <button aria-pressed={mainGroup.now === name} onclick={() => app.select(mainGroup!.name, name)}>
             <span class="cc">{#if isGroup}<Icon name="bolt" />{:else}{countryCode(name) ?? '··'}{/if}</span>
             <span class="nm">{displayName(name)}<span class="pr"> · {isGroup ? t('now {name}', { name: displayName(app.resolve(name)) }) : (app.nodes[name]?.protocol ?? '')}</span></span>
-            <Latency delay={app.delayOf(name)} testing={app.testing.has(app.resolve(name))} />
+            <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
           </button>
         {/each}
       </div>
@@ -276,7 +276,7 @@
   .announce :global(.i) { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--muted); }
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .speed { color: var(--fg); }
-  .start { margin: 4px 0 12px; padding-left: 20px; text-align: left; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
+  .start { margin: 4px 0 12px; padding-inline-start: 20px; text-align: start; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
   .start li::marker { color: var(--faint); font: 600 12px var(--f-mono); }
   .start b { display: block; color: var(--fg); font-weight: 600; }
   .start .region { margin-top: 6px; }
@@ -314,7 +314,7 @@
   :global(.app.mobile) .power :global(.i) { width: 52px; height: 52px; }
   :global(.app.mobile) .state { font-size: 30px; }
   :global(.app.mobile) .route, :global(.app.mobile) .hero-meta { justify-content: center; }
-  :global(.app.mobile) .hero-meta .chip { text-align: left; }
+  :global(.app.mobile) .hero-meta .chip { text-align: start; }
   :global(.app.mobile) .hero-controls { grid-template-columns: minmax(0, 1fr); }
   :global(.app.mobile) .hero-controls .seg { display: flex; }
   :global(.app.mobile) .hero-controls .seg button { flex: 1; }
@@ -326,14 +326,14 @@
   .ip { font: 500 22px var(--f-mono); letter-spacing: -.01em; }
   .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
   .foot { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-left: auto; }
+  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-inline-start: auto; }
   .leg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .leg i { width: 10px; height: 3px; border-radius: 2px; display: block; }
   .leg b { font: 500 14px var(--f-mono); color: var(--fg); }
   .traffic-foot { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
   .traffic-foot b { color: var(--fg); font-weight: 500; font-family: var(--f-mono); }
   .qs { display: flex; flex-direction: column; gap: 4px; }
-  .qs button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: none; text-align: left; min-width: 0; }
+  .qs button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: none; text-align: start; min-width: 0; }
   @media (hover: hover) { .qs button:hover { background: var(--sunk); } }
   .qs button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
   .qs .nm { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

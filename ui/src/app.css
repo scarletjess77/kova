@@ -1,6 +1,10 @@
 @import '@fontsource-variable/onest';
 @import '@fontsource/unbounded/700.css';
 @import '@fontsource-variable/jetbrains-mono';
+@import '@fontsource/press-start-2p';
+@import '@fontsource-variable/pixelify-sans';
+/* Persian; Chinese uses the system's fonts, which every system has. */
+@import '@fontsource-variable/vazirmatn';
 
 /* Dark-first and monochrome: graphite neutrals, near-white emphasis, colour only for state.
    Each theme is a `data-theme` value (lib/themes.ts lists them); the theme picker's
@@ -13,7 +17,7 @@
   --ok: #74c79a; --ok-soft: #16241c; --warn: #d9b061; --warn-soft: #2a2416; --bad: #e5756c; --bad-soft: #2c1817;
   --shadow: 0 1px 2px rgb(0 0 0 / .45), 0 18px 50px rgb(0 0 0 / .55);
   --f-display: 'Unbounded', 'Segoe UI', system-ui, sans-serif;
-  --f-ui: 'Onest Variable', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Onest Variable', 'Vazirmatn Variable', 'Segoe UI', system-ui, sans-serif;
   --f-mono: 'JetBrains Mono Variable', ui-monospace, 'Cascadia Mono', Consolas, monospace;
   --r: 10px;
   color-scheme: dark;
@@ -112,6 +116,46 @@
   --shadow: 0 1px 2px rgb(7 54 66 / .06), 0 14px 44px rgb(7 54 66 / .1);
   color-scheme: light;
 }
+/* Night sky: black with pixel stars behind translucent panels (components/NightSky.svelte),
+   pixel fonts and square corners. */
+[data-theme='night'] {
+  --bg: #000000; --win: #000000; --panel: rgb(8 8 12 / .84); --sunk: rgb(0 0 0 / .6); --line: #26262c; --line-2: #3a3a42;
+  --fg: #ededef; --muted: #a0a0ab; --faint: #6c6c76;
+  --accent: #ededef; --accent-fg: #000000; --accent-soft: #1c1c22;
+  --upload: #6a6a75;
+  --ok: #74c79a; --ok-soft: #0e1c14; --warn: #d9b061; --warn-soft: #221c0e; --bad: #e5756c; --bad-soft: #240f0e;
+  --shadow: 0 0 0 1px #26262c, 0 18px 50px rgb(0 0 0 / .8);
+  --f-display: 'Press Start 2P', ui-monospace, monospace;
+  --f-ui: 'Kova Pixel Digits', 'Pixelify Sans Variable', 'Vazirmatn Variable', 'Segoe UI', system-ui, sans-serif;
+  --r: 0px;
+  color-scheme: dark;
+}
+/* Pixelify's 5 reads as an S, so digits come from Press Start 2P, scaled to sit with the
+   letters. */
+@font-face {
+  font-family: 'Kova Pixel Digits';
+  src: url('@fontsource/press-start-2p/files/press-start-2p-latin-400-normal.woff2') format('woff2');
+  unicode-range: U+0030-0039;
+  size-adjust: 72%;
+  font-display: swap;
+}
+/* The pixel fonts have one weight each; faux bold would smear them. Ligatures off: its
+   "fi" joins into one blob. */
+:root[data-theme='night'] { font-synthesis: none; font-variant-ligatures: none; }
+/* Square corners turn the round connecting spinner into a spinning bar: blink a pixel frame instead. */
+:root[data-theme='night'] .power.busy::before { border: 2px dashed var(--accent); animation: night-busy .8s steps(2, jump-none) infinite; }
+@keyframes night-busy { 0% { opacity: 1; } 100% { opacity: .2; } }
+:root[data-theme='night'] .app { background: transparent; position: relative; z-index: 1; }
+:root[data-theme='night'] *, :root[data-theme='night'] *::before, :root[data-theme='night'] *::after { border-radius: 0 !important; }
+:root[data-theme='night'] .titlebar { background: rgb(0 0 0 / .6); }
+:root[data-theme='night'] .page-head h1 { font: 400 16px/1.5 var(--f-display); text-transform: uppercase; letter-spacing: .04em; }
+/* Press Start 2P is wide and sharpest at multiples of 8 px. */
+:root[data-theme='night'] .state, :root[data-theme='night'] .app.mobile .state { font-size: 20px; font-weight: 400; line-height: 1.35; letter-spacing: 0; }
+:root[data-theme='night'] .brand { font-size: 16px; font-weight: 400; letter-spacing: 0; }
+:root[data-theme='night'] .ico { font-size: 8px; font-weight: 400; }
+
+/* Right to left (Persian): logical properties mirror most of the layout; this flips movement. */
+[dir='rtl'] { --dir: -1; }
 
 * { box-sizing: border-box; }
 html, body, #app { height: 100%; margin: 0; }
@@ -137,7 +181,7 @@ input, textarea, .selectable { user-select: text; }
 .app.mobile { grid-template-columns: minmax(0, 1fr); grid-template-rows: 52px minmax(0, 1fr); }
 .app.mobile .main { grid-row: 2; grid-column: 1; padding: 16px 14px 28px; overflow-x: hidden; }
 .app.mobile .page-head h1 { font-size: 22px; }
-.app.mobile .page-head .tools { margin-left: 0; width: 100%; }
+.app.mobile .page-head .tools { margin-inline-start: 0; width: 100%; }
 .app.mobile .search { flex: 1 1 100%; }
 .app.mobile .search .input { width: 100%; }
 .app.mobile .btn, .app.mobile .input { height: 40px; }
@@ -145,11 +189,11 @@ input, textarea, .selectable { user-select: text; }
 .page-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 18px; }
 .page-head h1 { font: 600 20px/1.2 var(--f-ui); margin: 0; letter-spacing: -.01em; }
 .page-head .sub { color: var(--muted); font-size: 13px; }
-.page-head .tools { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.page-head .tools { margin-inline-start: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
 .card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .card-h h2 { font: 600 13.5px var(--f-ui); margin: 0; }
-.card-h .aside { margin-left: auto; color: var(--muted); font-size: 12px; }
+.card-h .aside { margin-inline-start: auto; color: var(--muted); font-size: 12px; }
 .eyebrow { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); font-weight: 600; }
 .empty { color: var(--muted); padding: 28px; text-align: center; border: 1px dashed var(--line-2); border-radius: var(--r); display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .empty b { color: var(--fg); font-weight: 600; }
@@ -169,9 +213,9 @@ input, textarea, .selectable { user-select: text; }
 .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
 .search { position: relative; display: flex; align-items: center; }
-.search .i { position: absolute; left: 9px; width: 15px; height: 15px; color: var(--faint); pointer-events: none; }
-.search .input { padding-left: 30px; width: 220px; }
-select.input { padding-right: 6px; }
+.search .i { position: absolute; inset-inline-start: 9px; width: 15px; height: 15px; color: var(--faint); pointer-events: none; }
+.search .input { padding-inline-start: 30px; width: 220px; }
+select.input { padding-inline-end: 6px; }
 
 /* Wraps onto a second row rather than overflowing a narrow card or phone screen. */
 .seg { display: inline-flex; flex-wrap: wrap; max-width: 100%; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
@@ -179,9 +223,9 @@ select.input { padding-right: 6px; }
 .seg button[aria-pressed='true'] { background: var(--panel); color: var(--fg); box-shadow: 0 1px 2px rgb(0 0 0 / .12); }
 
 .switch { position: relative; width: 36px; height: 20px; border-radius: 20px; border: 0; background: var(--line-2); flex: none; transition: background .15s; padding: 0; }
-.switch::after { content: ''; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); box-shadow: 0 1px 2px rgb(0 0 0 / .25); transition: transform .15s, background .15s; }
+.switch::after { content: ''; position: absolute; top: 2px; inset-inline-start: 2px; width: 16px; height: 16px; border-radius: 50%; background: var(--muted); box-shadow: 0 1px 2px rgb(0 0 0 / .25); transition: transform .15s, background .15s; }
 .switch[aria-checked='true'] { background: var(--accent); }
-.switch[aria-checked='true']::after { transform: translateX(16px); background: var(--accent-fg); }
+.switch[aria-checked='true']::after { transform: translateX(calc(16px * var(--dir, 1))); background: var(--accent-fg); }
 .switch:disabled { opacity: .5; cursor: default; }
 
 .chip { display: inline-flex; align-items: center; gap: 5px; height: 22px; padding: 0 8px; border-radius: 6px; background: var(--sunk); border: 1px solid var(--line); font-size: 11.5px; font-weight: 500; color: var(--muted); white-space: nowrap; }
@@ -219,17 +263,17 @@ select.input { padding-right: 6px; }
 .hint { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
 .kv { display: grid; grid-template-columns: auto 1fr; gap: 7px 16px; font-size: 13px; margin: 0; }
 .kv dt { color: var(--muted); }
-.kv dd { margin: 0; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kv dd { margin: 0; text-align: end; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .kbd { font: 500 11.5px var(--f-mono); padding: 2px 6px; border: 1px solid var(--line-2); border-bottom-width: 2px; border-radius: 5px; background: var(--win); }
 
 /* ---------- tables ---------- */
 .twrap { overflow: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; text-align: left; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; background: var(--panel); position: sticky; top: 0; z-index: 1; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); font-weight: 600; text-align: start; padding: 10px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; background: var(--panel); position: sticky; top: 0; z-index: 1; }
 td { padding: 9px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 tr:last-child td { border-bottom: 0; }
 @media (hover: hover) { tbody tr:hover td { background: var(--sunk); } }
-td.r, th.r { text-align: right; }
+td.r, th.r { text-align: end; }
 .rt { font-family: var(--f-mono); font-size: 11.5px; color: var(--muted); }
 .pol { font-size: 12px; font-weight: 500; }
 .pol.direct { color: var(--muted); }

@@ -66,7 +66,7 @@ export interface Settings {
   start_minimized: boolean;
   launch_at_login: boolean;
   auto_update_cores: boolean;
-  theme: 'dark' | 'light' | 'system' | 'oled' | 'dim' | 'warm' | 'contrast' | 'nord' | 'catppuccin' | 'dracula' | 'gruvbox' | 'solarized';
+  theme: 'dark' | 'light' | 'system' | 'oled' | 'dim' | 'warm' | 'contrast' | 'night' | 'nord' | 'catppuccin' | 'dracula' | 'gruvbox' | 'solarized';
   language: string;
   xray_selection: string | null;
   selections: Record<string, string>;

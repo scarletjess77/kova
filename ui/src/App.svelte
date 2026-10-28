@@ -2,7 +2,9 @@
   import { onMount } from 'svelte';
   import { t } from './lib/i18n.svelte';
   import { app } from './lib/state.svelte';
+  import { resolveTheme } from './lib/themes';
   import ImportModal from './components/ImportModal.svelte';
+  import NightSky from './components/NightSky.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
   import Titlebar from './components/Titlebar.svelte';
@@ -16,6 +18,7 @@
   import SettingsView from './views/Settings.svelte';
 
   let failed = $state<string | null>(null);
+  let night = $derived(resolveTheme(app.settings?.theme).id === 'night');
   onMount(() => { app.init().catch((e) => (failed = String(e))); });
 
   // Ctrl+V anywhere outside a text field imports from the clipboard.
@@ -29,6 +32,7 @@
 
 <svelte:window onkeydown={onKey} />
 
+{#if night}<NightSky />{/if}
 <div class="app" class:mobile={app.mobile} class:tv={app.tv}>
   <Titlebar />
   <Sidebar />

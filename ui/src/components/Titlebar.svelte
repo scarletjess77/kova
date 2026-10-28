@@ -47,7 +47,7 @@
 {/if}
 
 <style>
-  .titlebar { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding-left: 14px; border-bottom: 1px solid var(--line); background: var(--win); }
+  .titlebar { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding-inline-start: 14px; border-bottom: 1px solid var(--line); background: var(--win); }
   .brand { display: flex; align-items: center; gap: 9px; font-family: var(--f-display); font-weight: 700; font-size: 13px; letter-spacing: .02em; }
   .brand svg { width: 20px; height: 20px; }
   .tb-profile { color: var(--muted); font-size: 12.5px; display: flex; gap: 8px; min-width: 0; }
