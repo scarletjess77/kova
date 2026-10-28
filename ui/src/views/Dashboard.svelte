@@ -1,6 +1,7 @@
 <script lang="ts">
   import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import { api, errText, type ExitInfo, type Mode, type Preset } from '../lib/api';
   import { countryCode, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
@@ -98,6 +99,13 @@
   let details = $state(false);
   let diagnosing = $state(false);
 
+  // Android may stop a background VPN to save battery; say it once, until allowed or put away.
+  let batteryHint = $state((() => { try { return localStorage.getItem('kova.batteryHint') !== 'hidden'; } catch { return true; } })());
+  function hideBatteryHint() {
+    batteryHint = false;
+    try { localStorage.setItem('kova.batteryHint', 'hidden'); } catch { /* the hint comes back next time */ }
+  }
+
   // A subscription about to end or run out is worth saying before it happens.
   let subWarning = $derived.by(() => {
     const u = profile?.usage;
@@ -117,9 +125,17 @@
 <div class="page-head">
   <h1>{t('Dashboard')}</h1>
   {#if profile}<span class="sub">{profile.name} · {tn(profile.node_count, '{n} node', '{n} nodes')}</span>{/if}
-  <div class="tools"><button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button></div>
+  <div class="tools">
+    {#if profile?.support_url}<button class="btn ghost" onclick={() => app.run(() => openUrl(profile!.support_url!))}><Icon name="external" />{t('Provider support')}</button>{/if}
+    <button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button>
+  </div>
 </div>
 {#if subWarning}<div class="sub-warn"><Icon name="alert" />{subWarning}</div>{/if}
+{#if app.mobile && !app.tv && !app.batteryFree && batteryHint && s.running}
+  <div class="sub-warn"><Icon name="alert" /><span class="grow">{t('Android may stop Kova in the background to save battery.')}</span>
+    <button class="btn" onclick={() => app.run(() => api.allowBackground())}>{t('Allow')}</button>
+    <button class="x" aria-label={t('Dismiss')} onclick={hideBatteryHint}><Icon name="x" /></button></div>
+{/if}
 {#if profile?.announce}<div class="announce" role="note"><Icon name="globe" /><span><b>{t('From the provider')}:</b> <span class="selectable">{profile.announce}</span></span></div>{/if}
 {#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
 
@@ -272,6 +288,8 @@
 <style>
   .sub-warn { display: flex; align-items: center; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--warn-soft); color: var(--warn); font-size: 13px; }
   .sub-warn :global(.i) { width: 16px; height: 16px; flex: none; }
+  .sub-warn .grow { flex: 1; min-width: 0; }
+  .sub-warn .x { color: inherit; }
   .announce { display: flex; align-items: flex-start; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
   .announce :global(.i) { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--muted); }
   .details-btn { justify-self: center; grid-column: 1 / -1; }

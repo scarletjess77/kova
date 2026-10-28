@@ -16,6 +16,7 @@
 - **Routing.** Presets (Russia, China, Iran direct; ad blocking; only blocked sites through the proxy), rules for sites and apps, and [smart routing](docs/how-it-works.md#smart-routing-beta), which learns sites that fail on their usual path.
 - **Works where GitHub is blocked.** Cores and routing data ship with the app; missing data is fetched through the server once connected.
 - **Against blocking.** Anti-DPI (beta) splits the start of each connection so simpler filtering can't recognise it; on Android a separate server can be chosen for mobile data, where networks may allow only whitelisted sites; the kill switch (beta) keeps apps offline when the connection drops and reconnects.
+- **Backup and transfer.** Every profile and the settings in one file, encrypted with a password if one is given, to restore on another device.
 - **Checks.** "What's wrong?" diagnostics, a site check (direct and through Kova), a privacy check (exit IP, encrypted DNS, IPv6 leaks) and a speed test.
 - **TUN mode** on Windows without running as administrator, through a small [service](docs/how-it-works.md#tun-mode-and-the-kova-service); on Linux after granting rights once. On Android: a per-app VPN, a quick-settings tile, a widget and always-on support.
 - **Safe by default.** Subscriptions are stored encrypted on Windows (DPAPI) and owner-only elsewhere, downloads are checked by SHA-256, updates are signed, the core controller listens on localhost only with a secret, and the system proxy is restored after a crash.
@@ -28,16 +29,16 @@
 
 ## Download
 
-The latest build is on the [Releases](https://github.com/scarletjess77/kova/releases/latest) page:
+The latest build is on the [Releases](https://github.com/scarletjess77/kova/releases/latest) page, one file per system:
 
 | System | File |
 |---|---|
-| Windows 10/11 | `_x64-setup.exe` |
-| Android 7+, phones and TV | `_android-arm64.apk` (most devices); `_android-armv7.apk` (older and 32-bit devices, many TVs) |
-| Linux | `.deb` (includes the cores) or `.AppImage` (smaller; downloads the cores on first start) |
-| macOS | `_aarch64.dmg` (Apple silicon); `_x64.dmg` (Intel) |
+| Windows 10/11 | `Kova_<version>_Windows.exe` |
+| Android 7+, phones and TV | `Kova_<version>_Android.apk` |
+| Linux | `Kova_<version>_Linux.deb` (includes the cores) or `Kova_<version>_Linux.AppImage` (smaller; downloads the cores on first start) |
+| macOS, Apple silicon and Intel | `Kova_<version>_macOS.dmg` |
 
-Kova updates itself (Settings → Updates). Windows and Android are the most tested; Linux and macOS builds are newer. The Windows installer is not code-signed yet, so SmartScreen may warn.
+`latest.json` and the `.app.tar.gz` are for Kova's own updater. Kova updates itself (Settings → Updates). Windows and Android are the most tested; Linux and macOS builds are newer. The Windows installer is not code-signed yet, so SmartScreen may warn.
 
 ## Privacy
 
@@ -51,7 +52,7 @@ No accounts, ads or telemetry. Kova contacts other services only for these featu
 
 ## Documentation
 
-- [User guide](https://scarletjess77.github.io/kova/guide.html), in English and Russian.
+- [User guide](https://scarletjess77.github.io/kova/guide.html), in English, Russian, Persian and Chinese.
 - [How it works](docs/how-it-works.md): the two cores, TUN mode and the Kova service, routing data, smart routing, Android, and notes for VPN providers (`kova://` import links).
 - [Building and testing](docs/building.md): desktop and Android builds, tests, releases.
 - [Security policy](SECURITY.md): how to report a vulnerability.

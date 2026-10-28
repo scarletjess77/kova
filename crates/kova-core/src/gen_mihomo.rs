@@ -517,10 +517,7 @@ pub fn main_group(doc: &Mapping) -> String {
 mod tests {
     #[test]
     fn anti_dpi_dials_every_server_through_the_local_xray() {
-        let mut o = RuntimeOptions::default();
-        o.anti_dpi = true;
-        o.anti_dpi_port = Some(17100);
-        o.local_password = "pw".into();
+        let mut o = RuntimeOptions { anti_dpi: true, anti_dpi_port: Some(17100), local_password: "pw".into(), ..Default::default() };
         let raw = "proxies:\n  - {name: A, type: trojan, server: a.example, port: 443, password: x}\n  - {name: B, type: socks5, server: 127.0.0.1, port: 17001, username: kova, password: pw}\n  - {name: D, type: trojan, server: 127.0.0.1, port: 8443, password: x}\n  - {name: C, type: trojan, server: c.example, port: 443, password: x, dialer-proxy: A}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A, B, C]}\nrules:\n  - MATCH,Sel\n";
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
         let proxies = doc["proxies"].as_sequence().unwrap();
@@ -553,11 +550,13 @@ rules:
 
     #[test]
     fn rules_can_send_sites_through_a_country() {
-        let mut o = RuntimeOptions::default();
-        o.custom_rules = vec![
-            Rule { kind: RuleKind::Geosite, value: "category-ai-!cn".into(), target: "country:US".into() },
-            Rule { kind: RuleKind::DomainSuffix, value: "netflix.com".into(), target: "country:JP".into() },
-        ];
+        let o = RuntimeOptions {
+            custom_rules: vec![
+                Rule { kind: RuleKind::Geosite, value: "category-ai-!cn".into(), target: "country:US".into() },
+                Rule { kind: RuleKind::DomainSuffix, value: "netflix.com".into(), target: "country:JP".into() },
+            ],
+            ..Default::default()
+        };
         let raw = "proxies:\n  - {name: \"🇺🇸 New York\", type: trojan, server: a, port: 443, password: x}\n  - {name: US-2 Dallas, type: trojan, server: b, port: 443, password: x}\n  - {name: \"🇩🇪 Frankfurt\", type: trojan, server: c, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [\"🇺🇸 New York\", US-2 Dallas, \"🇩🇪 Frankfurt\"]}\nrules:\n  - MATCH,Sel\n";
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
         let us = country_group("US");

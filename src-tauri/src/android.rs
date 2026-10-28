@@ -267,7 +267,45 @@ pub async fn install_apk(app: &AppHandle, path: &std::path::Path) -> Result<(), 
     call::<serde_json::Value>(app, "installApk", ApkArgs { path: path.to_string_lossy().into() }).await.map(|_| ())
 }
 
-/// Whether this is a TV and whether it has a camera.
+/// Whether this is a TV, whether it has a camera, whether battery saving leaves Kova
+/// alone, and the maker.
 pub async fn device(app: &AppHandle) -> Result<serde_json::Value, Error> {
     call(app, "device", ()).await
+}
+
+/// Ask to be left out of battery saving.
+pub async fn allow_background(app: &AppHandle) -> Result<(), Error> {
+    call::<serde_json::Value>(app, "allowBackground", ()).await.map(|_| ())
+}
+
+/// The maker's autostart settings, or Kova's app settings.
+pub async fn open_autostart(app: &AppHandle) -> Result<(), Error> {
+    call::<serde_json::Value>(app, "openAutostart", ()).await.map(|_| ())
+}
+
+#[derive(Serialize)]
+struct DocumentArgs {
+    name: String,
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct Saved {
+    saved: bool,
+}
+
+#[derive(Deserialize)]
+struct Opened {
+    #[serde(default)]
+    text: Option<String>,
+}
+
+/// Save `text` as `name` where the user picks; false if they cancel.
+pub async fn save_document(app: &AppHandle, name: &str, text: &str) -> Result<bool, Error> {
+    call::<Saved>(app, "saveDocument", DocumentArgs { name: name.into(), text: text.into() }).await.map(|s| s.saved)
+}
+
+/// The text of a file the user picks; `None` if they cancel.
+pub async fn open_document(app: &AppHandle) -> Result<Option<String>, Error> {
+    call::<Opened>(app, "openDocument", ()).await.map(|o| o.text)
 }

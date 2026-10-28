@@ -143,7 +143,7 @@ pub struct Settings {
     pub launch_at_login: bool,
     pub auto_update_cores: bool,
     pub theme: Theme,
-    /// Interface language: "system" (follow Windows), "en" or "ru".
+    /// Interface language: "system" (follow the system), "en", "ru", "fa" or "zh".
     pub language: String,
     /// Node chosen for Xray-fronted profiles (`None` = Auto).
     pub xray_selection: Option<String>,

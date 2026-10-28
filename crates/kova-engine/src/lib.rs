@@ -1,6 +1,7 @@
 //! Kova engine: everything with side effects. Storage, downloads, running cores,
 //! talking to them, and the system proxy. The UI layer (Tauri) only calls [`Engine`].
 
+pub mod backup;
 pub mod cores;
 pub mod diag;
 pub mod engine;

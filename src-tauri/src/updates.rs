@@ -74,12 +74,11 @@ fn update_error(e: tauri_plugin_updater::Error) -> Error {
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     use tauri_plugin_updater::UpdaterExt;
     let mut builder = app.updater_builder();
-    if engine.settings().beta_updates {
-        if let Some(r) = newest_release(true, |name| name == "latest.json").await? {
+    if engine.settings().beta_updates
+        && let Some(r) = newest_release(true, |name| name == "latest.json").await? {
             let url = tauri::Url::parse(&r.asset).map_err(|e| Error::Other(e.to_string()))?;
             builder = builder.endpoints(vec![url]).map_err(update_error)?;
         }
-    }
     // Through Kova's proxy when connected, like the download below.
     if let Some(p) = engine.proxy_url() {
         builder = builder.proxy(tauri::Url::parse(&p).map_err(|e| Error::Other(e.to_string()))?);
@@ -87,9 +86,11 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
     let update = builder.build().map_err(update_error)?.check().await.map_err(update_error)?;
     let mut info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
     // latest.json is written by the build, before the release notes are; take them from
-    // the release itself.
-    if let Some(i) = info.as_mut().filter(|i| i.body.as_deref().is_none_or(|b| b.trim().is_empty())) {
-        i.body = release_notes(engine.proxy_url().as_deref(), &i.version).await;
+    // the release itself, keeping latest.json's only if GitHub doesn't answer.
+    if let Some(i) = info.as_mut()
+        && let Some(notes) = release_notes(engine.proxy_url().as_deref(), &i.version).await
+    {
+        i.body = Some(notes);
     }
     *app.state::<PendingUpdate>().0.lock().await = update;
     Ok(info)
@@ -157,9 +158,8 @@ pub struct PendingUpdate(std::sync::Mutex<Option<Release>>);
 #[tauri::command]
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     let current = semver::Version::parse(&app.package_info().version.to_string()).map_err(|e| Error::Other(e.to_string()))?;
-    // The APK built for this device's processor: 64-bit phones, or 32-bit phones and TVs.
-    let suffix = if std::env::consts::ARCH == "arm" { "_android-armv7.apk" } else { "_android-arm64.apk" };
-    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with(suffix)).await?.filter(|r| r.version > current);
+    // Since 0.1.18 one APK serves every device, 64-bit phones and 32-bit phones and TVs.
+    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with("_Android.apk")).await?.filter(|r| r.version > current);
     let info = found.as_ref().map(|r| UpdateInfo { version: r.version.to_string(), date: r.date.clone(), body: r.body.clone() });
     *app.state::<PendingUpdate>().0.lock().unwrap() = found;
     Ok(info)
@@ -175,7 +175,7 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
     use std::time::Duration;
     use tauri::Emitter;
     let r = app.state::<PendingUpdate>().0.lock().unwrap().clone().ok_or_else(|| Error::Other("Check for updates first".into()))?;
-    // A 50 MB file on mobile data takes minutes, so there is no limit on the whole
+    // An 80 MB file on mobile data takes minutes, so there is no limit on the whole
     // download, only on silence. Through Kova's proxy when connected: GitHub's downloads
     // are often slow or blocked directly where Kova is needed.
     let mut b = kova_engine::fetch::builder().user_agent(kova_engine::fetch::APP_UA).connect_timeout(Duration::from_secs(15)).read_timeout(Duration::from_secs(30));

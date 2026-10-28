@@ -2,6 +2,10 @@
 # The release is created as a draft: check it, then press "Publish" on GitHub.
 # Publishing makes it "latest", which is when installed copies of Kova see the update.
 #
+# The release page gets one installer per system with a plain name (Kova_1.2.3_Windows.exe,
+# _macOS.dmg, _Linux.AppImage and _Linux.deb, _Android.apk), plus the two files the
+# desktop updater reads: latest.json and the Mac app's .app.tar.gz.
+#
 # Every build runs at once, each in its own job. A push to main builds the same things
 # without releasing them: GitHub lets a tag's run reuse only caches made on main, so
 # that is what keeps the next release from compiling everything from scratch.
@@ -36,24 +40,27 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `system` names the files on the release page: Kova_<version>_<system>.exe and so on.
           - os: windows-latest
             bundles: nsis
+            system: Windows
           - os: ubuntu-22.04
             bundles: deb
+            system: Linux
           # The AppImage already carries WebKit and GTK (most of its size), so it skips
           # the bundled cores and downloads them on first start; the .deb keeps them for
           # places where GitHub is blocked.
           - os: ubuntu-22.04
             bundles: appimage
             no_cores: true
-          # Apple silicon and Intel separately and side by side: one universal build
-          # compiles everything twice in a row.
+            system: Linux
+          # One app for Apple silicon and Intel Macs: Rust builds both, one after the
+          # other, and the bundled cores hold both too.
           - os: macos-latest
             bundles: app,dmg
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            bundles: app,dmg
-            target: x86_64-apple-darwin
+            target: universal-apple-darwin
+            rust_targets: aarch64-apple-darwin,x86_64-apple-darwin
+            system: macOS
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -64,7 +71,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
-          targets: ${{ matrix.target }}
+          targets: ${{ matrix.rust_targets || matrix.target }}
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
           # One cache per system image and target: C code built against a newer glibc
@@ -99,25 +106,30 @@ jobs:
           # Tags like v0.2.0-alpha.1 become pre-releases: never "latest", so installed
           # copies don't update to them.
           prerelease: ${{ contains(github.ref_name, '-') }}
-          includeUpdaterJson: true
+          # latest.json is written once, by the updater job below.
+          includeUpdaterJson: false
+          assetNamePattern: "[name]_[version]_${{ matrix.system }}[ext]"
           args: ${{ format('--bundles {0} {1} --config {2}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '', matrix.no_cores && '{"bundle":{"createUpdaterArtifacts":true}}' || '{"bundle":{"createUpdaterArtifacts":true,"resources":{"resources/cores/":"cores/"}}}') }}
 
-  # One APK per processor, side by side: 64-bit phones, and 32-bit phones and TVs. Each
-  # build gets only its own cores, so an APK never lists a processor it can't run on.
+  # The desktop updater's manifest, written once every desktop build has uploaded its
+  # signed package: builds that each added their part could overwrite each other's. The
+  # signatures go into it, and their own files leave the release page.
+  # It runs even when a build failed or found no machine (GitHub's Macs are often busy),
+  # so the other systems still get the update; re-running that build writes it again.
+  updater:
+    needs: desktop
+    if: always() && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: node scripts/updater-json.mjs "$GITHUB_REF_NAME"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # One APK for every Android device: it carries the app and the cores for 64-bit phones
+  # and for 32-bit phones and TVs, and Android installs the half that fits.
   android:
     if: inputs.only != 'desktop'
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - rust: aarch64
-            rust-target: aarch64-linux-android
-            abi: arm64-v8a
-            name: arm64
-          - rust: armv7
-            rust-target: armv7-linux-androideabi
-            abi: armeabi-v7a
-            name: armv7
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -132,10 +144,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
         with:
           toolchain: stable
-          targets: ${{ matrix.rust-target }}
+          targets: aarch64-linux-android,armv7-linux-androideabi
       - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
         with:
-          key: android-${{ matrix.abi }}
+          key: android
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: npm ci
       - name: Android NDK
@@ -146,8 +158,10 @@ jobs:
       - id: cores
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: src-tauri/gen/android/app/src/main/jniLibs/${{ matrix.abi }}
-          key: android-cores-${{ matrix.abi }}-${{ hashFiles('scripts/android-cores.json', 'scripts/android-cores.mjs') }}
+          path: |
+            src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a
+            src-tauri/gen/android/app/src/main/jniLibs/armeabi-v7a
+          key: android-cores-${{ hashFiles('scripts/android-cores.json', 'scripts/android-cores.mjs') }}
       - if: steps.cores.outputs.cache-hit != 'true'
         uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
@@ -155,7 +169,7 @@ jobs:
           cache: false
       - name: Cores for Android
         if: steps.cores.outputs.cache-hit != 'true'
-        run: node scripts/android-cores.mjs ${{ matrix.abi }}
+        run: node scripts/android-cores.mjs arm64-v8a armeabi-v7a
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build the APK
@@ -166,15 +180,15 @@ jobs:
         run: |
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kova.jks"
           export KOVA_ANDROID_KEYSTORE="$RUNNER_TEMP/kova.jks"
-          npx tauri android build --apk --target ${{ matrix.rust }}
-          cp "$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)" "Kova_${GITHUB_REF_NAME#v}_android-${{ matrix.name }}.apk"
+          npx tauri android build --apk --target aarch64 --target armv7
+          cp "$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)" "Kova_${GITHUB_REF_NAME#v}_Android.apk"
       # A build that isn't a release (a dry run on a branch) keeps its APK to try out.
       - name: Keep the APK
         if: env.RELEASE != 'true'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: Kova_android-${{ matrix.name }}
-          path: Kova_*_android-*.apk
+          name: Kova_Android
+          path: Kova_*_Android.apk
           retention-days: 14
       # The desktop builds create the draft release; this one may be ready first.
       - name: Add it to the release
@@ -183,4 +197,15 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for i in $(seq 1 60); do gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 && break; sleep 20; done
-          gh release upload "$GITHUB_REF_NAME" Kova_*_android-*.apk --clobber
+          apk="Kova_${GITHUB_REF_NAME#v}_Android.apk"
+          files=("$apk")
+          # Kova up to 0.1.18-beta.1 updates itself only from an APK named after the
+          # processor. The 0.1.18 releases carry the same APK under those names too, so
+          # older installs still reach 0.1.18, which looks for the new name.
+          if [[ "$GITHUB_REF_NAME" == v0.1.18* ]]; then
+            for p in arm64 armv7; do
+              cp "$apk" "Kova_${GITHUB_REF_NAME#v}_android-$p.apk"
+              files+=("Kova_${GITHUB_REF_NAME#v}_android-$p.apk#Same APK, for in-app updates from older Kova")
+            done
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber

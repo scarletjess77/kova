@@ -105,6 +105,8 @@ enum Purpose {
 }
 
 /// The core that owns the ports: a child process, or Mihomo inside the Kova service.
+/// One exists per connection, so the size difference between the two doesn't matter.
+#[allow(clippy::large_enum_variant)]
 enum Front {
     Local(CoreProcess),
     Service(crate::service::RemoteCore),
@@ -261,7 +263,7 @@ async fn cert_pins<'a>(xray: &Path, nodes: impl Iterator<Item = &'a Node>) -> Ha
         let out = tokio::time::timeout(Duration::from_secs(6), tokio::process::Command::from(cmd).kill_on_drop(true).output()).await.ok()?.ok()?;
         // The last one is the handshake made with the name.
         let text = String::from_utf8_lossy(&out.stdout);
-        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).last()?.to_string();
+        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).next_back()?.to_string();
         Some((n.name.clone(), pin))
     });
     futures_util::future::join_all(pings).await.into_iter().flatten().collect()
@@ -660,6 +662,87 @@ impl Engine {
         }
         self.save_profiles()?;
         self.reload_if_active(id).await
+    }
+
+    /// Every profile with its content, and the settings, as backup file text; see
+    /// [`crate::backup`].
+    pub fn export_backup(&self, password: Option<&str>) -> Result<String> {
+        let profiles = self
+            .profiles()
+            .into_iter()
+            .map(|p| crate::backup::BackupProfile { body: self.paths.read_body(&p.id).unwrap_or_default(), profile: p })
+            .collect();
+        let b = crate::backup::Backup { kova: env!("CARGO_PKG_VERSION").into(), created: now(), settings: self.settings(), profiles };
+        crate::backup::write(&b, password)
+    }
+
+    /// Add a backup's profiles, skipping ones already here (the same subscription
+    /// address, or the same content for a local profile), and with `with_settings` take
+    /// its settings too, keeping what belongs to this install. Returns how many profiles
+    /// were added and how many skipped.
+    pub async fn import_backup(&self, b: crate::backup::Backup, with_settings: bool) -> Result<(usize, usize)> {
+        let mut ids: HashMap<String, String> = HashMap::new(); // backup's id -> id here
+        let (mut added, mut skipped) = (0, 0);
+        for bp in b.profiles {
+            let here = self.profiles().into_iter().find(|p| match (&p.source, &bp.profile.source) {
+                (Source::Remote { url: a, .. }, Source::Remote { url: b, .. }) => a == b,
+                (Source::Local, Source::Local) => self.paths.read_body(&p.id).is_ok_and(|body| body == bp.body),
+                _ => false,
+            });
+            if let Some(p) = here {
+                ids.insert(bp.profile.id, p.id);
+                skipped += 1;
+                continue;
+            }
+            let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
+            self.paths.write_body(&id, &bp.body)?;
+            let mut p = bp.profile;
+            let old = std::mem::replace(&mut p.id, id.clone());
+            ids.insert(old, id);
+            self.profiles.write().unwrap().profiles.push(p);
+            added += 1;
+        }
+        self.save_profiles()?;
+        if with_settings {
+            let here = self.settings();
+            let mut s = b.settings;
+            // Set per install, or tied to this device.
+            s.device_id = here.device_id.clone();
+            s.core.secret = here.core.secret.clone();
+            s.core.local_password = here.core.local_password.clone();
+            s.core.tun_fd = here.core.tun_fd;
+            s.core.anti_dpi_port = here.core.anti_dpi_port;
+            s.launch_at_login = here.launch_at_login;
+            s.start_minimized = here.start_minimized;
+            s.vpn_apps = here.vpn_apps.clone();
+            let active = s.active_profile.take().and_then(|id| ids.get(&id).cloned());
+            let selections: HashMap<String, String> = std::mem::take(&mut s.selections)
+                .into_iter()
+                .filter_map(|(key, member)| {
+                    let (profile, group) = key.split_once('/')?;
+                    Some((format!("{}/{group}", ids.get(profile)?), member))
+                })
+                .collect();
+            let xray_selection = s.xray_selection.take();
+            // update_settings keeps the choices of profile and servers; they follow here.
+            self.update_settings(s).await?;
+            if let Some(id) = active {
+                self.set_active_profile(&id).await?;
+            }
+            let s = {
+                let mut s = self.settings.write().unwrap();
+                s.selections.extend(selections);
+                s.xray_selection = xray_selection;
+                s.clone()
+            };
+            s.save(&self.paths)?;
+        }
+        if self.settings().active_profile.is_none()
+            && let Some(id) = self.profiles().first().map(|p| p.id.clone())
+        {
+            self.set_active_profile(&id).await?;
+        }
+        Ok((added, skipped))
     }
 
     async fn validate_clash(&self, text: &str) -> Result<()> {

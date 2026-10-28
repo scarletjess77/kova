@@ -37,6 +37,12 @@ class ApkArgs {
 }
 
 @InvokeArg
+class DocumentArgs {
+    var name: String = ""
+    var text: String = ""
+}
+
+@InvokeArg
 class TunnelArgs {
     var mtu: Int = 9000
     /** "all", "only" or "except", for [apps]. */
@@ -128,13 +134,114 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
-    /** What kind of device this is: a TV (no touch, a remote) and whether it has a camera. */
+    /** What kind of device this is: a TV (no touch, a remote), whether it has a camera,
+     *  whether battery saving leaves Kova alone, and who made it (for its own settings). */
     @Command
     fun device(invoke: Invoke) {
         val ui = activity.getSystemService(android.app.UiModeManager::class.java)
         val tv = ui?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
         val camera = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
-        invoke.resolve(JSObject().put("tv", tv).put("camera", camera))
+        val power = activity.getSystemService(android.os.PowerManager::class.java)
+        val batteryFree = power?.isIgnoringBatteryOptimizations(activity.packageName) ?: true
+        invoke.resolve(
+            JSObject().put("tv", tv).put("camera", camera).put("batteryFree", batteryFree)
+                .put("maker", Build.MANUFACTURER.lowercase())
+        )
+    }
+
+    /** Ask Android to leave Kova out of battery saving, which otherwise may stop the VPN
+     *  while the screen is off. */
+    @Command
+    fun allowBackground(invoke: Invoke) {
+        try {
+            val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + activity.packageName))
+            activity.startActivity(ask)
+        } catch (e: Exception) {
+            // Some phones don't offer the direct question: the list of apps instead.
+            activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+        invoke.resolve()
+    }
+
+    /** The maker's own autostart or background settings (Xiaomi, Huawei, Oppo, Vivo
+     *  and others stop apps on their own), or Kova's app settings where there are none. */
+    @Command
+    fun openAutostart(invoke: Invoke) {
+        val pages = listOf(
+            "com.miui.securitycenter" to "com.miui.permcenter.autostart.AutoStartManagementActivity",
+            "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
+            "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
+            "com.oplus.safecenter" to "com.oplus.safecenter.permission.startup.StartupAppListActivity",
+            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+        )
+        for ((pkg, cls) in pages) {
+            try {
+                activity.startActivity(Intent().setClassName(pkg, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                invoke.resolve()
+                return
+            } catch (e: Exception) {
+                // Not this maker's: try the next one.
+            }
+        }
+        activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + activity.packageName)))
+        invoke.resolve()
+    }
+
+    /** Save text where the user picks, through Android's file picker. */
+    @Command
+    fun saveDocument(invoke: Invoke) {
+        val args = invoke.parseArgs(DocumentArgs::class.java)
+        val pick = Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE)
+            .setType("application/json").putExtra(Intent.EXTRA_TITLE, args.name)
+        startActivityForResult(invoke, pick, "documentSaved")
+    }
+
+    @ActivityCallback
+    fun documentSaved(invoke: Invoke, result: ActivityResult) {
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            invoke.resolve(JSObject().put("saved", false))
+            return
+        }
+        try {
+            val args = invoke.parseArgs(DocumentArgs::class.java)
+            activity.contentResolver.openOutputStream(uri, "wt")?.use { it.write(args.text.toByteArray()) }
+            invoke.resolve(JSObject().put("saved", true))
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "Could not save the file")
+        }
+    }
+
+    /** A file the user picks, read as text (up to 8 MB). */
+    @Command
+    fun openDocument(invoke: Invoke) {
+        val pick = Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*")
+        startActivityForResult(invoke, pick, "documentOpened")
+    }
+
+    @ActivityCallback
+    fun documentOpened(invoke: Invoke, result: ActivityResult) {
+        val uri = result.data?.data
+        if (result.resultCode != Activity.RESULT_OK || uri == null) {
+            invoke.resolve(JSObject())
+            return
+        }
+        try {
+            val bytes = activity.contentResolver.openInputStream(uri)?.use { input ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(64 * 1024)
+                while (true) {
+                    val n = input.read(buf)
+                    if (n < 0) break
+                    out.write(buf, 0, n)
+                    if (out.size() > 8 * 1024 * 1024) throw IllegalStateException("That file is larger than 8 MB; it is unlikely to be a config")
+                }
+                out.toByteArray()
+            } ?: ByteArray(0)
+            invoke.resolve(JSObject().put("text", String(bytes)))
+        } catch (e: Exception) {
+            invoke.reject(e.message ?: "Could not read the file")
+        }
     }
 
     /** Open Android's installer for a downloaded update. */

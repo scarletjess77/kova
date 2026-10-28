@@ -3,7 +3,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { friendly } from './errors';
 import { enableTvNavigation } from './tvnav';
-import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo } from './api';
+import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo, type DeviceInfo } from './api';
 import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
 
@@ -58,6 +58,10 @@ class AppState {
   /** Android TV: navigated with a remote, no touch, usually no camera. */
   tv = $state(false);
   camera = $state(true);
+  /** Android: battery saving leaves Kova alone (it may stop the VPN otherwise). */
+  batteryFree = $state(true);
+  /** Android: the phone's maker, lower case, for its own background settings. */
+  maker = $state('');
   /** A connect or disconnect the user started is under way. On Android that includes
    *  the permission dialog and opening the VPN, before the engine reports busy. */
   toggling = $state(false);
@@ -172,9 +176,7 @@ class AppState {
     this.platform = await api.platform().catch(() => '');
     this.mobile = ['android', 'ios'].includes(this.platform);
     if (this.mobile) {
-      const d = await api.deviceInfo().catch(() => ({ tv: false, camera: true }));
-      this.tv = d.tv;
-      this.camera = d.camera;
+      await this.refreshDevice();
       if (this.tv) enableTvNavigation();
     }
     this.systemLang = await api.systemLanguage().catch(() => navigator.language);
@@ -190,7 +192,13 @@ class AppState {
     matchMedia('(prefers-color-scheme: light)').addEventListener('change', () => this.applyTheme());
     window.addEventListener('popstate', this.onPopState);
     // Hidden (tray, background app), the engine stops sending per-second figures.
-    document.addEventListener('visibilitychange', () => void api.pageVisible(!document.hidden).catch(() => {}));
+    document.addEventListener('visibilitychange', () => {
+      void api.pageVisible(!document.hidden).catch(() => {});
+      // Back from Android's battery settings: see what was chosen there.
+      if (!document.hidden && this.mobile) void this.refreshDevice();
+    });
+    // A crash closed Kova last time: say so once, so it can be reported.
+    if (await api.crashNotice().catch(() => false)) this.notify(t('Kova closed unexpectedly last time. Copy report in Logs includes what happened.'));
     this.ready = true;
     void this.refreshProxies();
     if (this.settings?.check_updates) setTimeout(() => void this.checkForUpdate(true), 5000);
@@ -295,6 +303,14 @@ class AppState {
   }
 
   /** Apply the theme and language settings to the page. */
+  async refreshDevice() {
+    const d = await api.deviceInfo().catch(() => ({ tv: false, camera: true }) as DeviceInfo);
+    this.tv = d.tv;
+    this.camera = d.camera;
+    this.batteryFree = d.batteryFree ?? true;
+    this.maker = d.maker ?? '';
+  }
+
   applyTheme() {
     const theme = resolveTheme(this.settings?.theme);
     if (theme.id === 'dark') document.documentElement.removeAttribute('data-theme');

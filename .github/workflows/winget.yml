@@ -25,6 +25,8 @@ jobs:
         run: |
           if (-not $env:WINGET_TOKEN) { Write-Output "No WINGET_TOKEN secret; skipping."; exit 0 }
           $version = $env:TAG.TrimStart('v')
-          $url = "https://github.com/${{ github.repository }}/releases/download/$env:TAG/Kova_${version}_x64-setup.exe"
+          # The installer is Kova_<version>_Windows.exe since 0.1.18, _x64-setup.exe before.
+          $installer = if ([version]($version -replace '-.*') -ge [version]'0.1.18') { "Kova_${version}_Windows.exe" } else { "Kova_${version}_x64-setup.exe" }
+          $url = "https://github.com/${{ github.repository }}/releases/download/$env:TAG/$installer"
           Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
           .\wingetcreate.exe update scarletjess77.Kova --urls $url --version $version --submit --token $env:WINGET_TOKEN

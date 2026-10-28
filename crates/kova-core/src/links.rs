@@ -390,7 +390,7 @@ fn parse_sip003_plugin(spec: &str) -> Option<SsPlugin> {
             if let Some(p) = kv.get("path") {
                 opts.insert("path".into(), p.clone().into());
             }
-            if flags.iter().any(|f| f == "tls") || kv.get("tls").is_some() {
+            if flags.iter().any(|f| f == "tls") || kv.contains_key("tls") {
                 opts.insert("tls".into(), true.into());
             }
             "v2ray-plugin"

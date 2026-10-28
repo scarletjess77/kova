@@ -151,6 +151,9 @@ export interface Connection {
 export interface ConnectionsSnapshot { upload_total: number; download_total: number; connections: Connection[] }
 
 export interface CoreStatus { core: CoreKind; installed: string | null; latest: string | null }
+export interface DeviceInfo { tv: boolean; camera: boolean; batteryFree?: boolean; maker?: string }
+export interface BackupSummary { needs_password: boolean; kova: string | null; created: number | null; profiles: string[] }
+
 export interface ExitInfo { ip: string; country: string; country_code: string; city: string; network: string }
 
 export type EngineEvent =
@@ -205,7 +208,15 @@ export const api = {
   installUpdate: () => invoke<void>('install_update'),
   systemLanguage: () => invoke<string>('system_language'),
   platform: () => invoke<string>('platform'),
-  deviceInfo: () => invoke<{ tv: boolean; camera: boolean }>('device_info'),
+  deviceInfo: () => invoke<DeviceInfo>('device_info'),
+  allowBackground: () => invoke<void>('allow_background'),
+  openAutostart: () => invoke<void>('open_autostart'),
+  lastCrash: () => invoke<{ time: number; text: string } | null>('last_crash'),
+  crashNotice: () => invoke<boolean>('crash_notice'),
+  backupSave: (password: string | null, path: string | null, name: string) => invoke<boolean>('backup_save', { password, path, name }),
+  backupOpen: (text: string, password: string | null) => invoke<BackupSummary>('backup_open', { text, password }),
+  backupRestore: (withSettings: boolean) => invoke<{ added: number; skipped: number }>('backup_restore', { withSettings }),
+  pickTextFile: () => invoke<string | null>('pick_text_file'),
   diagnose: () => invoke<Check[]>('diagnose'),
   privacyCheck: () => invoke<Check[]>('privacy_check'),
   speedTest: () => invoke<{ through_kova: number | null; direct: number | null }>('speed_test'),

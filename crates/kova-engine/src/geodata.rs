@@ -54,7 +54,8 @@ pub fn marker(cores_dir: &Path) -> Option<Marker> {
 fn categories_of(path: &Path) -> Option<std::sync::Arc<Vec<String>>> {
     use std::sync::{Arc, Mutex, OnceLock};
     type Key = (u64, Option<std::time::SystemTime>);
-    static CACHE: OnceLock<Mutex<HashMap<std::path::PathBuf, (Key, Arc<Vec<String>>)>>> = OnceLock::new();
+    type Cache = Mutex<HashMap<std::path::PathBuf, (Key, Arc<Vec<String>>)>>;
+    static CACHE: OnceLock<Cache> = OnceLock::new();
     let meta = std::fs::metadata(path).ok()?;
     let key = (meta.len(), meta.modified().ok());
     let cache = CACHE.get_or_init(Default::default);

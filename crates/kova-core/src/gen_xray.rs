@@ -321,7 +321,7 @@ mod tests {
         let n = crate::links::parse_link("vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls&sni=a.example&allowInsecure=1&type=tcp#Self-signed").unwrap();
         let mut o = RuntimeOptions::default();
         o.cert_pins.insert("Self-signed".into(), "ab12".into());
-        let doc: Value = serde_json::from_str(&full(&[n.clone()], &Selection::Auto, &o)).unwrap();
+        let doc: Value = serde_json::from_str(&full(std::slice::from_ref(&n), &Selection::Auto, &o)).unwrap();
         let tls = &doc["outbounds"][0]["streamSettings"]["tlsSettings"];
         assert_eq!(tls["pinnedPeerCertSha256"], "ab12");
         assert!(tls.get("allowInsecure").is_none(), "Xray 26.10 refuses allowInsecure: {tls}");
@@ -332,8 +332,7 @@ mod tests {
 
     #[test]
     fn anti_dpi_with_xray_in_front() {
-        let mut o = RuntimeOptions::default();
-        o.anti_dpi = true;
+        let o = RuntimeOptions { anti_dpi: true, ..Default::default() };
         let n = crate::links::parse_link("vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls&type=tcp#A").unwrap();
         let w = crate::links::parse_link("wireguard://pk@203.0.113.2:51820?publickey=PUB&address=10.0.0.2%2F32#W");
         let mut nodes = vec![n];
