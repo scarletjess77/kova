@@ -284,9 +284,9 @@ pub async fn open_autostart(app: &AppHandle) -> Result<(), Error> {
 }
 
 #[derive(Serialize)]
-struct DocumentArgs<'a> {
-    name: &'a str,
-    text: &'a str,
+struct DocumentArgs {
+    name: String,
+    text: String,
 }
 
 #[derive(Deserialize)]
@@ -302,7 +302,7 @@ struct Opened {
 
 /// Save `text` as `name` where the user picks; false if they cancel.
 pub async fn save_document(app: &AppHandle, name: &str, text: &str) -> Result<bool, Error> {
-    call::<Saved>(app, "saveDocument", DocumentArgs { name, text }).await.map(|s| s.saved)
+    call::<Saved>(app, "saveDocument", DocumentArgs { name: name.into(), text: text.into() }).await.map(|s| s.saved)
 }
 
 /// The text of a file the user picks; `None` if they cancel.
