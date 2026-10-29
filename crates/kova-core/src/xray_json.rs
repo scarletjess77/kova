@@ -197,6 +197,8 @@ fn convert(o: &Value, name: String) -> Result<Node, String> {
                 fingerprint: s(&t, "fingerprint"),
                 insecure: t.get("allowInsecure").and_then(Value::as_bool).unwrap_or(false),
                 reality: None,
+                // What Xray 26 has instead of `allowInsecure` for a server with its own certificate.
+                pin: s(&t, "pinnedPeerCertSha256").and_then(|p| crate::links::normalise_pin(&p)),
             })
         }
         Some("reality") => {
@@ -209,6 +211,7 @@ fn convert(o: &Value, name: String) -> Result<Node, String> {
                 fingerprint: s(&r, "fingerprint"),
                 insecure: false,
                 reality: Some(Reality { public_key, short_id: s(&r, "shortId"), spider_x: s(&r, "spiderX") }),
+                pin: None,
             })
         }
         _ => None,
@@ -294,5 +297,24 @@ mod tests {
     #[test]
     fn sing_box_json_is_not_mistaken_for_xray() {
         assert!(!looks_like(&json!({ "outbounds": [{ "type": "vless", "tag": "a", "server": "x", "server_port": 443 }] })));
+    }
+
+    /// Xray 26 configs pin a server's own certificate instead of turning checks off; the
+    /// pin reaches both cores and survives a share link.
+    #[test]
+    fn a_pinned_certificate_is_kept() {
+        let pin = "E8:E2:D3:87:FD:BF:FE:B3:8E:9C:90:65:CF:30:A9:7E:E2:3C:0E:3D:32:EE:6F:78:FF:AE:40:96:6B:EF:CC:C9";
+        let doc = json!({ "remarks": "Own cert", "outbounds": [{ "tag": "proxy", "protocol": "trojan",
+            "settings": { "servers": [{ "address": "203.0.113.9", "port": 443, "password": "pw" }] },
+            "streamSettings": { "network": "tcp", "security": "tls", "tlsSettings": { "serverName": "own.example", "pinnedPeerCertSha256": pin } } }] });
+        let (nodes, _) = parse(&doc);
+        let hex = "e8e2d387fdbffeb38e9c9065cf30a97ee23c0e3d32ee6f78ffae40966befccc9";
+        assert_eq!(nodes[0].tls.as_ref().unwrap().pin.as_deref(), Some(hex));
+        let x = crate::gen_xray::outbound(&nodes[0]).unwrap();
+        assert_eq!(x["streamSettings"]["tlsSettings"]["pinnedPeerCertSha256"], hex);
+        assert_eq!(crate::clash::to_clash(&nodes[0])["fingerprint"], hex);
+        let again = crate::links::parse_link(&crate::links::to_link(&nodes[0]).unwrap()).unwrap();
+        assert_eq!(again.tls.unwrap().pin.as_deref(), Some(hex));
+        assert_eq!(crate::links::normalise_pin("nothing, 12"), None);
     }
 }

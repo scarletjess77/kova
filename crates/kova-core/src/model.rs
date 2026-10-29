@@ -194,6 +194,10 @@ pub struct Tls {
     pub insecure: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reality: Option<Reality>,
+    /// The server certificate's SHA-256 (hex, lower case, `,` between several), trusted
+    /// instead of the usual check: Xray's `pinnedPeerCertSha256`, Mihomo's `fingerprint`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pin: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

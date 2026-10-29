@@ -65,6 +65,9 @@ pub struct CoreProcess {
     pub name: &'static str,
     child: Child,
     tail: Arc<Mutex<Vec<String>>>,
+    /// `<name>.pid` in the core's folder, so a Kova that crashed can be followed by one
+    /// that ends its cores (see [`end_leftovers`]).
+    pid_file: std::path::PathBuf,
 }
 
 impl CoreProcess {
@@ -110,6 +113,10 @@ impl CoreProcess {
         cmd.kill_on_drop(true);
         let mut child = cmd.spawn().map_err(|e| Error::Core(format!("could not start {name}: {e}")))?;
         job::adopt(&child);
+        let pid_file = cwd.join(format!("{name}.pid"));
+        if let Some(pid) = child.id() {
+            let _ = std::fs::write(&pid_file, pid.to_string());
+        }
 
         let tail = Arc::new(Mutex::new(Vec::new()));
         for stream in [child.stdout.take().map(|s| Box::new(s) as Box<dyn tokio::io::AsyncRead + Unpin + Send>), child.stderr.take().map(|s| Box::new(s) as _)].into_iter().flatten() {
@@ -129,7 +136,7 @@ impl CoreProcess {
                 }
             });
         }
-        Ok(Self { name, child, tail })
+        Ok(Self { name, child, tail, pid_file })
     }
 
     /// `Some(message)` if the process has already exited.
@@ -156,6 +163,60 @@ impl CoreProcess {
 
     pub async fn stop(mut self) {
         let _ = self.child.kill().await;
+        let _ = std::fs::remove_file(&self.pid_file);
+    }
+}
+
+/// End cores a previous Kova left running: on Windows they die with Kova (see `job`), but
+/// elsewhere a crash leaves them holding the proxy port, and the next connect would fail.
+/// Only a process still running one of `bins` is ended, so a reused process number is
+/// left alone. Looks for `<core>.pid` files in `dir` and the folders in it.
+pub fn end_leftovers(dir: &Path, bins: &[std::path::PathBuf]) {
+    let bins: Vec<std::path::PathBuf> = bins.iter().map(|b| std::fs::canonicalize(b).unwrap_or_else(|_| b.clone())).collect();
+    let mut dirs = vec![dir.to_path_buf()];
+    let mut i = 0;
+    while i < dirs.len() && i < 32 {
+        if let Ok(entries) = std::fs::read_dir(&dirs[i]) {
+            for e in entries.flatten() {
+                let path = e.path();
+                if path.is_dir() {
+                    if dirs.len() < 32 {
+                        dirs.push(path);
+                    }
+                } else if path.extension().is_some_and(|x| x == "pid") {
+                    #[cfg(unix)]
+                    if let Some(pid) = std::fs::read_to_string(&path).ok().and_then(|t| t.trim().parse::<i32>().ok()) {
+                        if pid > 1 && image_of(pid).is_some_and(|img| bins.contains(&img)) {
+                            // SAFETY: plain signal to a process checked to be one of our cores.
+                            unsafe { libc::kill(pid, libc::SIGKILL) };
+                            tracing::info!("ended a core left running by a previous Kova (process {pid})");
+                        }
+                    }
+                    #[cfg(not(unix))]
+                    let _ = bins;
+                    let _ = std::fs::remove_file(&path);
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+/// The program process `pid` runs.
+#[cfg(unix)]
+fn image_of(pid: i32) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("ps").args(["-o", "comm=", "-p", &pid.to_string()]).output().ok()?;
+        let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (!path.is_empty()).then(|| std::path::PathBuf::from(path))
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // A binary replaced by an update since reads "<path> (deleted)".
+        let link = std::fs::read_link(format!("/proc/{pid}/exe")).ok()?;
+        let text = link.to_string_lossy();
+        Some(std::path::PathBuf::from(text.strip_suffix(" (deleted)").unwrap_or(&text)))
     }
 }
 
@@ -235,4 +296,32 @@ mod job {
 #[cfg(not(windows))]
 mod job {
     pub fn adopt(_child: &tokio::process::Child) {}
+}
+
+#[cfg(test)]
+mod tests {
+    /// A core a crashed Kova left behind is ended; its pid file goes either way.
+    #[test]
+    fn leftover_cores_are_ended() {
+        let dir = tempfile::tempdir().unwrap();
+        let run = dir.path().join("main");
+        std::fs::create_dir_all(&run).unwrap();
+        #[cfg(target_os = "linux")]
+        {
+            let bin = dir.path().join("mihomo");
+            std::fs::copy("/bin/sleep", &bin).unwrap();
+            let mut child = std::process::Command::new(&bin).arg("30").spawn().unwrap();
+            std::fs::write(run.join("mihomo.pid"), child.id().to_string()).unwrap();
+            // Another program under the same number is left alone.
+            let mut other = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
+            std::fs::write(run.join("xray.pid"), other.id().to_string()).unwrap();
+            super::end_leftovers(dir.path(), &[bin]);
+            assert!(child.wait().unwrap().code().is_none(), "ended by a signal");
+            assert!(other.try_wait().unwrap().is_none(), "not one of ours");
+            let _ = other.kill();
+        }
+        std::fs::write(run.join("mihomo.pid"), "1").unwrap();
+        super::end_leftovers(dir.path(), &[]);
+        assert!(!run.join("mihomo.pid").exists());
+    }
 }

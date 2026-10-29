@@ -16,17 +16,18 @@ pub fn mihomo_path() -> PathBuf {
     Path::new(DIR).join("mihomo")
 }
 
-/// The copy, if it is there, owned by root, still carries its capabilities, and only this
-/// user's group may run it. A copy anyone may run (as earlier versions granted) doesn't
-/// count: TUN asks for the rights again, which replaces it.
+/// The copy, if it is there, owned by this user and run by nobody else, and still
+/// carries its capabilities. A copy others may run (as earlier versions granted, to
+/// everyone and then to the user's group) doesn't count: TUN asks for the rights again,
+/// which replaces it.
 pub fn granted() -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let p = mihomo_path();
-    // SAFETY: getgid has no preconditions.
-    let gid = unsafe { libc::getgid() };
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() };
     std::fs::metadata(&p)
         .ok()
-        .filter(|m| m.is_file() && m.uid() == 0 && m.gid() == gid && !crate::tun_rights::open_to_others(m.mode()) && has_caps(&p))
+        .filter(|m| m.is_file() && m.uid() == uid && m.gid() == 0 && !crate::tun_rights::open_to_others(m.mode()) && has_caps(&p))
         .map(|_| p)
 }
 
@@ -78,11 +79,11 @@ pub fn grant(mihomo: &Path) -> Result<(), Error> {
         return Err(Error::Other("mihomo is not installed".into()));
     }
     // A copy without its capability would only look granted: the script takes it away on
-    // failure. Only this user's group may run the copy (see `tun_rights::grant_script`).
+    // failure. Only this user may run the copy (see `tun_rights::grant_script`).
     let script = crate::tun_rights::grant_script(&mihomo_path().to_string_lossy(), CAPS);
-    // SAFETY: getgid has no preconditions.
-    let gid = unsafe { libc::getgid() }.to_string();
-    as_root(&script, &[&mihomo.to_string_lossy(), &gid])?;
+    // SAFETY: getuid has no preconditions.
+    let uid = unsafe { libc::getuid() }.to_string();
+    as_root(&script, &[&mihomo.to_string_lossy(), &uid])?;
     if granted().is_none() {
         return Err(Error::Other("the network rights didn't stick (setcap); is the folder on a file system without capabilities?".into()));
     }
