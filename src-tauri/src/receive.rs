@@ -45,15 +45,28 @@ pub async fn start(app: AppHandle, engine: Arc<Engine>, ru: bool) -> Result<Rece
     let token = uuid::Uuid::new_v4().simple().to_string();
     let url = format!("http://{}/{token}", listener.local_addr()?);
     let task = tauri::async_runtime::spawn(async move {
+        let notify = app.clone();
+        let added: Added = Arc::new(move |name: &str| {
+            let _ = notify.emit("engine", &kova_engine::Event::Profiles);
+            let _ = notify.emit("toast", format!("{} {name}", if ru { "Добавлено с другого устройства:" } else { "Added from another device:" }));
+        });
+        let (token, taken) = (Arc::new(token), Arc::new(tokio::sync::Mutex::new(false)));
+        let done = Arc::new(tokio::sync::Notify::new());
+        // Each request on its own: a device that connects and says nothing must not
+        // keep the phone waiting.
         let serve = async {
             loop {
-                let Ok((sock, _)) = listener.accept().await else { continue };
-                let added = |name: &str| {
-                    let _ = app.emit("engine", &kova_engine::Event::Profiles);
-                    let _ = app.emit("toast", format!("{} {name}", if ru { "Добавлено с другого устройства:" } else { "Added from another device:" }));
-                };
-                if handle(sock, &token, &engine, &added, ru).await {
-                    return;
+                tokio::select! {
+                    accepted = listener.accept() => {
+                        let Ok((sock, _)) = accepted else { continue };
+                        let (token, engine, added, taken, done) = (token.clone(), engine.clone(), added.clone(), taken.clone(), done.clone());
+                        tokio::spawn(async move {
+                            if handle(sock, &token, &engine, &*added, &taken, ru).await {
+                                done.notify_one();
+                            }
+                        });
+                    }
+                    _ = done.notified() => return,
                 }
             }
         };
@@ -64,8 +77,10 @@ pub async fn start(app: AppHandle, engine: Arc<Engine>, ru: bool) -> Result<Rece
     Ok(Receiving { url })
 }
 
-/// Serve one request. True once a profile was added.
-async fn handle(mut sock: tokio::net::TcpStream, token: &str, engine: &Arc<Engine>, added: &(dyn Fn(&str) + Sync), ru: bool) -> bool {
+type Added = Arc<dyn Fn(&str) + Send + Sync>;
+
+/// Serve one request. True once a profile was added; `taken` lets only one be.
+async fn handle(mut sock: tokio::net::TcpStream, token: &str, engine: &Arc<Engine>, added: &(dyn Fn(&str) + Sync), taken: &tokio::sync::Mutex<bool>, ru: bool) -> bool {
     let mut buf = Vec::new();
     let read = tokio::time::timeout(Duration::from_secs(10), async {
         let mut chunk = [0u8; 8192];
@@ -102,8 +117,11 @@ async fn handle(mut sock: tokio::net::TcpStream, token: &str, engine: &Arc<Engin
         ("200 OK", page(t("Add a profile to Kova", "Добавить профиль в Kova"), &form(&path, ru)), false)
     } else if first.starts_with(&format!("POST {path} ")) {
         let text = form_field(&String::from_utf8_lossy(&buf[end + 4..]), "text");
-        match engine.add_profile(text.trim(), None).await {
+        let mut taken = taken.lock().await;
+        let result = if *taken { Err(Error::Other(t("A profile was already added from this page", "С этой страницы профиль уже добавлен").into())) } else { engine.add_profile(text.trim(), None).await };
+        match result {
             Ok(p) => {
+                *taken = true;
                 added(&p.name);
                 ("200 OK", page(t("Added", "Добавлено"), &format!("<p>{} <b>{}</b>.</p>", t("Kova added", "Kova добавила"), esc(&p.name))), true)
             }
@@ -187,6 +205,7 @@ mod tests {
         let addr = listener.local_addr().unwrap();
         let seen = std::sync::Mutex::new(Vec::<String>::new());
         let added = |n: &str| seen.lock().unwrap().push(n.to_string());
+        let taken = tokio::sync::Mutex::new(false);
         async fn send(addr: SocketAddr, req: String) -> String {
             let mut s = tokio::net::TcpStream::connect(addr).await.unwrap();
             s.write_all(req.as_bytes()).await.unwrap();
@@ -212,11 +231,12 @@ mod tests {
             (http("GET /wrong", &[], ""), "404", false),
             (http("GET /tok", &[], ""), "<form", false),
             (http("POST /tok", &[&format!("Content-Length: {}", body.len())], &body), "Phone node", true),
+            (http("POST /tok", &[&format!("Content-Length: {}", body.len())], &body), "already added", false),
         ];
         for (req, expect, done) in requests {
             let reply = tokio::spawn(send(addr, req));
             let (sock, _) = listener.accept().await.unwrap();
-            assert_eq!(handle(sock, "tok", &engine, &added, false).await, done);
+            assert_eq!(handle(sock, "tok", &engine, &added, &taken, false).await, done);
             let reply = reply.await.unwrap();
             assert!(reply.contains(expect), "{reply}");
         }
