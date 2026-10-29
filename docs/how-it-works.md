@@ -92,7 +92,7 @@ A server whose link turns certificate checks off is asked for its certificate on
 
 **"Add to Kova" links.** Kova opens `kova://import/<subscription address>` (the address appended as it is, like `happ://add/`), `kova://import?url=<encoded address>` and `kova://install-config?url=<encoded address>`. The link opens the Add profile dialog with the address filled in; the user presses Import. Share links (`vless://…`) work the same way.
 
-On a Remnawave subscription page, add Kova to `app-config.json` for each platform, for example:
+The provider page, [scarletjess77.github.io/kova/providers.html](https://scarletjess77.github.io/kova/providers.html), has all of this ready to copy, in four languages. On Remnawave, add Kova in the dashboard's Subpage Builder with the link `kova://import/` before the subscription address; setups that still use `app-config.json` take this entry for each platform:
 
 ```json
 {
