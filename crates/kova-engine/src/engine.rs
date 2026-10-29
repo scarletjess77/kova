@@ -1105,6 +1105,12 @@ impl Engine {
             plan = compat::plan(&nodes, CorePreference::Auto);
         }
         let xray_bin = cores::binary_path(&cores_dir, CoreKind::Xray);
+        // An Xray from before Finalmask (kept from an older Kova) gets Anti-DPI the old way.
+        if opts.anti_dpi && xray_bin.exists() {
+            let dir = cores_dir.clone();
+            let version = tokio::task::spawn_blocking(move || cores::installed_version(&dir, CoreKind::Xray)).await.ok().flatten();
+            opts.xray_legacy_masks = gen_xray::legacy_masks(version.as_deref());
+        }
         #[allow(unused_mut)]
         let mut mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
         let asset_env: [(&str, &Path); 1] = [("XRAY_LOCATION_ASSET", cores_dir.as_path())];
