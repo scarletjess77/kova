@@ -195,6 +195,35 @@ impl Rule {
         }
     }
 
+/// What is wrong with a rule a user wrote, if anything. Mihomo refuses the whole
+    /// config for one rule it can't read, so a typo would stop Kova from connecting.
+    pub fn problem(&self) -> Option<&'static str> {
+        let v = self.value.trim();
+        if self.kind == RuleKind::Match {
+            return None;
+        }
+        if v.is_empty() {
+            return Some("it has no value");
+        }
+        if v.contains([',', '\n', '\r']) {
+            return Some("a value can't contain a comma or a line break");
+        }
+        if self.kind == RuleKind::IpCidr {
+            let ok = v.split_once('/').is_some_and(|(ip, len)| match (ip.parse::<std::net::IpAddr>(), len.parse::<u8>()) {
+                (Ok(std::net::IpAddr::V4(_)), Ok(l)) => l <= 32,
+                (Ok(std::net::IpAddr::V6(_)), Ok(l)) => l <= 128,
+                _ => false,
+            });
+            if !ok {
+                return Some("an address range looks like 10.0.0.0/8 or 203.0.113.7/32");
+            }
+        }
+        if v.contains(char::is_whitespace) && self.kind != RuleKind::ProcessName {
+            return Some("a value can't contain spaces");
+        }
+        None
+    }
+
     pub fn to_clash(&self, proxy_group: &str) -> String {
         let country = self.target.strip_prefix(COUNTRY).map(country_group);
         let target = if self.target == PROXY { proxy_group } else { country.as_deref().unwrap_or(&self.target) };
@@ -428,7 +457,9 @@ impl Default for RuntimeOptions {
 impl RuntimeOptions {
     /// Custom rules, then presets, then LAN, then the catch-all.
     pub fn rules(&self) -> Vec<Rule> {
-        let mut out = self.custom_rules.clone();
+        // A rule saved before Kova checked them, which Mihomo can't read, is left out
+        // rather than keeping every connection from starting.
+        let mut out: Vec<Rule> = self.custom_rules.iter().filter(|r| r.problem().is_none()).cloned().collect();
         for p in Preset::ALL.iter().filter(|p| self.presets.contains(p)) {
             out.extend(p.rules());
         }
@@ -472,5 +503,24 @@ impl RuntimeOptions {
 
     pub fn listen_addr(&self) -> &'static str {
         if self.allow_lan { "0.0.0.0" } else { "127.0.0.1" }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A rule Mihomo would refuse is caught before it stops every connection.
+    #[test]
+    fn rules_mihomo_cant_read_are_caught() {
+        let rule = |kind, value: &str| Rule { kind, value: value.into(), target: PROXY.into() };
+        for bad in [rule(RuleKind::DomainSuffix, "a.com,DIRECT"), rule(RuleKind::Domain, ""), rule(RuleKind::IpCidr, "10.0.0.0"), rule(RuleKind::IpCidr, "10.0.0.0/33"), rule(RuleKind::Domain, "a b.com")] {
+            assert!(bad.problem().is_some(), "{bad:?}");
+        }
+        for good in [rule(RuleKind::DomainSuffix, "example.com"), rule(RuleKind::IpCidr, "2001:db8::/32"), rule(RuleKind::ProcessName, "My App.exe"), rule(RuleKind::Match, "")] {
+            assert_eq!(good.problem(), None, "{good:?}");
+        }
+        let o = RuntimeOptions { custom_rules: vec![rule(RuleKind::IpCidr, "nonsense"), rule(RuleKind::Domain, "ok.example")], ..Default::default() };
+        assert_eq!(o.rules().iter().filter(|r| r.kind == RuleKind::IpCidr).count(), 0, "an old bad rule is left out");
     }
 }

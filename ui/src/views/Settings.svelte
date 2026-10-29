@@ -6,11 +6,12 @@
   import { fmtAgo, fmtBytes, notesHtml } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
-  import { THEMES } from '../lib/themes';
   import AppPicker from '../components/AppPicker.svelte';
   import BackupModal from '../components/BackupModal.svelte';
   import Donate from '../components/Donate.svelte';
+  import FoldCard from '../components/FoldCard.svelte';
   import Icon from '../components/Icon.svelte';
+  import ThemePicker from '../components/ThemePicker.svelte';
 
   let appVersion = $state('');
   // Members of the group traffic starts in ("Proxy", or an imported config's first
@@ -136,12 +137,10 @@
 <div class="page-head"><h1>{t('Settings')}</h1><span class="sub">{t('Changes apply right away. A running connection restarts when needed.')}</span></div>
 
 {#if s}
+  <!-- The cards flow down one column and on into the next, in order, so folding one
+       pulls the rest up and both columns stay about the same height. -->
   <div class="set">
-    <!-- Connection settings on the left, the app itself on the right. Two independent
-         columns so a tall card never leaves a gap beside a short one. -->
-    <div class="col">
-      <section class="card">
-        <div class="card-h"><h2>{t('Network')}</h2></div>
+      <FoldCard id="network" title={t('Network')}>
         <div class="form">
           <div class="fld full"><label for="st-port">{t('Proxy port (HTTP + SOCKS5)')}</label>
             <input id="st-port" class="input mono" value={s.core.mixed_port} onchange={(e) => port(e.currentTarget.value, (x, p) => (x.core.mixed_port = p))} /></div>
@@ -173,11 +172,10 @@
           <div class="row-sw"><div><div class="t">{t('Anti-DPI')} <span class="chip">beta</span></div><div class="d">{t('Sends the start of each connection to the server in small pieces, so simpler blocking equipment can’t recognise it. Try it when servers stop connecting; it doesn’t help against whitelists. Needs the Xray core')}</div></div>
             <button class="switch" role="switch" aria-label={t('Anti-DPI')} aria-checked={s.core.anti_dpi} onclick={() => toggle((x) => x.core.anti_dpi, (x, v) => (x.core.anti_dpi = v))}></button></div>
         </div>
-      </section>
+      </FoldCard>
 
       {#if app.mobile}
-      <section class="card">
-        <div class="card-h"><h2>VPN</h2></div>
+      <FoldCard id="vpn" title="VPN">
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Apps through the VPN')}</div>
             <div class="d">{s.vpn_apps.mode === 'all' ? t('All apps') : s.vpn_apps.mode === 'only'
@@ -204,14 +202,13 @@
           {/if}
           <div class="row-sw"><div><div class="t">{t('Quick Settings tile')}</div><div class="d">{t('Swipe down twice, tap the pencil and drag the Kova tile in to connect and disconnect from there.')}</div></div></div>
         </div>
-      </section>
+      </FoldCard>
       {/if}
       {#if pickingApps}<AppPicker onclose={() => (pickingApps = false)} />{/if}
 
       {#if !app.mobile}
-      <section class="card">
-        <div class="card-h"><h2>{t('TUN mode')}</h2>
-          <button class="switch aside-sw" role="switch" aria-label={t('TUN mode')} aria-checked={s.core.tun.enabled} onclick={() => toggle((x) => x.core.tun.enabled, (x, v) => (x.core.tun.enabled = v))}></button></div>
+      <FoldCard id="tun" title={t('TUN mode')}>
+        {#snippet aside()}<button class="switch aside-sw" role="switch" aria-label={t('TUN mode')} aria-checked={s.core.tun.enabled} onclick={() => toggle((x) => x.core.tun.enabled, (x, v) => (x.core.tun.enabled = v))}></button>{/snippet}
         <div class="fld"><span class="lbl">{t('Network stack')}</span>
           <div class="seg" role="group" aria-label={t('Network stack')}>
             {#each [['mixed', t('Mixed')], ['system', t('System')], ['gvisor', 'gVisor']] as [v, l] (v)}
@@ -262,11 +259,10 @@
           <div class="row-sw"><div><div class="t">{t('Strict route')}</div><div class="d">{t('Stops DNS and traffic from leaking around the tunnel')}</div></div>
             <button class="switch" role="switch" aria-label={t('Strict route')} aria-checked={s.core.tun.strict_route} onclick={() => toggle((x) => x.core.tun.strict_route, (x, v) => (x.core.tun.strict_route = v))}></button></div>
         </div>
-      </section>
+      </FoldCard>
       {/if}
 
-      <section class="card">
-        <div class="card-h"><h2>DNS</h2></div>
+      <FoldCard id="dns" title="DNS">
         <div class="row-sw first"><div><div class="t">Fake-IP</div><div class="d">{t('Fastest. Turn off if an app needs real IP answers.')}</div></div>
           <button class="switch" role="switch" aria-label="Fake-IP" aria-checked={s.core.dns.fake_ip} onclick={() => toggle((x) => x.core.dns.fake_ip, (x, v) => (x.core.dns.fake_ip = v))}></button></div>
         <div class="form">
@@ -277,10 +273,10 @@
         </div>
         <div class="row-sw"><div><div class="t">{t('Use these settings for Clash profiles too')}</div><div class="d">{t('Otherwise a Clash profile’s own DNS section is kept')}</div></div>
           <button class="switch" role="switch" aria-label={t('Use these settings for Clash profiles too')} aria-checked={s.core.dns.override_profile} onclick={() => toggle((x) => x.core.dns.override_profile, (x, v) => (x.core.dns.override_profile = v))}></button></div>
-      </section>
+      </FoldCard>
 
-      <section class="card">
-        <div class="card-h"><h2>{t('Routing data')}</h2><span class="aside">{t('GeoIP and GeoSite lists used by rules')}</span></div>
+      <FoldCard id="geodata" title={t('Routing data')}>
+        {#snippet aside()}<span class="aside">{t('GeoIP and GeoSite lists used by rules')}</span>{/snippet}
         <div class="seg" role="group" aria-label={t('Routing data source')}>
           {#each [['default', t('Standard')], ['runetfreedom', t('Russia')], ['custom', t('Custom')]] as [v, l] (v)}
             <button aria-pressed={geoKind === v} disabled={geoBusy} onclick={() => pickGeo(v)}>{l}</button>
@@ -316,12 +312,9 @@
         {#if !customOpen}
           <div class="actions gap"><button class="btn" class:busy={geoBusy} disabled={geoBusy} onclick={updateGeo}><Icon name="refresh" />{geoBusy ? t('Downloading…') : t('Update now')}</button></div>
         {/if}
-      </section>
-    </div>
-    <div class="col">
-      <section class="card">
-        <div class="card-h"><h2>{t('Cores')}</h2>
-          {#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}</div>
+      </FoldCard>
+      <FoldCard id="cores" title={t('Cores')}>
+        {#snippet aside()}{#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}{/snippet}
         {#each cores as c (c.core)}
           {@const name = c.core === 'xray' ? 'Xray' : 'Mihomo'}
           {@const update = c.latest && norm(c.latest) !== norm(c.installed)}
@@ -338,10 +331,9 @@
           </div>
         {/each}
         <p class="hint">{app.mobile ? t('Included with the app and updated together with it.') : t('Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.')}</p>
-      </section>
+      </FoldCard>
 
-      <section class="card">
-        <div class="card-h"><h2>{t('App')}</h2></div>
+      <FoldCard id="app" title={t('App')}>
         <div class="rows">
           {#if !app.mobile}
             <div class="row-sw"><div><div class="t">{t('Launch at sign-in')}</div></div>
@@ -357,17 +349,7 @@
         {#if backup}<BackupModal mode={backup} onclose={() => (backup = null)} />{/if}
         <div class="form gap">
           <div class="fld full"><span class="lbl">{t('Theme')}</span>
-            <!-- Each preview carries its own data-theme, so it shows that theme's colours. -->
-            <div class="themes" role="radiogroup" aria-label={t('Theme')}>
-              <button class="th" role="radio" aria-checked={s.theme === 'system'} onclick={() => set((x) => (x.theme = 'system'))}>
-                <span class="sw split"><span data-theme="dark"><i></i></span><span data-theme="light"><i></i></span></span>{t('Match system')}
-              </button>
-              {#each THEMES as th (th.id)}
-                <button class="th" role="radio" aria-checked={s.theme === th.id} onclick={() => set((x) => (x.theme = th.id))}>
-                  <span class="sw" data-theme={th.id}><i></i><b></b></span>{th.label()}
-                </button>
-              {/each}
-            </div></div>
+            <ThemePicker /></div>
           <div class="fld full"><span class="lbl">{t('Language')}</span>
             <!-- Language names stay in their own language, so they can be found whatever is shown. -->
             <div class="seg" role="group" aria-label={t('Language')}>
@@ -386,10 +368,10 @@
           <div class="row-sw"><div><div class="t">{t('Quit Kova')}</div><div class="d">{t('Disconnects and restores your system proxy')}</div></div>
             <button class="btn danger" onclick={() => api.quit()}>{t('Quit')}</button></div>
         {/if}
-      </section>
+      </FoldCard>
 
-      <section class="card">
-        <div class="card-h"><h2>{t('Updates')}</h2><span class="aside">Kova {appVersion}</span></div>
+      <FoldCard id="updates" title={t('Updates')}>
+        {#snippet aside()}<span class="aside">Kova {appVersion}</span>{/snippet}
         {#if app.update}
           <div class="upd">
             <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
@@ -415,11 +397,10 @@
               onclick={async () => { await set((x) => (x.beta_updates = !x.beta_updates)); void app.checkForUpdate(true); }}></button></div>
         </div>
         <div class="actions gap"><button class="btn" class:busy={app.checkingUpdate} disabled={app.checkingUpdate || app.updateProgress !== null} onclick={() => app.checkForUpdate()}><Icon name="refresh" />{t('Check now')}</button></div>
-      </section>
+      </FoldCard>
 
-      <section class="card">
-        <details class="contacts">
-          <summary><h2>{t('What Kova connects to')}</h2></summary>
+      <FoldCard id="contacts" title={t('What Kova connects to')} closed>
+        <div class="contacts">
           <p class="hint">{t('Besides your servers, Kova contacts only these, and the last four only when you use that feature:')}</p>
           <dl>
             <dt class="mono">github.com</dt><dd>{t('Kova updates, cores and routing data')}</dd>
@@ -431,26 +412,23 @@
             <dt class="mono">speed.cloudflare.com</dt><dd>{t('Speed test')}</dd>
             <dt>{t('Sites in Site check')}</dt><dd>{t('Site check')}</dd>
           </dl>
-        </details>
-      </section>
+        </div>
+      </FoldCard>
 
-      <section class="card" id="donate">
-        <div class="card-h"><h2>{t('Support Kova')}</h2><span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span></div>
+      <FoldCard id="donate" anchor="donate" title={t('Support Kova')}>
+        {#snippet aside()}<span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span>{/snippet}
         <Donate />
-      </section>
-    </div>
+      </FoldCard>
   </div>
 {/if}
 
 <style>
-  .contacts summary { cursor: pointer; list-style: none; }
-  .contacts summary h2 { display: inline; font: 600 13.5px var(--f-ui); }
   .contacts dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 0; font-size: 12.5px; }
   .contacts dt { overflow-wrap: anywhere; }
   .contacts dd { margin: 0; color: var(--muted); }
-  .set { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  @container (max-width: 900px) { .set { grid-template-columns: minmax(0, 1fr); } }
+  .set { columns: 2; column-gap: 14px; }
+  .set > :global(.card) { break-inside: avoid; margin-bottom: 14px; }
+  @container (max-width: 900px) { .set { columns: 1; } }
   .aside-btn, .aside-sw { margin-inline-start: auto; }
   .core { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
   .core:first-of-type { border-top: 0; padding-top: 0; }
@@ -475,17 +453,5 @@
   .svc .d { font-size: 12px; color: var(--muted); }
   .led { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
-  .themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
-  .th { display: flex; flex-direction: column; gap: 7px; padding: 6px 6px 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--sunk); font-size: 12.5px; font-weight: 500; color: var(--muted); text-align: center; }
-  .th[aria-checked='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); color: var(--fg); }
-  /* A tiny window: the theme's background, a card, and its accent. */
-  .sw { position: relative; display: block; height: 46px; border-radius: 6px; background: var(--win); border: 1px solid var(--line); overflow: hidden; }
-  .sw i { position: absolute; left: 8px; right: 30px; top: 9px; bottom: 9px; border-radius: 4px; background: var(--panel); border: 1px solid var(--line); }
-  .sw b { position: absolute; right: 8px; top: 50%; width: 14px; height: 14px; margin-top: -7px; border-radius: 50%; background: var(--accent); }
-  /* A few pixel stars over the Night sky preview. */
-  .sw[data-theme='night']::after { content: ''; position: absolute; left: 12px; top: 7px; width: 2px; height: 2px; background: #fff; box-shadow: 24px 9px #fff, 47px 2px #bdbdc8, 66px 27px #fff, 9px 29px #7c7c88, 86px 5px #fff, 35px 33px #bdbdc8; }
-  .sw.split { display: flex; }
-  .sw.split > span { position: relative; flex: 1; background: var(--win); }
-  .sw.split i { right: 8px; }
   .mobile-server { max-width: 46%; }
 </style>

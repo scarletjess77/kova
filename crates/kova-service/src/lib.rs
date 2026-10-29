@@ -11,8 +11,9 @@
 //!   folder ordinary users can't write;
 //! - configs are sanitised (no web UI, no extra controller channels, controller on
 //!   loopback with a secret), and Mihomo confines provider paths to its home folder;
-//! - the pipe refuses remote clients and is created as the first instance, so nothing
-//!   can squat its name;
+//! - the pipe refuses remote clients and is created as the first instance; while the
+//!   service is stopped another program could take the name, so the app checks the
+//!   pipe belongs to SYSTEM or an administrator before sending anything;
 //! - Mihomo is stopped when the app process that started it exits.
 
 #[cfg(windows)]

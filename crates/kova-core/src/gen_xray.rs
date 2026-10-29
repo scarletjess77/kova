@@ -71,6 +71,9 @@ fn stream(n: &Node) -> Value {
                     if let Some(fp) = &t.fingerprint {
                         tls["fingerprint"] = fp.clone().into();
                     }
+                    if let Some(pin) = &t.pin {
+                        tls["pinnedPeerCertSha256"] = pin.clone().into();
+                    }
                     // Certificate checks off: Xray no longer has "allowInsecure"; the
                     // certificate is pinned instead (see `with_pin`).
                     s.insert("tlsSettings".into(), tls);
@@ -160,7 +163,7 @@ fn sniffing(opts: &RuntimeOptions) -> Value {
 /// certificate instead of any).
 fn with_pin(n: &Node, opts: &RuntimeOptions) -> Option<Value> {
     let mut o = outbound(n)?;
-    if n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none()) {
+    if n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none() && t.pin.is_none()) {
         if let Some(pin) = opts.cert_pins.get(&n.name) {
             o["streamSettings"]["tlsSettings"]["pinnedPeerCertSha256"] = pin.clone().into();
         }
@@ -252,6 +255,20 @@ pub fn sidecar(bridged: &[(&Node, u16)], opts: &RuntimeOptions) -> String {
     serde_json::to_string_pretty(&doc).expect("valid json")
 }
 
+/// What every server's outbound tag starts with when Xray is the front core. Xray picks
+/// the servers for Auto (`observatory`, `balancers`) by tag prefix: with the servers'
+/// own names a server called "d" would also take in "direct" and Auto could choose it.
+pub const NODE_TAG: &str = "node:";
+
+pub fn node_tag(name: &str) -> String {
+    format!("{NODE_TAG}{name}")
+}
+
+/// The server name of an outbound tag from [`full`].
+pub fn node_of_tag(tag: &str) -> &str {
+    tag.strip_prefix(NODE_TAG).unwrap_or(tag)
+}
+
 /// Which outbound the main `Proxy` target resolves to when Xray is the front core.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Selection {
@@ -273,7 +290,14 @@ pub fn lan_ports(opts: &RuntimeOptions) -> Option<(u16, u16)> {
 
 /// Full Xray config when Xray is the front core.
 pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> String {
-    let mut outbounds_nodes: Vec<Value> = nodes.iter().filter_map(|n| with_pin(n, opts)).collect();
+    let mut outbounds_nodes: Vec<Value> = nodes
+        .iter()
+        .filter_map(|n| {
+            let mut o = with_pin(n, opts)?;
+            o["tag"] = node_tag(&n.name).into();
+            Some(o)
+        })
+        .collect();
     if opts.anti_dpi {
         for o in &mut outbounds_nodes {
             o["streamSettings"]["sockopt"]["dialerProxy"] = ANTI_DPI_TAG.into();
@@ -285,8 +309,8 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
         Selection::Auto if !tags.is_empty() => {
             rule["balancerTag"] = AUTO.into();
         }
-        Selection::Node(n) if tags.contains(n) => {
-            rule["outboundTag"] = n.clone().into();
+        Selection::Node(n) if tags.contains(&node_tag(n)) => {
+            rule["outboundTag"] = node_tag(n).into();
         }
         _ => {
             rule["outboundTag"] = tags.first().cloned().unwrap_or_else(|| "direct".into()).into();
@@ -314,7 +338,7 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
             "DIRECT" => x["outboundTag"] = "direct".into(),
             "REJECT" => x["outboundTag"] = "block".into(),
             t if t == PROXY || t == AUTO || t == FALLBACK => proxy_target(&mut x),
-            t if tags.iter().any(|g| g == t) => x["outboundTag"] = t.into(),
+            t if tags.contains(&node_tag(t)) => x["outboundTag"] = node_tag(t).into(),
             _ => proxy_target(&mut x),
         }
         rules.push(x);
@@ -355,8 +379,8 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
         inbounds.push(json!({ "tag": "socks-lan", "listen": "0.0.0.0", "port": socks, "protocol": "socks", "settings": { "udp": true, "auth": "password", "accounts": [account] }, "sniffing": sniffing(opts) }));
     }
     if !tags.is_empty() {
-        doc["observatory"] = json!({ "subjectSelector": tags, "probeUrl": TEST_URL, "probeInterval": "5m", "enableConcurrency": true });
-        doc["routing"]["balancers"] = json!([{ "tag": AUTO, "selector": tags, "strategy": { "type": "leastPing" }, "fallbackTag": tags[0] }]);
+        doc["observatory"] = json!({ "subjectSelector": [NODE_TAG], "probeUrl": TEST_URL, "probeInterval": "5m", "enableConcurrency": true });
+        doc["routing"]["balancers"] = json!([{ "tag": AUTO, "selector": [NODE_TAG], "strategy": { "type": "leastPing" }, "fallbackTag": tags[0] }]);
     }
     serde_json::to_string_pretty(&doc).expect("valid json")
 }
@@ -487,5 +511,18 @@ mod tests {
         assert_eq!(doc["inbounds"][0]["port"], 17001);
         assert_eq!(doc["routing"]["rules"][0]["outboundTag"], "X");
         assert_eq!(doc["outbounds"][0]["streamSettings"]["xhttpSettings"]["mode"], "packet-up");
+    }
+
+    /// Auto picks servers by tag prefix: a server named "d" must not take in "direct".
+    #[test]
+    fn auto_only_picks_servers() {
+        let nodes = vec![crate::links::parse_link("trojan://pw@203.0.113.5:443?security=tls#d").unwrap()];
+        let doc: Value = serde_json::from_str(&full(&nodes, &Selection::Node("d".into()), &RuntimeOptions::default())).unwrap();
+        let tags: Vec<&str> = doc["outbounds"].as_array().unwrap().iter().filter_map(|o| o["tag"].as_str()).collect();
+        assert!(tags.iter().filter(|t| t.starts_with(NODE_TAG)).eq(["node:d"].iter()), "{tags:?}");
+        assert_eq!(doc["observatory"]["subjectSelector"], json!([NODE_TAG]));
+        assert_eq!(doc["routing"]["balancers"][0]["selector"], json!([NODE_TAG]));
+        assert!(doc["routing"]["rules"].as_array().unwrap().iter().any(|r| r["outboundTag"] == "node:d"), "the chosen server");
+        assert_eq!(node_of_tag("node:d"), "d");
     }
 }
