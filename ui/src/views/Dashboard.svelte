@@ -140,7 +140,7 @@
 {#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
 
 <div class="dash">
-  <section class="card hero">
+  <section class="card hero" class:guide={!profile}>
     <div class="hero-top">
       <button class="power" class:on={s.running} class:busy={s.busy || app.toggling} onclick={() => app.toggleConnection()} disabled={!profile || s.busy || app.toggling}
         aria-pressed={s.running} aria-label={s.running ? t('Disconnect') : t('Connect')}><Icon name="power" /></button>
@@ -303,7 +303,7 @@
   .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } }
   @container (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  .hero { display: flex; flex-direction: column; gap: 20px; padding: 20px; }
+  .hero { display: flex; flex-direction: column; gap: 20px; padding: 20px; container: hero / inline-size; }
   .hero-top { display: flex; gap: 22px; align-items: center; }
   .hero-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   .power { width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line-2); background: var(--sunk); color: var(--muted); display: grid; place-items: center; flex: none; position: relative; transition: background .2s, color .2s, border-color .2s; }
@@ -322,7 +322,14 @@
   .hero-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
   .hero-meta .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 18px; border-top: 1px solid var(--line); }
-  @container (max-width: 560px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
+  @container hero (max-width: 420px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
+  /* The first-start guide is long: in a narrow desktop card the power button goes above it, so
+     the steps get the full width instead of wrapping into a tall column. */
+  @container hero (max-width: 640px) {
+    :global(.app:not(.mobile)) .guide .hero-top { flex-direction: column; align-items: flex-start; gap: 14px; }
+    :global(.app:not(.mobile)) .guide .power { width: 64px; height: 64px; }
+    :global(.app:not(.mobile)) .guide .power :global(.i) { width: 26px; height: 26px; }
+  }
   .togs { display: flex; gap: 10px; flex-wrap: wrap; }
 
   /* Phone: the connection is the page. Big centred button, status beneath it. */
