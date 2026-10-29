@@ -298,7 +298,8 @@
   .start li::marker { color: var(--faint); font: 600 12px var(--f-mono); }
   .start b { display: block; color: var(--fg); font-weight: 600; }
   .start .region { margin-top: 6px; }
-  .dash { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); gap: 14px; }
+  /* The side cards grow with the window only up to a width they can use. */
+  .dash { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 39%, 420px); gap: 14px; }
   .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
   @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } }
   @container (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }

@@ -137,10 +137,9 @@
 <div class="page-head"><h1>{t('Settings')}</h1><span class="sub">{t('Changes apply right away. A running connection restarts when needed.')}</span></div>
 
 {#if s}
+  <!-- The cards flow down one column and on into the next, in order, so folding one
+       pulls the rest up and both columns stay about the same height. -->
   <div class="set">
-    <!-- Connection settings on the left, the app itself on the right. Two independent
-         columns so a tall card never leaves a gap beside a short one. -->
-    <div class="col">
       <FoldCard id="network" title={t('Network')}>
         <div class="form">
           <div class="fld full"><label for="st-port">{t('Proxy port (HTTP + SOCKS5)')}</label>
@@ -314,8 +313,6 @@
           <div class="actions gap"><button class="btn" class:busy={geoBusy} disabled={geoBusy} onclick={updateGeo}><Icon name="refresh" />{geoBusy ? t('Downloading…') : t('Update now')}</button></div>
         {/if}
       </FoldCard>
-    </div>
-    <div class="col">
       <FoldCard id="cores" title={t('Cores')}>
         {#snippet aside()}{#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}{/snippet}
         {#each cores as c (c.core)}
@@ -422,7 +419,6 @@
         {#snippet aside()}<span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span>{/snippet}
         <Donate />
       </FoldCard>
-    </div>
   </div>
 {/if}
 
@@ -430,9 +426,9 @@
   .contacts dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 0; font-size: 12.5px; }
   .contacts dt { overflow-wrap: anywhere; }
   .contacts dd { margin: 0; color: var(--muted); }
-  .set { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-  .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  @container (max-width: 900px) { .set { grid-template-columns: minmax(0, 1fr); } }
+  .set { columns: 2; column-gap: 14px; }
+  .set > :global(.card) { break-inside: avoid; margin-bottom: 14px; }
+  @container (max-width: 900px) { .set { columns: 1; } }
   .aside-btn, .aside-sw { margin-inline-start: auto; }
   .core { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
   .core:first-of-type { border-top: 0; padding-top: 0; }
