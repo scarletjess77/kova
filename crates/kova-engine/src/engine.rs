@@ -237,36 +237,18 @@ async fn resolve_servers<'a>(servers: impl Iterator<Item = (&'a str, u16)>) -> V
     out
 }
 
-/// The certificate SHA-256 of each node whose link turns certificate checks off, asked
-/// with `xray tls ping`, for Xray to pin (it no longer accepts "allowInsecure"). Best
-/// effort and all at once: a server that doesn't answer gets no pin, and Xray then
-/// checks its certificate normally.
-async fn cert_pins<'a>(xray: &Path, nodes: impl Iterator<Item = &'a Node>) -> HashMap<String, String> {
-    let pings = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none())).map(|n| async move {
+/// The certificate SHA-256 of each node whose link turns certificate checks off, for
+/// Xray to pin (it no longer accepts "allowInsecure"). With Anti-DPI on the greeting is
+/// cut the way Anti-DPI cuts it. Best effort and all at once: a server that doesn't
+/// answer gets no pin, and Xray then checks its certificate normally.
+async fn cert_pins<'a>(nodes: impl Iterator<Item = &'a Node>, fragment: bool) -> HashMap<String, String> {
+    let probes = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none())).map(|n| async move {
         let name = n.tls.as_ref().and_then(|t| t.sni.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| n.server.clone());
-        // The server's address, when it isn't what the certificate is asked for.
-        let ip = if name == n.server {
-            None
-        } else if let Ok(ip) = n.server.parse::<std::net::IpAddr>() {
-            Some(ip)
-        } else {
-            tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok().and_then(|mut a| a.next()).map(|a| a.ip())
-        };
-        let mut cmd = std::process::Command::new(xray);
-        crate::process::hide_window(&mut cmd);
-        cmd.args(["tls", "ping"]);
-        if let Some(ip) = ip {
-            cmd.args(["-ip", &ip.to_string()]);
-        }
-        let host = if name.contains(':') { format!("[{name}]") } else { name };
-        cmd.arg(format!("{host}:{}", n.port));
-        let out = tokio::time::timeout(Duration::from_secs(6), tokio::process::Command::from(cmd).kill_on_drop(true).output()).await.ok()?.ok()?;
-        // The last one is the handshake made with the name.
-        let text = String::from_utf8_lossy(&out.stdout);
-        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).next_back()?.to_string();
+        let addr = tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok()?.next()?;
+        let pin = crate::tls_probe::leaf_sha256(addr, &name, fragment, Duration::from_secs(6)).await?;
         Some((n.name.clone(), pin))
     });
-    futures_util::future::join_all(pings).await.into_iter().flatten().collect()
+    futures_util::future::join_all(probes).await.into_iter().flatten().collect()
 }
 
 /// Fail early with a clear message instead of letting a core start without its listener.
@@ -1133,7 +1115,7 @@ impl Engine {
                 Some(n) => Selection::Node(n),
                 None => Selection::Auto,
             };
-            opts.cert_pins = cert_pins(&xray_bin, nodes.iter()).await;
+            opts.cert_pins = cert_pins(nodes.iter(), opts.anti_dpi).await;
             let cfg = run_dir.join("xray.json");
             std::fs::write(&cfg, gen_xray::full(&nodes, &selection, &opts))?;
             let c = cfg.to_string_lossy().to_string();
@@ -1231,7 +1213,7 @@ impl Engine {
                         resolve_servers(bridged.iter().map(|(n, _)| (n.server.as_str(), n.port))).await
                     };
                 }
-                opts.cert_pins = cert_pins(&xray_bin, bridged.iter().map(|(n, _)| *n)).await;
+                opts.cert_pins = cert_pins(bridged.iter().map(|(n, _)| *n), anti_dpi).await;
                 let cfg = run_dir.join("xray-sidecar.json");
                 std::fs::write(&cfg, gen_xray::sidecar(&bridged, &opts))?;
                 let c = cfg.to_string_lossy().to_string();

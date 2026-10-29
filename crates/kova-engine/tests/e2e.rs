@@ -742,11 +742,10 @@ async fn anti_dpi_carries_tls_traffic() {
     let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Xray's Anti-DPI").text().await.unwrap();
     assert_eq!(body, "hello from target");
 
-    // Through Xray too. Not every connection: before connecting, Kova asks the server
-    // for its certificate with `xray tls ping` to pin it (the link turns checks off), and
-    // that check goes direct, its greeting whole.
+    // Through Xray too, and so is Kova's own check of the certificate it pins (the link
+    // turns checks off).
     let xray_phase = first_reads.lock().unwrap()[mihomo_phase.len()..].to_vec();
-    assert!(xray_phase.iter().any(fragmented), "no fragmented greeting through Xray: {xray_phase:?}");
+    assert!(!xray_phase.is_empty() && xray_phase.iter().all(fragmented), "a greeting arrived whole through Xray: {xray_phase:?}");
     // And Xray had nothing deprecated to warn about in the Direct outbound.
     while let Ok(e) = events.try_recv() {
         if let kova_engine::Event::Log { message, .. } = e {

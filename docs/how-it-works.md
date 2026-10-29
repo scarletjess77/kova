@@ -79,7 +79,7 @@ Learned sites are stored in `learned.json` in the data folder and expire after 3
 
 Settings → Anti-DPI dials every server connection through the local Xray, which sends the start of each connection in a shape simpler filtering doesn't recognise: the TLS greeting in pieces of 100–200 bytes, 10–20 ms apart, and UDP connections (Hysteria2, TUIC) opened with 10–20 random bytes. It uses Xray's Finalmask (`fragment` and `noise`). With an Xray older than v26.3.23, which has neither, the same is done through the Direct outbound's `fragment` and `noises`, which newer Xray warns are going away.
 
-A server whose link turns certificate checks off is asked for its certificate once before connecting, to pin it, and that check is not dialled through Anti-DPI.
+A server whose link turns certificate checks off is asked for its certificate once before connecting, to pin it; with Anti-DPI on, that greeting is cut the same way.
 
 ## Android
 

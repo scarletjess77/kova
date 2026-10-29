@@ -15,6 +15,7 @@ pub mod sitecheck;
 pub mod smart;
 pub mod store;
 pub mod sysproxy;
+mod tls_probe;
 #[cfg(target_os = "linux")]
 pub mod tun_linux;
 pub mod tun_rights;
