@@ -1,6 +1,7 @@
 //! End-to-end: real Mihomo and Xray binaries, a local Xray server, real traffic.
 //!
-//! Downloads both cores from GitHub on first run (cached in `target/test-cores`).
+//! Downloads both cores from GitHub on first run (cached in `target/test-cores`): the
+//! versions pinned in `scripts/android-cores.json`, which every Kova build ships.
 //! Run with: `cargo test -p kova-engine --test e2e -- --ignored --nocapture`
 
 use std::path::PathBuf;
@@ -38,9 +39,12 @@ async fn ensure_cores() -> PathBuf {
     static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _one = ONE_AT_A_TIME.lock().await;
     let dir = cache_dir();
+    // The versions Kova's builds ship, so the tests check what users get.
     for core in [CoreKind::Mihomo, CoreKind::Xray] {
-        if !cores::binary_path(&dir, core).exists() {
-            let tag = cores::install_latest(&dir, core).await.expect("install core");
+        let pinned = cores::pinned_tag(core);
+        let installed = cores::installed_version(&dir, core);
+        if installed.as_deref().map(|v| v.trim_start_matches('v')) != Some(pinned.trim_start_matches('v')) {
+            let tag = cores::install_pinned(&dir, core).await.expect("install core");
             eprintln!("installed {} {tag}", core.label());
         }
     }

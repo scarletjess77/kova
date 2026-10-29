@@ -154,7 +154,6 @@ pub struct Settings {
     pub connect_on_launch: bool,
     pub start_minimized: bool,
     pub launch_at_login: bool,
-    pub auto_update_cores: bool,
     pub theme: Theme,
     /// Interface language: "system" (follow the system), "en", "ru", "fa" or "zh".
     pub language: String,
@@ -214,7 +213,6 @@ impl Default for Settings {
             connect_on_launch: false,
             start_minimized: false,
             launch_at_login: false,
-            auto_update_cores: true,
             theme: Theme::Dark,
             language: "system".into(),
             xray_selection: None,

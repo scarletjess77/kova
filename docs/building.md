@@ -40,4 +40,6 @@ The end-to-end test downloads the real cores, starts a local Xray server with VL
 
 ## Releases
 
+The cores every build ships, desktop installers included, are the versions pinned in `scripts/android-cores.json`; the end-to-end tests run against the same. To move to a new Mihomo or Xray, change the pin (the **Core versions** workflow opens an issue when one is out) and run the end-to-end tests.
+
 `node scripts/bump-version.mjs <version>` sets the version everywhere. A `v<version>` tag starts the **Release** workflow, which builds and signs every installer and APK into a draft release. Installed copies see the update once the draft is published. The **CI** workflow runs the tests on Windows, Linux and macOS for every push.
