@@ -377,7 +377,7 @@ impl Engine {
         }
         // Turning the kill switch (or the system proxy) off lets go of a hold.
         if (!new.kill_switch || !new.system_proxy) && self.holding.swap(false, std::sync::atomic::Ordering::Relaxed) && !self.status().running {
-            let _ = sysproxy::disable(&self.paths.proxy_marker());
+            let _ = self.release_proxy();
             self.set_status(|s| s.error = None);
         }
         // A changed server for mobile data takes over at once while on mobile data.
@@ -431,8 +431,16 @@ impl Engine {
         if s.system_proxy && self.status().running {
             sysproxy::enable(&marker, &format!("127.0.0.1:{}", s.core.mixed_port), &s.proxy_bypass)
         } else {
-            sysproxy::disable(&marker)
+            self.release_proxy()
         }
+    }
+
+    /// Give the system proxy back; see [`sysproxy::release`].
+    fn release_proxy(&self) -> Result<()> {
+        if cfg!(target_os = "android") {
+            return Ok(());
+        }
+        sysproxy::release(&self.paths.proxy_marker(), &format!("127.0.0.1:{}", self.settings().core.mixed_port))
     }
 
     // ------------------------------------------------------------------ profiles
@@ -866,7 +874,7 @@ impl Engine {
                 // A failed restart must not leave the OS proxy pointing at a dead port,
                 // unless the kill switch holds it there on purpose.
                 if !self.holding.load(std::sync::atomic::Ordering::Relaxed) {
-                    let _ = sysproxy::disable(&self.paths.proxy_marker());
+                    let _ = self.release_proxy();
                 }
                 self.set_status(|s| {
                     s.busy = false;
@@ -886,7 +894,7 @@ impl Engine {
         self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
         let taken = self.run.lock().await.take();
         self.set_status(|s| s.busy = true);
-        let proxy = sysproxy::disable(&self.paths.proxy_marker());
+        let proxy = self.release_proxy();
         if let Some(r) = taken {
             r.shutdown().await;
         }
@@ -1560,7 +1568,7 @@ impl Engine {
                     // `r.tasks`, including this watchdog, which would cancel the cleanup.
                     tokio::spawn(async move {
                         if !holds_proxy {
-                            let _ = sysproxy::disable(&engine.paths.proxy_marker());
+                            let _ = engine.release_proxy();
                         }
                         if let Some(r) = r {
                             r.shutdown().await;
