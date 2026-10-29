@@ -12,7 +12,7 @@
 // The versions are pinned in android-cores.json, so a new core reaches the APK only as a
 // reviewed change to that file. Mihomo's tag must also point at the pinned commit.
 //
-// Usage: node scripts/android-cores.mjs [arm64-v8a] [armeabi-v7a]   (default: arm64-v8a)
+// Usage: node scripts/android-cores.mjs [arm64-v8a] [armeabi-v7a] [x86_64]   (default: arm64-v8a)
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,7 +23,8 @@ const root = join(import.meta.dirname, '..');
 const PINNED = JSON.parse(readFileSync(join(import.meta.dirname, 'android-cores.json'), 'utf8'));
 const jniLibs = join(root, 'src-tauri', 'gen', 'android', 'app', 'src', 'main', 'jniLibs');
 // Go's names for each Android ABI.
-const GO = { 'arm64-v8a': { GOARCH: 'arm64' }, 'armeabi-v7a': { GOARCH: 'arm', GOARM: '7' } };
+// x86_64 is for the Android emulator on a PC, not for releases.
+const GO = { 'arm64-v8a': { GOARCH: 'arm64' }, 'armeabi-v7a': { GOARCH: 'arm', GOARM: '7' }, x86_64: { GOARCH: 'amd64' } };
 
 /** fetch, tried again a few times: a connection dropped halfway shouldn't fail a release. */
 async function fetchRetrying(url, init) {
@@ -96,15 +97,16 @@ function source(name, repo, tag, commit) {
 }
 
 /**
- * Go links 32-bit Android programs only through the NDK's C compiler (`NDK_HOME`);
- * 64-bit ones need no C at all.
+ * Go links Android programs for 32-bit ARM and for x86_64 only through the NDK's C
+ * compiler (`NDK_HOME`); arm64 ones need no C at all.
  */
 function cgoEnv(abi) {
   if (abi === 'arm64-v8a') return { CGO_ENABLED: '0' };
   const ndk = process.env.NDK_HOME;
-  if (!ndk) throw new Error('Set NDK_HOME to build for 32-bit ARM');
+  if (!ndk) throw new Error(`Set NDK_HOME to build for ${abi}`);
   const host = process.platform === 'win32' ? 'windows-x86_64' : process.platform === 'darwin' ? 'darwin-x86_64' : 'linux-x86_64';
-  const cc = join(ndk, 'toolchains', 'llvm', 'prebuilt', host, 'bin', `armv7a-linux-androideabi24-clang${process.platform === 'win32' ? '.cmd' : ''}`);
+  const target = abi === 'x86_64' ? 'x86_64-linux-android24' : 'armv7a-linux-androideabi24';
+  const cc = join(ndk, 'toolchains', 'llvm', 'prebuilt', host, 'bin', `${target}-clang${process.platform === 'win32' ? '.cmd' : ''}`);
   return { CGO_ENABLED: '1', CC: cc };
 }
 
