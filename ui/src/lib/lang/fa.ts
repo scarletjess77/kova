@@ -43,7 +43,6 @@ export const fa: Dict = {
   '{n} days ago': ['{n} روز پیش', '{n} روز پیش', '{n} روز پیش'],
   'Kova could not start': 'Kova اجرا نشد',
   'Donate': 'کمک مالی',
-  'Switch theme': 'تغییر پوسته',
   'Minimize': 'کوچک کردن',
   'Maximize': 'بزرگ کردن',
   'Close to tray': 'بستن به سینی سیستم',

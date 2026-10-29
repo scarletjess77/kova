@@ -42,7 +42,6 @@ export const zh: Dict = {
   '{n} days ago': ['{n} 天前', '{n} 天前', '{n} 天前'],
   'Kova could not start': 'Kova 无法启动',
   'Donate': '捐赠',
-  'Switch theme': '切换主题',
   'Minimize': '最小化',
   'Maximize': '最大化',
   'Close to tray': '关闭到托盘',
