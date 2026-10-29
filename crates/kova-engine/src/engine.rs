@@ -237,36 +237,18 @@ async fn resolve_servers<'a>(servers: impl Iterator<Item = (&'a str, u16)>) -> V
     out
 }
 
-/// The certificate SHA-256 of each node whose link turns certificate checks off, asked
-/// with `xray tls ping`, for Xray to pin (it no longer accepts "allowInsecure"). Best
-/// effort and all at once: a server that doesn't answer gets no pin, and Xray then
-/// checks its certificate normally.
-async fn cert_pins<'a>(xray: &Path, nodes: impl Iterator<Item = &'a Node>) -> HashMap<String, String> {
-    let pings = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none())).map(|n| async move {
+/// The certificate SHA-256 of each node whose link turns certificate checks off, for
+/// Xray to pin (it no longer accepts "allowInsecure"). With Anti-DPI on the greeting is
+/// cut the way Anti-DPI cuts it. Best effort and all at once: a server that doesn't
+/// answer gets no pin, and Xray then checks its certificate normally.
+async fn cert_pins<'a>(nodes: impl Iterator<Item = &'a Node>, fragment: bool) -> HashMap<String, String> {
+    let probes = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none())).map(|n| async move {
         let name = n.tls.as_ref().and_then(|t| t.sni.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| n.server.clone());
-        // The server's address, when it isn't what the certificate is asked for.
-        let ip = if name == n.server {
-            None
-        } else if let Ok(ip) = n.server.parse::<std::net::IpAddr>() {
-            Some(ip)
-        } else {
-            tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok().and_then(|mut a| a.next()).map(|a| a.ip())
-        };
-        let mut cmd = std::process::Command::new(xray);
-        crate::process::hide_window(&mut cmd);
-        cmd.args(["tls", "ping"]);
-        if let Some(ip) = ip {
-            cmd.args(["-ip", &ip.to_string()]);
-        }
-        let host = if name.contains(':') { format!("[{name}]") } else { name };
-        cmd.arg(format!("{host}:{}", n.port));
-        let out = tokio::time::timeout(Duration::from_secs(6), tokio::process::Command::from(cmd).kill_on_drop(true).output()).await.ok()?.ok()?;
-        // The last one is the handshake made with the name.
-        let text = String::from_utf8_lossy(&out.stdout);
-        let pin = text.lines().filter(|l| l.contains("Cert's leaf SHA256:")).filter_map(|l| l.split_whitespace().last()).next_back()?.to_string();
+        let addr = tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok()?.next()?;
+        let pin = crate::tls_probe::leaf_sha256(addr, &name, fragment, Duration::from_secs(6)).await?;
         Some((n.name.clone(), pin))
     });
-    futures_util::future::join_all(pings).await.into_iter().flatten().collect()
+    futures_util::future::join_all(probes).await.into_iter().flatten().collect()
 }
 
 /// Fail early with a clear message instead of letting a core start without its listener.
@@ -395,7 +377,7 @@ impl Engine {
         }
         // Turning the kill switch (or the system proxy) off lets go of a hold.
         if (!new.kill_switch || !new.system_proxy) && self.holding.swap(false, std::sync::atomic::Ordering::Relaxed) && !self.status().running {
-            let _ = sysproxy::disable(&self.paths.proxy_marker());
+            let _ = self.release_proxy();
             self.set_status(|s| s.error = None);
         }
         // A changed server for mobile data takes over at once while on mobile data.
@@ -414,6 +396,10 @@ impl Engine {
             // core restarts with the new mode like for any other change.
             if let Some(api) = api {
                 core_changed = api.set_mode(new.core.mode).await.is_err();
+                // Connections opened in the old mode keep their route; start them over.
+                if !core_changed {
+                    let _ = api.close_all().await;
+                }
             }
         }
         if core_changed {
@@ -422,6 +408,17 @@ impl Engine {
             self.apply_system_proxy()?;
         }
         Ok(())
+    }
+
+    /// Whether another program took the system proxy away from Kova: connected with the
+    /// system proxy on, yet it no longer points at Kova. Kova doesn't take it back by
+    /// itself, which could fight another app; turning the system proxy off and on does.
+    pub fn system_proxy_lost(&self) -> bool {
+        if cfg!(target_os = "android") || self.holding.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
+        let s = self.settings();
+        s.system_proxy && self.status().running && !sysproxy::is_ours(&format!("127.0.0.1:{}", s.core.mixed_port))
     }
 
     fn apply_system_proxy(&self) -> Result<()> {
@@ -434,8 +431,16 @@ impl Engine {
         if s.system_proxy && self.status().running {
             sysproxy::enable(&marker, &format!("127.0.0.1:{}", s.core.mixed_port), &s.proxy_bypass)
         } else {
-            sysproxy::disable(&marker)
+            self.release_proxy()
         }
+    }
+
+    /// Give the system proxy back; see [`sysproxy::release`].
+    fn release_proxy(&self) -> Result<()> {
+        if cfg!(target_os = "android") {
+            return Ok(());
+        }
+        sysproxy::release(&self.paths.proxy_marker(), &format!("127.0.0.1:{}", self.settings().core.mixed_port))
     }
 
     // ------------------------------------------------------------------ profiles
@@ -452,6 +457,29 @@ impl Engine {
 
     fn fetch_proxy(&self, via_proxy: bool) -> Option<String> {
         if via_proxy { self.proxy_url() } else { None }
+    }
+
+    /// Download a subscription the profile's way and, when that can't reach the server
+    /// while Kova is connected, the other way: through the proxy where the provider's
+    /// site is blocked, directly where the provider refuses the server's address. A
+    /// server that answers with an error is not asked again.
+    async fn fetch_subscription(&self, url: &str, user_agent: Option<&str>, via_proxy: bool) -> Result<fetch::Subscription> {
+        let device = self.settings().device_id;
+        let first = fetch::subscription(url, user_agent, self.fetch_proxy(via_proxy).as_deref(), &device).await;
+        match first {
+            Err(e @ Error::Net(_)) if self.status().running => {
+                let other = if via_proxy { None } else { self.proxy_url() };
+                match fetch::subscription(url, user_agent, other.as_deref(), &device).await {
+                    Ok(sub) => {
+                        let how = if via_proxy { "directly" } else { "through the proxy" };
+                        self.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("the subscription was downloaded {how}, the usual way failed: {e}") });
+                        Ok(sub)
+                    }
+                    Err(_) => Err(e),
+                }
+            }
+            other => other,
+        }
     }
 
     /// The proxy port as a URL for Kova's own requests while connected, with Kova's
@@ -475,7 +503,7 @@ impl Engine {
         let is_url = (input.starts_with("http://") || input.starts_with("https://")) && !input.contains(char::is_whitespace);
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let (body, profile) = if is_url {
-            let sub = fetch::subscription(input, None, self.fetch_proxy(true).as_deref(), &self.settings().device_id).await?;
+            let sub = self.fetch_subscription(input, None, true).await?;
             let parsed = subscription::parse(&sub.body)?;
             let p = Profile {
                 id: id.clone(),
@@ -524,7 +552,7 @@ impl Engine {
         let Source::Remote { url, user_agent, via_proxy, .. } = &p.source else {
             return Ok(p);
         };
-        let sub = fetch::subscription(url, user_agent.as_deref(), self.fetch_proxy(*via_proxy).as_deref(), &self.settings().device_id).await?;
+        let sub = self.fetch_subscription(url, user_agent.as_deref(), *via_proxy).await?;
         let parsed = subscription::parse(&sub.body)?;
         let updated = {
             let mut idx = self.profiles.write().unwrap();
@@ -846,7 +874,7 @@ impl Engine {
                 // A failed restart must not leave the OS proxy pointing at a dead port,
                 // unless the kill switch holds it there on purpose.
                 if !self.holding.load(std::sync::atomic::Ordering::Relaxed) {
-                    let _ = sysproxy::disable(&self.paths.proxy_marker());
+                    let _ = self.release_proxy();
                 }
                 self.set_status(|s| {
                     s.busy = false;
@@ -866,7 +894,7 @@ impl Engine {
         self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
         let taken = self.run.lock().await.take();
         self.set_status(|s| s.busy = true);
-        let proxy = sysproxy::disable(&self.paths.proxy_marker());
+        let proxy = self.release_proxy();
         if let Some(r) = taken {
             r.shutdown().await;
         }
@@ -1067,6 +1095,12 @@ impl Engine {
             plan = compat::plan(&nodes, CorePreference::Auto);
         }
         let xray_bin = cores::binary_path(&cores_dir, CoreKind::Xray);
+        // An Xray from before Finalmask (kept from an older Kova) gets Anti-DPI the old way.
+        if opts.anti_dpi && xray_bin.exists() {
+            let dir = cores_dir.clone();
+            let version = tokio::task::spawn_blocking(move || cores::installed_version(&dir, CoreKind::Xray)).await.ok().flatten();
+            opts.xray_legacy_masks = gen_xray::legacy_masks(version.as_deref());
+        }
         #[allow(unused_mut)]
         let mut mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
         let asset_env: [(&str, &Path); 1] = [("XRAY_LOCATION_ASSET", cores_dir.as_path())];
@@ -1089,7 +1123,7 @@ impl Engine {
                 Some(n) => Selection::Node(n),
                 None => Selection::Auto,
             };
-            opts.cert_pins = cert_pins(&xray_bin, nodes.iter()).await;
+            opts.cert_pins = cert_pins(nodes.iter(), opts.anti_dpi).await;
             let cfg = run_dir.join("xray.json");
             std::fs::write(&cfg, gen_xray::full(&nodes, &selection, &opts))?;
             let c = cfg.to_string_lossy().to_string();
@@ -1187,7 +1221,7 @@ impl Engine {
                         resolve_servers(bridged.iter().map(|(n, _)| (n.server.as_str(), n.port))).await
                     };
                 }
-                opts.cert_pins = cert_pins(&xray_bin, bridged.iter().map(|(n, _)| *n)).await;
+                opts.cert_pins = cert_pins(bridged.iter().map(|(n, _)| *n), anti_dpi).await;
                 let cfg = run_dir.join("xray-sidecar.json");
                 std::fs::write(&cfg, gen_xray::sidecar(&bridged, &opts))?;
                 let c = cfg.to_string_lossy().to_string();
@@ -1534,7 +1568,7 @@ impl Engine {
                     // `r.tasks`, including this watchdog, which would cancel the cleanup.
                     tokio::spawn(async move {
                         if !holds_proxy {
-                            let _ = sysproxy::disable(&engine.paths.proxy_marker());
+                            let _ = engine.release_proxy();
                         }
                         if let Some(r) = r {
                             r.shutdown().await;

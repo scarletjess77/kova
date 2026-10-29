@@ -36,7 +36,10 @@ fn base(opts: &RuntimeOptions) -> Value {
         "bind-address": if opts.allow_lan { "*" } else { "127.0.0.1" },
         "mode": opts.mode,
         "log-level": opts.log_level,
-        "ipv6": opts.ipv6,
+        // With IPv6 off Mihomo gives TUN no IPv6 address, and IPv6 traffic then goes
+        // around the VPN. In TUN mode it stays on; IPv6 off is then kept by DNS giving
+        // no IPv6 answers (see `dns`).
+        "ipv6": opts.ipv6 || opts.tun.enabled,
         "unified-delay": true,
         "tcp-concurrent": true,
         // Android doesn't let an app see other apps' connections.
@@ -99,6 +102,10 @@ fn dns(opts: &RuntimeOptions) -> Value {
         "proxy-server-nameserver": d.direct_nameservers,
         "direct-nameserver": d.direct_nameservers,
     });
+    // Mihomo makes up IPv6 answers in Fake-IP mode only with a range of its own.
+    if opts.ipv6 {
+        v["fake-ip-range6"] = json!("fdfe:dcba:9877::/64");
+    }
     if !policy.is_empty() {
         v["nameserver-policy"] = Value::Object(policy);
     }
@@ -867,6 +874,23 @@ rules:
         assert!(sanitize_for_service("external-controller: 127.0.0.1:1\n").is_err(), "no secret");
         assert!(sanitize_for_service("secret: 0123456789abcdef0123\nexternal-controller: 0.0.0.0:9090\n").is_err(), "not loopback");
         assert!(sanitize_for_service("secret: 0123456789abcdef0123\n").is_err(), "no controller");
+    }
+
+    #[test]
+    fn tun_takes_ipv6_even_with_ipv6_off() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let doc = |o: &RuntimeOptions| -> Value { serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), o)).unwrap() };
+        let mut o = opts();
+        o.ipv6 = false;
+        assert_eq!(doc(&o)["ipv6"], false, "the system proxy alone: IPv6 off as asked");
+        o.tun.enabled = true;
+        let tun = doc(&o);
+        assert_eq!(tun["ipv6"], true, "else Mihomo gives TUN no IPv6 address and IPv6 goes around it");
+        assert_eq!(tun["dns"]["ipv6"], false, "IPv6 off is kept by DNS");
+        assert!(tun["dns"].get("fake-ip-range6").is_none());
+        o.ipv6 = true;
+        assert_eq!(doc(&o)["dns"]["fake-ip-range6"], "fdfe:dcba:9877::/64");
     }
 
     #[test]

@@ -202,6 +202,13 @@ class AppState {
     this.ready = true;
     void this.refreshProxies();
     if (this.settings?.check_updates) setTimeout(() => void this.checkForUpdate(true), 5000);
+    // Kova often runs in the tray for weeks: look again once a day, and say so when a
+    // new version turns up.
+    setInterval(async () => {
+      if (!this.settings?.check_updates || this.update) return;
+      const found = await this.checkForUpdate(true);
+      if (found) this.notify(t('Kova {version} is available', { version: found.version }));
+    }, 24 * 3600 * 1000);
   }
 
   private onEvent(e: EngineEvent) {
@@ -340,6 +347,7 @@ class AppState {
       if (!silent) this.notify(t('Could not check for updates: {error}', { error: errText(e) }));
     }
     this.checkingUpdate = false;
+    return this.update;
   }
 
   /** Download, install and restart (Kova disconnects first). */

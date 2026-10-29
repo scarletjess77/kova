@@ -602,19 +602,27 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
             }
         }
     });
-    // A chosen node that stops answering is swapped for a working one.
+    // A chosen node that stops answering is swapped for a working one, and a system proxy
+    // another program took over is pointed out (once each time it happens).
     tauri::async_runtime::spawn({
         let (app, engine) = (app.clone(), engine.clone());
         async move {
+            let mut proxy_lost = false;
             loop {
                 tokio::time::sleep(Duration::from_secs(60)).await;
                 if !engine.status().running {
+                    proxy_lost = false;
                     continue;
                 }
+                let l = i18n::lang(&engine.settings());
                 if let Some((from, to)) = engine.check_node().await {
-                    let l = i18n::lang(&engine.settings());
                     let _ = app.emit("toast", tr(l, "{} stopped answering; switched to {}", &[&from, &to]));
                 }
+                let lost = engine.system_proxy_lost();
+                if lost && !proxy_lost {
+                    let _ = app.emit("toast", tr(l, "Another program changed the system proxy, so apps no longer go through Kova. Turn System proxy off and on to take it back", &[]));
+                }
+                proxy_lost = lost;
             }
         }
     });
@@ -728,23 +736,30 @@ fn first_run_presets(engine: &Arc<Engine>) {
 
 // ---------------------------------------------------------------------------- entry
 
-/// `--restore-proxy`: give the system proxy back if a Kova that ended without its usual
-/// shutdown (a crash, ended in Task Manager or by the uninstaller) left it pointing at
-/// itself. Kova does this on its next start too; the uninstaller runs it because after
-/// an uninstall there is no next start. `None` without the argument.
+/// `--restore-proxy [data folder]`: give the system proxy back if a Kova that ended
+/// without its usual shutdown (Windows shutting down, a crash, ended in Task Manager or
+/// by the uninstaller) left it pointing at itself. Kova does this on its next start too;
+/// Windows runs it at the next sign-in (see `sysproxy`) and the uninstaller runs it,
+/// because Kova may not start again. A Kova that is running and serving the proxy is
+/// left alone. `None` without the argument.
 ///
 /// The uninstaller runs as administrator: when that is another account than the one
 /// using Kova, this sees the administrator's settings and has nothing to restore.
 #[cfg(windows)]
 pub fn restore_proxy_cli() -> Option<i32> {
-    if std::env::args().nth(1).as_deref() != Some("--restore-proxy") {
+    let mut args = std::env::args().skip(1);
+    if args.next().as_deref() != Some("--restore-proxy") {
         return None;
     }
-    // Where Tauri keeps Kova's data on Windows; read only, nothing is created.
-    let Some(root) = std::env::var_os("KOVA_DATA_DIR").or_else(|| std::env::var_os("APPDATA").map(|a| std::path::Path::new(&a).join("app.kova.client").into_os_string())) else {
+    // The folder given, else where Tauri keeps Kova's data on Windows; read only, nothing
+    // is created.
+    let Some(root) = args.next().map(Into::into).or_else(|| std::env::var_os("KOVA_DATA_DIR")).or_else(|| std::env::var_os("APPDATA").map(|a| std::path::Path::new(&a).join("app.kova.client").into_os_string())) else {
         return Some(0);
     };
     let marker = kova_engine::store::Paths { root: root.into() }.proxy_marker();
+    if kova_engine::sysproxy::still_served(&marker) {
+        return Some(0);
+    }
     Some(match kova_engine::sysproxy::recover(&marker) {
         Ok(_) => 0,
         Err(e) => {

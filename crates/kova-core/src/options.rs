@@ -361,6 +361,11 @@ pub struct RuntimeOptions {
     /// Local port of that Xray, set per run when Anti-DPI is on and Xray is installed.
     #[serde(skip)]
     pub anti_dpi_port: Option<u16>,
+    /// The installed Xray is older than v26.3.23, which brought Finalmask's fragment and
+    /// noise: Anti-DPI then uses the Direct outbound's own `fragment` and `noises`, which
+    /// newer Xray only warns about. Set per run.
+    #[serde(skip)]
+    pub xray_legacy_masks: bool,
     /// SHA-256 of the certificate of each server (by name) whose link turns certificate
     /// checks off, for Xray to pin: Xray no longer accepts "allowInsecure". Set per run.
     #[serde(skip)]
@@ -414,6 +419,7 @@ impl Default for RuntimeOptions {
             without_geodata: false,
             anti_dpi: false,
             anti_dpi_port: None,
+            xray_legacy_masks: false,
             cert_pins: Default::default(),
         }
     }
