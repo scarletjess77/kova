@@ -132,6 +132,8 @@ pub fn enable(marker: &Path, host_port: &str, bypass: &str) -> Result<(), Error>
     };
     let m = Marker { previous, ours: host_port.to_string() };
     crate::store::write_atomic(marker, &serde_json::to_vec(&m).expect("json"))?;
+    #[cfg(windows)]
+    imp::arm_restore(marker);
     imp::set(&ProxyState { enabled: true, server: host_port.to_string(), bypass: bypass.to_string(), saved: Vec::new() })
 }
 
@@ -145,7 +147,23 @@ pub fn disable(marker: &Path) -> Result<(), Error> {
         imp::set(&m.previous)?;
     }
     let _ = std::fs::remove_file(marker);
+    #[cfg(windows)]
+    imp::disarm_restore();
     Ok(())
+}
+
+/// Whether the Kova that set the proxy is still serving it: something answers on its
+/// port. A restore at sign-in then leaves it alone.
+pub fn still_served(marker: &Path) -> bool {
+    let Some(m) = std::fs::read(marker).ok().and_then(|b| serde_json::from_slice::<Marker>(&b).ok()) else { return false };
+    let Ok(addr) = m.ours.parse::<std::net::SocketAddr>() else { return false };
+    std::net::TcpStream::connect_timeout(&addr, std::time::Duration::from_millis(400)).is_ok()
+}
+
+/// Whether the system proxy is still the one Kova set (`host_port`). Another program
+/// may have changed it while Kova runs.
+pub fn is_ours(host_port: &str) -> bool {
+    imp::get().is_ok_and(|now| now.enabled && now.server == host_port)
 }
 
 /// Call at startup: undo a proxy left behind by a crash.
@@ -169,6 +187,26 @@ mod imp {
     use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 
     const KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Internet Settings";
+    const RUN_ONCE: &str = r"Software\Microsoft\Windows\CurrentVersion\RunOnce";
+    const RESTORE: &str = "KovaRestoreProxy";
+
+    /// Kova may not get to give the proxy back: Windows shutting down or the user
+    /// signing out, a crash, ending it in Task Manager. Until Kova runs again the
+    /// computer would have no internet, so while it holds the proxy Windows is asked to
+    /// run `kova.exe --restore-proxy` once at the next sign-in; giving the proxy back
+    /// takes the request away.
+    pub fn arm_restore(marker: &std::path::Path) {
+        let (Ok(exe), Some(root)) = (std::env::current_exe(), marker.parent().and_then(std::path::Path::parent)) else { return };
+        if let Ok((k, _)) = RegKey::predef(HKEY_CURRENT_USER).create_subkey(RUN_ONCE) {
+            let _ = k.set_value(RESTORE, &format!("\"{}\" --restore-proxy \"{}\"", exe.display(), root.display()));
+        }
+    }
+
+    pub fn disarm_restore() {
+        if let Ok(k) = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(RUN_ONCE, KEY_READ | KEY_WRITE) {
+            let _ = k.delete_value(RESTORE);
+        }
+    }
 
     pub fn get() -> Result<ProxyState, Error> {
         let k = RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(KEY, KEY_READ)?;

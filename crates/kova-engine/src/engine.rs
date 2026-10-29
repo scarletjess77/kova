@@ -414,6 +414,10 @@ impl Engine {
             // core restarts with the new mode like for any other change.
             if let Some(api) = api {
                 core_changed = api.set_mode(new.core.mode).await.is_err();
+                // Connections opened in the old mode keep their route; start them over.
+                if !core_changed {
+                    let _ = api.close_all().await;
+                }
             }
         }
         if core_changed {
@@ -422,6 +426,17 @@ impl Engine {
             self.apply_system_proxy()?;
         }
         Ok(())
+    }
+
+    /// Whether another program took the system proxy away from Kova: connected with the
+    /// system proxy on, yet it no longer points at Kova. Kova doesn't take it back by
+    /// itself, which could fight another app; turning the system proxy off and on does.
+    pub fn system_proxy_lost(&self) -> bool {
+        if cfg!(target_os = "android") || self.holding.load(std::sync::atomic::Ordering::Relaxed) {
+            return false;
+        }
+        let s = self.settings();
+        s.system_proxy && self.status().running && !sysproxy::is_ours(&format!("127.0.0.1:{}", s.core.mixed_port))
     }
 
     fn apply_system_proxy(&self) -> Result<()> {
@@ -454,6 +469,29 @@ impl Engine {
         if via_proxy { self.proxy_url() } else { None }
     }
 
+    /// Download a subscription the profile's way and, when that can't reach the server
+    /// while Kova is connected, the other way: through the proxy where the provider's
+    /// site is blocked, directly where the provider refuses the server's address. A
+    /// server that answers with an error is not asked again.
+    async fn fetch_subscription(&self, url: &str, user_agent: Option<&str>, via_proxy: bool) -> Result<fetch::Subscription> {
+        let device = self.settings().device_id;
+        let first = fetch::subscription(url, user_agent, self.fetch_proxy(via_proxy).as_deref(), &device).await;
+        match first {
+            Err(e @ Error::Net(_)) if self.status().running => {
+                let other = if via_proxy { None } else { self.proxy_url() };
+                match fetch::subscription(url, user_agent, other.as_deref(), &device).await {
+                    Ok(sub) => {
+                        let how = if via_proxy { "directly" } else { "through the proxy" };
+                        self.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("the subscription was downloaded {how}, the usual way failed: {e}") });
+                        Ok(sub)
+                    }
+                    Err(_) => Err(e),
+                }
+            }
+            other => other,
+        }
+    }
+
     /// The proxy port as a URL for Kova's own requests while connected, with Kova's
     /// login where the port asks for one (Android).
     pub fn proxy_url(&self) -> Option<String> {
@@ -475,7 +513,7 @@ impl Engine {
         let is_url = (input.starts_with("http://") || input.starts_with("https://")) && !input.contains(char::is_whitespace);
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let (body, profile) = if is_url {
-            let sub = fetch::subscription(input, None, self.fetch_proxy(true).as_deref(), &self.settings().device_id).await?;
+            let sub = self.fetch_subscription(input, None, true).await?;
             let parsed = subscription::parse(&sub.body)?;
             let p = Profile {
                 id: id.clone(),
@@ -524,7 +562,7 @@ impl Engine {
         let Source::Remote { url, user_agent, via_proxy, .. } = &p.source else {
             return Ok(p);
         };
-        let sub = fetch::subscription(url, user_agent.as_deref(), self.fetch_proxy(*via_proxy).as_deref(), &self.settings().device_id).await?;
+        let sub = self.fetch_subscription(url, user_agent.as_deref(), *via_proxy).await?;
         let parsed = subscription::parse(&sub.body)?;
         let updated = {
             let mut idx = self.profiles.write().unwrap();

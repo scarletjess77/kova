@@ -225,7 +225,58 @@ fn create_pipe(name: &str, first: bool) -> std::io::Result<NamedPipeServer> {
     pipe
 }
 
+/// The programs that may use the service: the Kova that installed it. Kept in the
+/// service's folder, which only administrators can change.
+const CLIENTS: &str = "clients.txt";
+
+/// Whether the program at the other end of `pipe` may use the service. The pipe's
+/// security lets in any signed-in user; this narrows it to Kova itself, so another
+/// program can't have Mihomo run with system rights. Without the list (the service
+/// run from a console, or installed by an older Kova until it is reinstalled) anyone
+/// the pipe lets in may.
+fn allowed_client(home: &Path, pipe: &NamedPipeServer) -> bool {
+    let Ok(list) = std::fs::read_to_string(home.join(CLIENTS)) else { return true };
+    let Some(image) = client_image(pipe) else { return false };
+    list.lines().map(str::trim).any(|l| !l.is_empty() && same_path(l, &image))
+}
+
+fn same_path(a: &str, b: &str) -> bool {
+    let plain = |s: &str| s.trim_start_matches(r"\\?\").replace('/', "\\").to_lowercase();
+    plain(a) == plain(b)
+}
+
+/// The full path of the program at the other end of `pipe`.
+fn client_image(pipe: &NamedPipeServer) -> Option<String> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::System::Pipes::GetNamedPipeClientProcessId;
+    use windows_sys::Win32::System::Threading::{PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
+    let mut pid = 0u32;
+    // SAFETY: a live pipe handle and a u32 to write to.
+    if unsafe { GetNamedPipeClientProcessId(pipe.as_raw_handle() as HANDLE, &mut pid) } == 0 {
+        return None;
+    }
+    // SAFETY: plain calls on a process handle closed below; the buffer outlives them.
+    unsafe {
+        let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if h.is_null() {
+            return None;
+        }
+        let mut buf = [0u16; 1024];
+        let mut len = buf.len() as u32;
+        let ok = QueryFullProcessImageNameW(h, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) != 0;
+        CloseHandle(h);
+        ok.then(|| String::from_utf16_lossy(&buf[..len as usize]))
+    }
+}
+
 async fn serve_connection(mut conn: NamedPipeServer, svc: Arc<Service>) {
+    if !allowed_client(&svc.home, &conn) {
+        let mut out = serde_json::to_string(&Response::err("Only Kova may use the Kova service")).expect("json");
+        out.push('\n');
+        let _ = conn.write_all(out.as_bytes()).await;
+        svc.log("refused a program that is not Kova");
+        return;
+    }
     let (r, mut w) = tokio::io::split(&mut conn);
     let mut line = String::new();
     // A client that connects and never writes must not hold a task forever.
@@ -395,6 +446,8 @@ pub fn install() -> Result<(), Failure> {
         }
         copied.map_err(|e| Failure(EXIT_COPY, e))?;
     }
+    // Only the Kova that installs the service may use it (see `allowed_client`).
+    std::fs::write(home.join(CLIENTS), me.display().to_string()).map_err(|e| Failure(EXIT_COPY, format!("could not write {}: {e}", home.join(CLIENTS).display())))?;
     // Mihomo and the routing data that came with the installer, so TUN works without
     // GitHub, which is blocked in some countries. Only from Kova's own folder under
     // Program Files, which ordinary programs can't change.
@@ -536,4 +589,33 @@ pub fn run_elevated(arg: &str) -> Result<i32, String> {
         CloseHandle(info.hProcess);
     }
     Ok(code as i32)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::net::windows::named_pipe::ClientOptions;
+
+    /// A pipe with this test as the client, and the service's view of it.
+    async fn connected(name: &str) -> (NamedPipeServer, tokio::net::windows::named_pipe::NamedPipeClient) {
+        let server = create_pipe(name, true).unwrap();
+        let client = ClientOptions::new().open(name).unwrap();
+        server.connect().await.unwrap();
+        (server, client)
+    }
+
+    #[tokio::test]
+    async fn only_the_kova_that_installed_the_service_may_use_it() {
+        let home = tempfile::tempdir().unwrap();
+        let name = format!(r"\\.\pipe\kova-client-test-{}", std::process::id());
+        let (server, _client) = connected(&name).await;
+        let me = std::env::current_exe().unwrap();
+        assert!(allowed_client(home.path(), &server), "no list yet: as before");
+
+        std::fs::write(home.path().join(CLIENTS), format!("{}\n", me.display().to_string().to_uppercase())).unwrap();
+        assert!(allowed_client(home.path(), &server), "the listed program, whatever the case of its path");
+
+        std::fs::write(home.path().join(CLIENTS), r"C:\Program Files\Kova\kova.exe").unwrap();
+        assert!(!allowed_client(home.path(), &server), "any other program is refused");
+    }
 }

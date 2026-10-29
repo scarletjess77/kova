@@ -544,8 +544,11 @@ async fn first_start_gets_routing_data_through_the_server() {
                 let mut buf = [0u8; 4096];
                 let n = s.read(&mut buf).await.unwrap_or(0);
                 let head = String::from_utf8_lossy(&buf[..n]).to_string();
-                let name = if head.contains("geoip.dat") { "geoip.dat" } else { "geosite.dat" };
-                let body = std::fs::read(cache.join(name)).unwrap();
+                let body = if head.contains("GET /sub ") {
+                    b"vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls#Sub".to_vec()
+                } else {
+                    std::fs::read(cache.join(if head.contains("geoip.dat") { "geoip.dat" } else { "geosite.dat" })).unwrap()
+                };
                 let crlf = "\r\n";
                 let _ = s.write_all(format!("HTTP/1.1 200 OK{crlf}Content-Length: {}{crlf}Connection: close{crlf}{crlf}", body.len()).as_bytes()).await;
                 let _ = s.write_all(&body).await;
@@ -562,7 +565,7 @@ async fn first_start_gets_routing_data_through_the_server() {
         &server_cfg,
         serde_json::json!({
             "log": { "loglevel": "warning" },
-            "dns": { "hosts": { "geodata.test": "127.0.0.1" } },
+            "dns": { "hosts": { "geodata.test": "127.0.0.1", "subs.kova-e2e": "127.0.0.1" } },
             "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                            "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
             "outbounds": [{ "protocol": "freedom", "settings": { "domainStrategy": "UseIP", "finalRules": [{ "action": "allow" }] } }]
@@ -611,6 +614,13 @@ async fn first_start_gets_routing_data_through_the_server() {
     assert!(st.running && st.warning.is_none(), "{st:?}");
     let config = std::fs::read_to_string(engine.paths.runtime_dir().join("main").join("mihomo").join("config.yaml")).unwrap();
     assert!(config.contains("GEOSITE,private,DIRECT"), "the full rules are back");
+
+    // A subscription the profile downloads directly, from a name only the server can
+    // resolve (and that no routing list sends direct): the direct try fails, and the update comes through the proxy instead.
+    let sub = engine.add_profile(&format!("http://subs.kova-e2e:{files_port}/sub"), Some("Only through".into())).await.unwrap();
+    engine.edit_profile(&sub.id, kova_engine::engine::ProfilePatch { via_proxy: Some(false), ..Default::default() }).await.unwrap();
+    let updated = engine.update_profile(&sub.id).await.unwrap_or_else(|e| panic!("the update did not fall back to the proxy: {e}"));
+    assert_eq!(updated.node_count, 1);
 
     engine.stop().await.unwrap();
     let _ = server.kill().await;
