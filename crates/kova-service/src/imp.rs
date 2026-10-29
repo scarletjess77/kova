@@ -438,7 +438,39 @@ pub fn install() -> Result<(), Failure> {
         command: None,
         actions: Some(vec![ServiceAction { action_type: ServiceActionType::Restart, delay: Duration::from_secs(5) }; 3]),
     });
+    firewall(true);
     svc.start(&[] as &[&OsStr]).map_err(|e| Failure(EXIT_START, format!("the service was installed but did not start: {e}")))
+}
+
+/// The Windows Firewall rule for the service's Mihomo.
+const FIREWALL_RULE: &str = "Kova TUN service";
+
+/// Windows Firewall asks before a program may receive connections, but a service has no
+/// window to ask in, so TUN's `system` and `mixed` stacks would never see the traffic
+/// they capture. Allow the service's own Mihomo, which ordinary programs can't replace
+/// (see [`service_home`]); the rule goes with the service. Not fatal: the `gvisor` stack
+/// works without it.
+fn firewall(allow: bool) {
+    use std::os::windows::process::CommandExt;
+    let netsh = |args: &[String]| {
+        let mut c = std::process::Command::new("netsh");
+        c.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
+        for a in args {
+            c.raw_arg(a);
+        }
+        c.output().map(|o| o.status.success()).unwrap_or(false)
+    };
+    let name = format!("name=\"{FIREWALL_RULE}\"");
+    // Deleting first keeps one rule however often the service is reinstalled.
+    netsh(&["advfirewall".into(), "firewall".into(), "delete".into(), "rule".into(), name.clone()]);
+    if !allow {
+        return;
+    }
+    let program = format!("program=\"{}\"", service_home().join("cores").join(cores::binary_name(CoreKind::Mihomo)).display());
+    let added = netsh(&["advfirewall", "firewall", "add", "rule", &name, "dir=in", "action=allow", &program, "enable=yes", "profile=any"].map(String::from));
+    if !added {
+        eprintln!("could not add the Windows Firewall rule for TUN; the gvisor stack works without it");
+    }
 }
 
 /// Stop and remove the service and its folder. Needs administrator rights.
@@ -449,6 +481,7 @@ pub fn uninstall() -> Result<(), Failure> {
         wait_stopped(&svc);
         svc.delete().map_err(|e| Failure(EXIT_REMOVE, format!("could not remove the service: {e}")))?;
     }
+    firewall(false);
     let home = service_home();
     for _ in 0..20 {
         if std::fs::remove_dir_all(&home).is_ok() || !home.exists() {

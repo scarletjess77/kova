@@ -40,6 +40,15 @@ pub enum Error {
 }
 
 fn net_message(e: &reqwest::Error) -> String {
+    // The TLS reasons sit deep in the error's causes, and a failed handshake also counts
+    // as "could not connect", which would hide them.
+    let chain = fetch::describe(e).to_ascii_lowercase();
+    if chain.contains("protocolversion") || chain.contains("peer is incompatible") || chain.contains("unsupported protocol version") {
+        return "the server uses an outdated encryption (TLS 1.0 or 1.1) that Kova doesn't accept. Ask the provider to update the server".into();
+    }
+    if chain.contains("invalid peer certificate") {
+        return "the server's certificate isn't trusted (expired, self-signed or for another name)".into();
+    }
     if e.is_timeout() {
         "the server took too long to answer".into()
     } else if e.is_connect() {

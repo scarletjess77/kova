@@ -147,6 +147,17 @@ async fn read_capped(mut resp: reqwest::Response, limit: usize) -> Result<String
         }
         body.extend_from_slice(&chunk);
     }
+    // Some servers send the subscription as a .gz file rather than compressing the
+    // response, so it arrives still packed. Unpack it, under the same limit.
+    if body.starts_with(&[0x1f, 0x8b]) {
+        use std::io::Read;
+        let mut out = Vec::new();
+        flate2::read::GzDecoder::new(&body[..]).take(limit as u64 + 1).read_to_end(&mut out).map_err(|_| Error::Http("the subscription is a damaged .gz file".into()))?;
+        if out.len() > limit {
+            return Err(too_big());
+        }
+        body = out;
+    }
     let text = String::from_utf8_lossy(&body);
     Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_string())
 }
@@ -211,6 +222,26 @@ mod tests {
         });
         let resp = reqwest::Client::new().get(&url).send().await.unwrap();
         assert!(super::read_capped(resp, 16 * 1024).await.is_err(), "64 KB through a 16 KB limit");
+    }
+
+    #[tokio::test]
+    async fn a_gzipped_subscription_file_is_unpacked() {
+        use std::io::Write;
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(b"vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls#A").unwrap();
+        let body = gz.finish().unwrap();
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/sub.gz", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let _ = s.read(&mut buf).await;
+            let head = format!("HTTP/1.1 200 OK\r\ncontent-type: application/gzip\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len());
+            let _ = s.write_all(head.as_bytes()).await;
+            let _ = s.write_all(&body).await;
+        });
+        let sub = super::subscription(&url, None, None, "").await.unwrap();
+        assert!(sub.body.starts_with("vless://"), "{}", sub.body);
     }
 
     #[tokio::test]
