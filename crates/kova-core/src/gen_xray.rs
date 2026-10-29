@@ -173,15 +173,46 @@ fn with_pin(n: &Node, opts: &RuntimeOptions) -> Option<Value> {
 /// reads one packet at a time can't match it.
 pub const ANTI_DPI_TAG: &str = "anti-dpi";
 
-fn anti_dpi_outbound() -> Value {
+/// The Direct outbound every server connection is dialled through with Anti-DPI: the TLS
+/// greeting goes out in pieces of 100–200 bytes 10–20 ms apart, and UDP starts with
+/// 10–20 random bytes. Done by Xray's Finalmask; Xray older than v26.3.23 has no
+/// Finalmask fragment or noise and gets the same through the outbound's own settings.
+fn anti_dpi_outbound(opts: &RuntimeOptions) -> Value {
+    if opts.xray_legacy_masks {
+        return json!({
+            "tag": ANTI_DPI_TAG,
+            "protocol": "freedom",
+            "settings": {
+                "fragment": { "packets": "tlshello", "length": "100-200", "interval": "10-20" },
+                "noises": [{ "type": "rand", "packet": "10-20", "delay": "10-16" }],
+            },
+        });
+    }
     json!({
         "tag": ANTI_DPI_TAG,
         "protocol": "freedom",
-        "settings": {
-            "fragment": { "packets": "tlshello", "length": "100-200", "interval": "10-20" },
-            "noises": [{ "type": "rand", "packet": "10-20", "delay": "10-16" }],
+        "settings": {},
+        "streamSettings": {
+            "finalmask": {
+                "tcp": [{ "type": "fragment", "settings": { "packets": "tlshello", "length": "100-200", "delay": "10-20" } }],
+                "udp": [{ "type": "noise", "settings": { "noise": [{ "rand": "10-20", "delay": "10-16" }] } }],
+            },
         },
     })
+}
+
+/// The first Xray with Finalmask's fragment and noise.
+pub const FINALMASK_SINCE: (u32, u32, u32) = (26, 3, 23);
+
+/// Whether an Xray of `version` ("26.10.21" or "v26.10.21") predates them. An unknown
+/// version counts as new: Kova's builds ship a newer one.
+pub fn legacy_masks(version: Option<&str>) -> bool {
+    let Some(v) = version else { return false };
+    let mut parts = v.trim_start_matches('v').split('.').map(|p| p.parse::<u32>().ok());
+    match (parts.next().flatten(), parts.next().flatten(), parts.next().flatten()) {
+        (Some(a), Some(b), Some(c)) => (a, b, c) < FINALMASK_SINCE,
+        _ => false,
+    }
 }
 
 /// Sidecar for a Mihomo-fronted profile: one local SOCKS inbound per bridged node, and
@@ -209,7 +240,7 @@ pub fn sidecar(bridged: &[(&Node, u16)], opts: &RuntimeOptions) -> String {
     if let Some(port) = opts.anti_dpi_port {
         inbounds.push(json!({ "tag": "in-anti-dpi", "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": settings }));
         rules.push(json!({ "inboundTag": ["in-anti-dpi"], "outboundTag": ANTI_DPI_TAG }));
-        outbounds.push(anti_dpi_outbound());
+        outbounds.push(anti_dpi_outbound(opts));
     }
     outbounds.push(json!({ "tag": "block", "protocol": "blackhole" }));
     let doc = json!({
@@ -293,7 +324,7 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
     outbounds.push(json!({ "tag": "direct", "protocol": "freedom", "settings": { "domainStrategy": "UseIP" } }));
     outbounds.push(json!({ "tag": "block", "protocol": "blackhole" }));
     if opts.anti_dpi {
-        outbounds.push(anti_dpi_outbound());
+        outbounds.push(anti_dpi_outbound(opts));
     }
 
     let mut dns_servers: Vec<Value> = opts.dns.nameservers.iter().map(|s| Value::String(s.clone())).collect();
@@ -358,9 +389,40 @@ mod tests {
         for o in outbounds.iter().filter(|o| o["protocol"] != "freedom" && o["protocol"] != "blackhole") {
             assert_eq!(o["streamSettings"]["sockopt"]["dialerProxy"], ANTI_DPI_TAG, "{o}");
         }
-        assert!(outbounds.iter().any(|o| o["tag"] == ANTI_DPI_TAG && o["settings"]["fragment"]["packets"] == "tlshello"));
+        assert!(outbounds.iter().any(|o| o["tag"] == ANTI_DPI_TAG && o["streamSettings"]["finalmask"]["tcp"][0]["settings"]["packets"] == "tlshello"));
         // Not among the servers the balancer picks from.
         assert!(!doc["routing"]["balancers"][0]["selector"].as_array().unwrap().iter().any(|t| t == ANTI_DPI_TAG));
+    }
+
+    #[test]
+    fn anti_dpi_uses_finalmask_and_the_old_way_only_for_old_xray() {
+        let n = parse_link("vless://b831381d-6324-4d53-ad4f-8cda48b30811@203.0.113.1:443?security=tls&type=tcp#A").unwrap();
+        let anti = |o: &RuntimeOptions| -> Value {
+            let doc: Value = serde_json::from_str(&sidecar(&[(&n, 17001)], o)).unwrap();
+            doc["outbounds"].as_array().unwrap().iter().find(|x| x["tag"] == ANTI_DPI_TAG).cloned().unwrap()
+        };
+        let mut o = RuntimeOptions { anti_dpi: true, anti_dpi_port: Some(17100), ..Default::default() };
+        let now = anti(&o);
+        assert_eq!(now["settings"], json!({}), "no deprecated Direct settings: {now}");
+        assert_eq!(
+            now["streamSettings"]["finalmask"],
+            json!({
+                "tcp": [{ "type": "fragment", "settings": { "packets": "tlshello", "length": "100-200", "delay": "10-20" } }],
+                "udp": [{ "type": "noise", "settings": { "noise": [{ "rand": "10-20", "delay": "10-16" }] } }],
+            })
+        );
+
+        o.xray_legacy_masks = true;
+        let old = anti(&o);
+        assert!(old.get("streamSettings").is_none());
+        assert_eq!(old["settings"]["fragment"], json!({ "packets": "tlshello", "length": "100-200", "interval": "10-20" }));
+        assert_eq!(old["settings"]["noises"][0]["packet"], "10-20");
+
+        for (v, legacy) in [("26.10.21", false), ("v26.10.29", false), ("26.3.23", false), ("26.3.22", true), ("26.2.6", true), ("25.12.8", true)] {
+            assert_eq!(legacy_masks(Some(v)), legacy, "{v}");
+        }
+        assert!(!legacy_masks(None), "unknown: Kova's builds ship a newer Xray");
+        assert!(!legacy_masks(Some("dev")));
     }
 
     use super::*;

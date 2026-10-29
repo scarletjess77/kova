@@ -51,6 +51,41 @@ async fn ensure_cores() -> PathBuf {
     dir
 }
 
+/// A TCP relay in front of `port` that records the sizes of the first reads of each
+/// connection, to see how a client's first bytes (a TLS greeting) arrive.
+async fn recording_relay(port: u16) -> (u16, std::sync::Arc<std::sync::Mutex<Vec<Vec<usize>>>>) {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let relay = l.local_addr().unwrap().port();
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = seen.clone();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut inbound, _)) = l.accept().await else { return };
+            let log = log.clone();
+            tokio::spawn(async move {
+                let Ok(mut outbound) = tokio::net::TcpStream::connect(("127.0.0.1", port)).await else { return };
+                // The first few reads, one by one, before relaying the rest both ways.
+                let mut sizes = Vec::new();
+                let mut buf = vec![0u8; 16384];
+                for _ in 0..4 {
+                    match tokio::time::timeout(Duration::from_millis(300), inbound.read(&mut buf)).await {
+                        Ok(Ok(n)) if n > 0 => {
+                            sizes.push(n);
+                            if outbound.write_all(&buf[..n]).await.is_err() {
+                                return;
+                            }
+                        }
+                        _ => break,
+                    }
+                }
+                log.lock().unwrap().push(sizes);
+                let _ = tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await;
+            });
+        }
+    });
+    (relay, seen)
+}
+
 /// A tiny HTTP server that answers every request with `hello from target`.
 async fn target_server() -> u16 {
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -670,7 +705,10 @@ async fn anti_dpi_carries_tls_traffic() {
     s.core.presets.clear();
     s.core.anti_dpi = true;
     engine.update_settings(s.clone()).await.unwrap();
-    let link = format!("vless://{uuid}@127.0.0.1:{tls_port}?encryption=none&security=tls&sni=localhost&allowInsecure=1&type=ws&path=%2Fws#TLS");
+    // The server behind a relay that records how each connection's first bytes arrive.
+    let (relay, first_reads) = recording_relay(tls_port).await;
+    let mut events = engine.subscribe();
+    let link = format!("vless://{uuid}@127.0.0.1:{relay}?encryption=none&security=tls&sni=localhost&allowInsecure=1&type=ws&path=%2Fws#TLS");
     let profile = engine.add_profile(&link, Some("Anti-DPI".into())).await.unwrap();
     // Latency tests while disconnected go through Anti-DPI too.
     let delays = engine.test_delays(None).await.unwrap();
@@ -686,6 +724,14 @@ async fn anti_dpi_carries_tls_traffic() {
     let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Anti-DPI").text().await.unwrap();
     assert_eq!(body, "hello from target");
 
+    // Every connection so far started with its TLS greeting in pieces of at most 205
+    // bytes (Finalmask's fragment: 100-200 bytes, each its own TLS record); whole, it is
+    // well over 1000.
+    let fragmented = |r: &Vec<usize>| r.first().is_some_and(|&n| n <= 205);
+    let mihomo_phase = first_reads.lock().unwrap().clone();
+    assert!(!mihomo_phase.is_empty(), "no connection reached the server");
+    assert!(mihomo_phase.iter().all(fragmented), "a greeting arrived whole: {mihomo_phase:?}");
+
     // A profile pinned to Xray: Xray itself dials the server through its anti-DPI outbound.
     let patch = kova_engine::engine::ProfilePatch { core: Some(kova_core::CorePreference::Xray), ..Default::default() };
     engine.edit_profile(&profile.id, patch).await.unwrap();
@@ -695,6 +741,17 @@ async fn anti_dpi_carries_tls_traffic() {
     assert!(cfg.contains("\"dialerProxy\": \"anti-dpi\""), "{cfg}");
     let body = client.get(format!("http://localhost:{target}/")).send().await.expect("request through Xray's Anti-DPI").text().await.unwrap();
     assert_eq!(body, "hello from target");
+
+    // Through Xray too, and so is Kova's own check of the certificate it pins (the link
+    // turns checks off).
+    let xray_phase = first_reads.lock().unwrap()[mihomo_phase.len()..].to_vec();
+    assert!(!xray_phase.is_empty() && xray_phase.iter().all(fragmented), "a greeting arrived whole through Xray: {xray_phase:?}");
+    // And Xray had nothing deprecated to warn about in the Direct outbound.
+    while let Ok(e) = events.try_recv() {
+        if let kova_engine::Event::Log { message, .. } = e {
+            assert!(!(message.contains("deprecated") && message.contains("Freedom")), "{message}");
+        }
+    }
 
     engine.stop().await.unwrap();
     let _ = server.kill().await;

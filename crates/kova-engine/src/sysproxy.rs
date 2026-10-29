@@ -130,6 +130,7 @@ pub fn enable(marker: &Path, host_port: &str, bypass: &str) -> Result<(), Error>
         Some(m) => m.previous,
         None => imp::get()?,
     };
+    let previous = not_ours(previous, host_port);
     let m = Marker { previous, ours: host_port.to_string() };
     crate::store::write_atomic(marker, &serde_json::to_vec(&m).expect("json"))?;
     #[cfg(windows)]
@@ -144,12 +145,31 @@ pub fn disable(marker: &Path) -> Result<(), Error> {
     // Only undo our own change; if the user pointed the proxy elsewhere meanwhile, leave it.
     let now = imp::get()?;
     if now.enabled && now.server == m.ours {
-        imp::set(&m.previous)?;
+        imp::set(&not_ours(m.previous, &m.ours))?;
     }
     let _ = std::fs::remove_file(marker);
     #[cfg(windows)]
     imp::disarm_restore();
     Ok(())
+}
+
+/// Give the proxy back on disconnect, like [`disable`], and also when the marker is gone
+/// but the proxy still points at Kova (`host_port`): then it is turned off, as nothing
+/// would answer there and the computer would have no internet.
+pub fn release(marker: &Path, host_port: &str) -> Result<(), Error> {
+    disable(marker)?;
+    let now = imp::get()?;
+    if now.enabled && now.server == host_port {
+        imp::set(&ProxyState { enabled: false, saved: Vec::new(), ..now })?;
+    }
+    Ok(())
+}
+
+/// The state to give back, never Kova's own address: one saved while the proxy already
+/// pointed at Kova (a marker lost, two Kovas at once) would leave it pointing at a port
+/// nothing serves after disconnecting. That is turned off instead.
+fn not_ours(previous: ProxyState, ours: &str) -> ProxyState {
+    if previous.enabled && previous.server == ours { ProxyState { enabled: false, saved: Vec::new(), ..previous } } else { previous }
 }
 
 /// Whether the Kova that set the proxy is still serving it: something answers on its
@@ -473,6 +493,17 @@ mod tests {
         assert_eq!(kde_restore(&saved), vec![("httpProxy".to_string(), String::new()), ("ProxyType".to_string(), "2".to_string())]);
         assert_eq!(GNOME.last(), Some(&("org.gnome.system.proxy", "mode")), "the mode switches over last");
         assert_eq!(KDE.last(), Some(&"ProxyType"));
+    }
+
+    #[test]
+    fn kovas_own_address_is_never_given_back() {
+        let ours = "127.0.0.1:7890";
+        let saved = ProxyState { enabled: true, server: ours.into(), bypass: "localhost".into(), saved: Vec::new() };
+        let back = not_ours(saved, ours);
+        assert!(!back.enabled);
+        assert_eq!(back.bypass, "localhost");
+        let other = ProxyState { enabled: true, server: "10.0.0.1:3128".into(), ..Default::default() };
+        assert_eq!(not_ours(other.clone(), ours), other);
     }
 
     #[test]

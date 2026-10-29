@@ -75,6 +75,12 @@ When a rule chosen on purpose (the user's, a preset's or the subscription's) sen
 
 Learned sites are stored in `learned.json` in the data folder and expire after 30 days unless learned again. **Keep** turns one into a permanent rule. The first visit to a newly blocked site still fails once; throttling is not detected yet.
 
+## Anti-DPI (beta)
+
+Settings → Anti-DPI dials every server connection through the local Xray, which sends the start of each connection in a shape simpler filtering doesn't recognise: the TLS greeting in pieces of 100–200 bytes, 10–20 ms apart, and UDP connections (Hysteria2, TUIC) opened with 10–20 random bytes. It uses Xray's Finalmask (`fragment` and `noise`). With an Xray older than v26.3.23, which has neither, the same is done through the Direct outbound's `fragment` and `noises`, which newer Xray warns are going away.
+
+A server whose link turns certificate checks off is asked for its certificate once before connecting, to pin it; with Anti-DPI on, that greeting is cut the same way.
+
 ## Android
 
 - **The VPN.** Android lets an app capture traffic only through its VpnService. The Kotlin part (`src-tauri/gen/android/app/src/main/java/app/kova/client/`) asks for permission, opens the VPN interface and hands its descriptor to Mihomo, which uses it as its TUN device. Kova's own traffic is excluded from the VPN so it can reach the servers. Settings → VPN chooses which apps use it.
