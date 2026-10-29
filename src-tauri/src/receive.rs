@@ -137,9 +137,11 @@ fn form_field(body: &str, name: &str) -> String {
             let mut out = Vec::with_capacity(bytes.len());
             let mut i = 0;
             while i < bytes.len() {
+                // Bytes, not a slice of the text: a `%` before a non-ASCII letter would cut
+                // it in half, which panics (and with panic = abort, closes Kova).
                 if bytes[i] == b'%' && i + 2 < bytes.len()
-                    && let Ok(b) = u8::from_str_radix(&v[i + 1..i + 3], 16) {
-                        out.push(b);
+                    && let (Some(hi), Some(lo)) = ((bytes[i + 1] as char).to_digit(16), (bytes[i + 2] as char).to_digit(16)) {
+                        out.push((hi * 16 + lo) as u8);
                         i += 3;
                         continue;
                     }
@@ -227,6 +229,7 @@ mod tests {
         assert_eq!(form_field("text=vless%3A%2F%2Fa%40b%3A443%23My+node&x=1", "text"), "vless://a@b:443#My node");
         assert_eq!(form_field("text=%D0%9A", "text"), "К");
         assert_eq!(form_field("other=1", "text"), "");
+        assert_eq!(form_field("text=%a\u{e9}%zz%4", "text"), "%a\u{e9}%zz%4", "broken escapes stay as they are");
         assert_eq!(esc("<b>\"&"), "&lt;b&gt;&quot;&amp;");
     }
 }

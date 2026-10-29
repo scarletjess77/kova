@@ -229,9 +229,19 @@ pub enum Selection {
     Node(String),
 }
 
+/// The (HTTP, SOCKS) ports other devices use when Xray is the front core and LAN sharing
+/// is on. Xray can't skip the login for this computer the way Mihomo does, so the local
+/// ports stay on loopback without one and the network gets these two, with Kova's login.
+/// `None` without a login: then nothing is shared, rather than shared openly.
+pub fn lan_ports(opts: &RuntimeOptions) -> Option<(u16, u16)> {
+    if !opts.allow_lan || opts.local_password.is_empty() {
+        return None;
+    }
+    Some((opts.mixed_port.checked_add(2)?, opts.mixed_port.checked_add(3)?))
+}
+
 /// Full Xray config when Xray is the front core.
 pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> String {
-    let listen = opts.listen_addr();
     let mut outbounds_nodes: Vec<Value> = nodes.iter().filter_map(|n| with_pin(n, opts)).collect();
     if opts.anti_dpi {
         for o in &mut outbounds_nodes {
@@ -298,8 +308,8 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
         "log": log(opts),
         "dns": { "servers": dns_servers, "queryStrategy": if opts.ipv6 { "UseIP" } else { "UseIPv4" } },
         "inbounds": [
-            { "tag": "http-in", "listen": listen, "port": opts.mixed_port, "protocol": "http", "sniffing": sniffing(opts) },
-            { "tag": "socks-in", "listen": listen, "port": opts.mixed_port.saturating_add(1), "protocol": "socks", "settings": { "udp": true, "auth": "noauth" }, "sniffing": sniffing(opts) },
+            { "tag": "http-in", "listen": "127.0.0.1", "port": opts.mixed_port, "protocol": "http", "sniffing": sniffing(opts) },
+            { "tag": "socks-in", "listen": "127.0.0.1", "port": opts.mixed_port.saturating_add(1), "protocol": "socks", "settings": { "udp": true, "auth": "noauth" }, "sniffing": sniffing(opts) },
         ],
         "outbounds": outbounds,
         "routing": { "domainStrategy": "IPIfNonMatch", "rules": rules },
@@ -307,6 +317,12 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
         "policy": { "system": { "statsInboundUplink": true, "statsInboundDownlink": true, "statsOutboundUplink": true, "statsOutboundDownlink": true } },
         "metrics": { "tag": "metrics", "listen": format!("127.0.0.1:{}", opts.xray_metrics_port) },
     });
+    if let Some((http, socks)) = lan_ports(opts) {
+        let account = json!({ "user": crate::options::LOCAL_USER, "pass": opts.local_password });
+        let inbounds = doc["inbounds"].as_array_mut().expect("inbounds");
+        inbounds.push(json!({ "tag": "http-lan", "listen": "0.0.0.0", "port": http, "protocol": "http", "settings": { "accounts": [account] }, "sniffing": sniffing(opts) }));
+        inbounds.push(json!({ "tag": "socks-lan", "listen": "0.0.0.0", "port": socks, "protocol": "socks", "settings": { "udp": true, "auth": "password", "accounts": [account] }, "sniffing": sniffing(opts) }));
+    }
     if !tags.is_empty() {
         doc["observatory"] = json!({ "subjectSelector": tags, "probeUrl": TEST_URL, "probeInterval": "5m", "enableConcurrency": true });
         doc["routing"]["balancers"] = json!([{ "tag": AUTO, "selector": tags, "strategy": { "type": "leastPing" }, "fallbackTag": tags[0] }]);
@@ -374,6 +390,32 @@ mod tests {
         assert!(rules.iter().any(|r| r["ip"][0] == "geoip:ru" && r["outboundTag"] == "direct"));
         assert_eq!(rules.last().unwrap()["balancerTag"], AUTO);
         assert_eq!(doc["inbounds"][0]["port"], 7890);
+    }
+
+    #[test]
+    fn lan_sharing_needs_the_login() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let inbounds = |o: &RuntimeOptions| -> Vec<Value> {
+            let doc: Value = serde_json::from_str(&full(&nodes, &Selection::Auto, o)).unwrap();
+            doc["inbounds"].as_array().unwrap().clone()
+        };
+        let mut o = RuntimeOptions { allow_lan: true, ..Default::default() };
+        let without_login = inbounds(&o);
+        assert_eq!(without_login.len(), 2, "no login, nothing shared");
+        assert!(without_login.iter().all(|i| i["listen"] == "127.0.0.1"));
+
+        o.local_password = "pw".into();
+        let shared = inbounds(&o);
+        assert!(shared[..2].iter().all(|i| i["listen"] == "127.0.0.1"), "this computer's ports stay local, without a login");
+        assert_eq!((&shared[2]["tag"], &shared[2]["port"], &shared[2]["listen"]), (&json!("http-lan"), &json!(7892), &json!("0.0.0.0")));
+        assert_eq!(shared[2]["settings"]["accounts"], json!([{ "user": "kova", "pass": "pw" }]));
+        assert_eq!((&shared[3]["port"], &shared[3]["settings"]["auth"]), (&json!(7893), &json!("password")));
+
+        o.allow_lan = false;
+        assert_eq!(inbounds(&o).len(), 2);
+        o.allow_lan = true;
+        o.mixed_port = 65534;
+        assert_eq!(lan_ports(&o), None, "no room above the proxy port");
     }
 
     #[test]

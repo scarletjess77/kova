@@ -126,8 +126,29 @@ pub async fn subscription(url: &str, user_agent: Option<&str>, proxy: Option<&st
         update_hours: header("profile-update-interval").and_then(|v| v.trim().parse().ok()),
         support_url: header("profile-web-page-url").or_else(|| header("support-url")),
         announce: header("announce").map(|a| decode_title(&a).trim().chars().take(300).collect::<String>()).filter(|a| !a.is_empty()),
-        body: resp.text().await?,
+        body: read_capped(resp, MAX_SUBSCRIPTION).await?,
     })
+}
+
+/// Far more than any real subscription (a few thousand servers is a few MB), and little
+/// enough that a broken or hostile server can't fill a phone's memory.
+const MAX_SUBSCRIPTION: usize = 20 * 1024 * 1024;
+
+/// The body as text, refused once it passes `limit` bytes.
+async fn read_capped(mut resp: reqwest::Response, limit: usize) -> Result<String, Error> {
+    let too_big = || Error::Http(format!("the subscription is larger than {} MB", limit.div_ceil(1024 * 1024)));
+    if resp.content_length().is_some_and(|n| n > limit as u64) {
+        return Err(too_big());
+    }
+    let mut body = Vec::new();
+    while let Some(chunk) = resp.chunk().await? {
+        if body.len() + chunk.len() > limit {
+            return Err(too_big());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let text = String::from_utf8_lossy(&body);
+    Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_string())
 }
 
 #[cfg(test)]
@@ -159,6 +180,37 @@ mod tests {
         assert!(request.contains("x-hwid: abc123"), "{request}");
         assert!(request.contains("x-device-os: "), "{request}");
         assert_eq!(sub.announce.as_deref(), Some("Maintenance tonight"));
+    }
+
+    #[tokio::test]
+    async fn an_oversized_subscription_is_refused() {
+        // Declared too big up front.
+        let (url, _task) = serve_once("").await;
+        let resp = reqwest::Client::new().get(&url).send().await.unwrap();
+        assert!(super::read_capped(resp, 10).await.unwrap_err().to_string().contains("larger than"));
+        // Within the limit it reads as text.
+        let (url, _task) = serve_once("").await;
+        let resp = reqwest::Client::new().get(&url).send().await.unwrap();
+        assert!(super::read_capped(resp, 1024).await.unwrap().starts_with("vless://"));
+
+        // No length given (chunked): stopped once it grows past the limit.
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/sub", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let _ = s.read(&mut buf).await;
+            let _ = s.write_all(b"HTTP/1.1 200 OK\r\ntransfer-encoding: chunked\r\n\r\n").await;
+            for _ in 0..64 {
+                let chunk = [b"400\r\n".as_slice(), &[b'a'; 0x400], b"\r\n"].concat();
+                if s.write_all(&chunk).await.is_err() {
+                    return;
+                }
+            }
+            let _ = s.write_all(b"0\r\n\r\n").await;
+        });
+        let resp = reqwest::Client::new().get(&url).send().await.unwrap();
+        assert!(super::read_capped(resp, 16 * 1024).await.is_err(), "64 KB through a 16 KB limit");
     }
 
     #[tokio::test]

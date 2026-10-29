@@ -9,6 +9,12 @@
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
+  ; A Kova that ended without its usual shutdown (also when this uninstaller closed it)
+  ; may have left the system proxy pointing at it; with Kova gone, nothing else would
+  ; give it back and the PC would have no internet.
+  DetailPrint "Restoring the system proxy"
+  nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --restore-proxy'
+  Pop $0
   DetailPrint "Removing the Kova service"
   nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --service-uninstall'
   Pop $0

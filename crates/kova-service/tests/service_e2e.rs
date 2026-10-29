@@ -103,7 +103,7 @@ async fn engine_runs_mihomo_through_the_service() {
     std::fs::write(&srv_cfg, serde_json::json!({
         "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                        "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
-        "outbounds": [{ "protocol": "freedom" }]
+        "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
     }).to_string()).unwrap();
     let mut xray = tokio::process::Command::new(test_cores().join("xray.exe")).args(["run", "-c", srv_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
     let target = target_server().await;

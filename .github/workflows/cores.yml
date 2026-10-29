@@ -1,8 +1,9 @@
 name: Core versions
 
-# Once a week: if Mihomo or Xray has a release newer than the one pinned for Android
-# (scripts/android-cores.json), open an issue saying so. Desktop Kova updates its cores by
-# itself; the Android ones only change with a new APK.
+# Once a week: if Mihomo or Xray has a release newer than the one pinned in
+# scripts/android-cores.json, open an issue saying so. Every Kova build ships the pinned
+# versions (the desktop installers too), so a new core reaches users only as a reviewed
+# change to that file. On the desktop the cores can still be updated by hand in Settings.
 on:
   schedule:
     - cron: "17 6 * * 1"
