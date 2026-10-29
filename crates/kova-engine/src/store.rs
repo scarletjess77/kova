@@ -76,11 +76,17 @@ impl Paths {
     }
 }
 
-/// Write via a temp file and rename, so a crash never leaves half a file.
+/// Write via a temp file and rename, so a crash never leaves half a file. The data is
+/// on disk before the rename: otherwise a power cut can leave the new name pointing at
+/// an empty file.
 pub fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
     let tmp = temp_path(path);
-    std::fs::write(&tmp, data)?;
-    std::fs::rename(&tmp, path).inspect_err(|_| {
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(data)?;
+        f.sync_all()
+    });
+    written.and_then(|_| std::fs::rename(&tmp, path)).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })
 }
@@ -94,10 +100,17 @@ pub fn temp_path(path: &Path) -> PathBuf {
     path.with_file_name(format!(".{name}.{}.{n}.tmp", std::process::id()))
 }
 
+/// The file's contents, or the defaults when it is missing or damaged. A damaged file is
+/// moved aside as `<name>.broken` (the latest one kept) before the next save replaces it,
+/// so what it held can still be recovered by hand.
 pub(crate) fn read_json<T: for<'de> Deserialize<'de> + Default>(path: &Path) -> T {
     match std::fs::read(path) {
         Ok(b) => serde_json::from_slice(&b).unwrap_or_else(|e| {
-            tracing::warn!("{} is unreadable ({e}); using defaults", path.display());
+            let name = path.file_name().map(|f| f.to_string_lossy().to_string()).unwrap_or_default();
+            let aside = path.with_file_name(format!("{name}.broken"));
+            let _ = std::fs::remove_file(&aside);
+            let kept = std::fs::rename(path, &aside).is_ok();
+            tracing::warn!("{} is unreadable ({e}); using defaults{}", path.display(), if kept { format!(", the file is kept as {}", aside.display()) } else { String::new() });
             T::default()
         }),
         Err(_) => T::default(),
@@ -348,6 +361,26 @@ pub fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_damaged_file_is_kept_aside_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path()).unwrap();
+        std::fs::write(paths.profiles_index(), b"{\"profiles\": [{\"id\": \"abc").unwrap();
+        let idx = ProfileIndex::load(&paths);
+        assert!(idx.profiles.is_empty());
+        assert!(!paths.profiles_index().exists());
+        let aside = dir.path().join("profiles.json.broken");
+        assert_eq!(std::fs::read(&aside).unwrap(), b"{\"profiles\": [{\"id\": \"abc");
+
+        // The next save writes a fresh file and leaves the damaged one alone.
+        idx.save(&paths).unwrap();
+        assert!(paths.profiles_index().exists());
+        assert!(aside.exists());
+        // A good file is read as it is and not moved.
+        let _ = ProfileIndex::load(&paths);
+        assert!(paths.profiles_index().exists());
+    }
 
     #[test]
     fn subscriptions_are_sealed_on_disk_and_old_files_are_sealed_on_load() {

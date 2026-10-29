@@ -494,6 +494,9 @@ async fn switches_away_from_a_dead_node() {
     assert_eq!((node.state, node.fix), (kova_engine::diag::State::Fail, Some("switch-node")), "{steps:?}");
     assert_eq!(engine.check_node().await, Some(("Dead".to_string(), "Live".to_string())));
     assert_eq!(engine.current_node().await.as_deref(), Some("Live"));
+    // For this connection only: the user's own choice stays saved.
+    let key = format!("{}/{PROXY}", engine.settings().active_profile.unwrap());
+    assert_eq!(engine.settings().selections.get(&key).map(String::as_str), Some("Dead"));
 
     let mut s = engine.settings();
     s.auto_switch = false;

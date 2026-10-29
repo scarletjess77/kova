@@ -1841,6 +1841,10 @@ impl Engine {
     /// has failed two checks in a row, pick the fastest working node of that group and
     /// say which. Groups that pick a node themselves (Auto, Fallback) are left alone, and
     /// so is everything when no node answers, as then the network itself is down.
+    ///
+    /// The switch lasts for this connection only, like the one for mobile data: the
+    /// user's own choice stays saved, is used again on the next connect (and switched
+    /// away from again if it is still down), and is where Wi-Fi goes back to.
     pub async fn check_node(&self) -> Option<(String, String)> {
         use std::sync::atomic::Ordering;
         if !self.settings().auto_switch || self.settings().core.mode == Mode::Direct {
@@ -1879,7 +1883,9 @@ impl Engine {
             .collect()
             .await;
         let (best, _) = tested.into_iter().filter_map(|(n, d)| d.map(|d| (n, d))).min_by_key(|(_, d)| *d)?;
-        self.select(&main, &best).await.ok()?;
+        api.select(&main, &best).await.ok()?;
+        // Connections stuck on the dead node would keep hanging; start them over.
+        let _ = api.close_all().await;
         Some((chosen, best))
     }
 
