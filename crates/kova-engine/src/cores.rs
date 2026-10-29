@@ -119,9 +119,32 @@ struct Asset {
     digest: Option<String>,
 }
 
+/// The versions Kova's builds ship, for every system: reviewed and changed only by
+/// editing this file (`scripts/android-cores.json`, named for where it began). The
+/// installers carry these, and the tests run against them.
+const PINNED: &str = include_str!("../../../scripts/android-cores.json");
+
+/// The release tag of `core` that Kova's builds ship (see [`PINNED`]).
+pub fn pinned_tag(core: CoreKind) -> String {
+    let pins: serde_json::Value = serde_json::from_str(PINNED).expect("android-cores.json is valid JSON");
+    let key = match core {
+        CoreKind::Mihomo => "mihomo",
+        CoreKind::Xray => "xray",
+    };
+    pins[key]["tag"].as_str().expect("a pinned tag for each core").to_string()
+}
+
 async fn latest_release(core: CoreKind) -> Result<Release, Error> {
+    release(core, None).await
+}
+
+/// A release of `core`: the one tagged `tag`, or the latest.
+async fn release(core: CoreKind, tag: Option<&str>) -> Result<Release, Error> {
     let c = fetch::client(None, fetch::APP_UA)?;
-    let url = format!("https://api.github.com/repos/{}/releases/latest", repo(core));
+    let url = match tag {
+        Some(t) => format!("https://api.github.com/repos/{}/releases/tags/{t}", repo(core)),
+        None => format!("https://api.github.com/repos/{}/releases/latest", repo(core)),
+    };
     let mut req = c.get(url).header("Accept", "application/vnd.github+json");
     // Release builds run where many share GitHub's limit for anonymous requests.
     if let Ok(token) = std::env::var("GITHUB_TOKEN") {
@@ -193,10 +216,25 @@ pub async fn install_latest(cores_dir: &Path, core: CoreKind) -> Result<String, 
 /// [`install_latest`] for another processor of this system (`"amd64"` or `"arm64"`):
 /// building the Intel Mac installer on an Apple-silicon machine.
 pub async fn install_latest_for(cores_dir: &Path, core: CoreKind, arch: &str) -> Result<String, Error> {
+    install_release(cores_dir, core, None, arch).await
+}
+
+/// Download, verify and install the version Kova's builds ship ([`pinned_tag`]), for
+/// `arch`: what the installers carry. Returns the installed tag.
+pub async fn install_pinned_for(cores_dir: &Path, core: CoreKind, arch: &str) -> Result<String, Error> {
+    install_release(cores_dir, core, Some(&pinned_tag(core)), arch).await
+}
+
+/// [`install_pinned_for`] for this system's processor.
+pub async fn install_pinned(cores_dir: &Path, core: CoreKind) -> Result<String, Error> {
+    install_pinned_for(cores_dir, core, os_arch().1).await
+}
+
+async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, arch: &str) -> Result<String, Error> {
     if cfg!(target_os = "android") {
         return Err(Error::Core(format!("On Android, {} is updated together with Kova", core.label())));
     }
-    let rel = latest_release(core).await?;
+    let rel = release(core, tag).await?;
     let asset = pick_asset(core, &rel, arch).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
     let c = fetch::client(None, fetch::APP_UA)?;
     let expected = expected_sha256(&c, &rel, asset).await?.ok_or_else(|| Error::Core(format!("{} has no published checksum; refusing to install it", asset.name)))?;

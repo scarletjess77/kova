@@ -277,12 +277,52 @@ const STRIP: &[&str] = &[
     "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication", "skip-auth-prefixes",
 ];
 
+/// The profile's own extra ports (`listeners`, `tunnels`) listen where Kova's port does: on
+/// this computer only, unless LAN sharing is on. A listener with no `listen` would take
+/// every address, and one with `users: []` would skip the login. With LAN sharing on,
+/// listeners keep their address and fall back to Kova's login; tunnels can't take a login,
+/// so they stay on this computer.
+fn confine_inbounds(doc: &mut Mapping, allow_lan: bool) {
+    if let Some(Yaml::Sequence(listeners)) = doc.get_mut("listeners") {
+        for l in listeners.iter_mut() {
+            let Yaml::Mapping(m) = l else { continue };
+            if !allow_lan {
+                m.insert(Yaml::String("listen".into()), Yaml::String("127.0.0.1".into()));
+            } else if m.get("users").and_then(Yaml::as_sequence).is_some_and(Vec::is_empty) {
+                m.remove("users");
+            }
+        }
+    }
+    let loopback = |address: &str| format!("127.0.0.1:{}", address.rsplit_once(':').map_or(address, |(_, port)| port));
+    if let Some(Yaml::Sequence(tunnels)) = doc.get_mut("tunnels") {
+        for t in tunnels.iter_mut() {
+            match t {
+                // "tcp/udp,0.0.0.0:6553,1.1.1.1:53,Proxy"
+                Yaml::String(s) => {
+                    let mut parts: Vec<String> = s.split(',').map(String::from).collect();
+                    if let Some(address) = parts.get_mut(1) {
+                        *address = loopback(address.trim());
+                    }
+                    *s = parts.join(",");
+                }
+                Yaml::Mapping(m) => {
+                    if let Some(address) = m.get("address").and_then(Yaml::as_str).map(loopback) {
+                        m.insert(Yaml::String("address".into()), Yaml::String(address));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
 /// Take an imported Clash config and apply app-controlled settings on top.
 pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError> {
     let mut doc: Mapping = serde_yaml_ng::from_str(raw).map_err(|e| GenError::Yaml(e.to_string()))?;
     for k in STRIP {
         doc.remove(*k);
     }
+    confine_inbounds(&mut doc, opts.allow_lan);
     let set = |doc: &mut Mapping, k: &str, v: Value| {
         doc.insert(Yaml::String(k.into()), serde_yaml_ng::to_value(v).expect("json to yaml"));
     };
@@ -400,6 +440,11 @@ pub fn sanitize_for_service(raw: &str) -> Result<String, GenError> {
     let mut doc: Mapping = serde_yaml_ng::from_str(raw).map_err(|e| GenError::Yaml(e.to_string()))?;
     for k in SERVICE_STRIP {
         doc.remove(*k);
+    }
+    // Mihomo may keep its own clock by NTP, but setting the system's needs the rights only
+    // the service has: no config gets to change the time for every account.
+    if let Some(Yaml::Mapping(ntp)) = doc.get_mut("ntp") {
+        ntp.insert(Yaml::String("write-to-system".into()), Yaml::Bool(false));
     }
     let secret = doc.get("secret").and_then(|s| s.as_str()).unwrap_or_default();
     if secret.len() < 16 {
@@ -778,12 +823,46 @@ rules:
     }
 
     #[test]
+    fn a_profiles_own_ports_stay_on_this_computer() {
+        let raw = "proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+listeners:
+  - {name: open, type: mixed, port: 7000}
+  - {name: wide, type: socks, port: 7001, listen: 0.0.0.0, users: []}
+tunnels:
+  - tcp/udp,0.0.0.0:6553,1.1.1.1:53,A
+  - {network: [tcp], address: '[::]:6554', target: example.com:80, proxy: A}
+rules:
+  - MATCH,A
+";
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &opts()).unwrap()).unwrap();
+        assert_eq!(doc["listeners"][0]["listen"], "127.0.0.1", "no address means every address");
+        assert_eq!(doc["listeners"][1]["listen"], "127.0.0.1");
+        assert_eq!(doc["tunnels"][0], "tcp/udp,127.0.0.1:6553,1.1.1.1:53,A");
+        assert_eq!(doc["tunnels"][1]["address"], "127.0.0.1:6554");
+
+        let mut o = opts();
+        o.allow_lan = true;
+        o.local_password = "pw".into();
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        assert_eq!(doc["listeners"][1]["listen"], "0.0.0.0", "shared on purpose");
+        assert!(doc["listeners"][1].get("users").is_none(), "an empty list would skip Kova's login");
+        assert_eq!(doc["authentication"], json!(["kova:pw"]));
+        assert_eq!(doc["tunnels"][0], "tcp/udp,127.0.0.1:6553,1.1.1.1:53,A", "tunnels take no login");
+    }
+
+    #[test]
     fn service_configs_are_locked_down() {
         let good = "secret: 0123456789abcdef0123\nexternal-controller: 127.0.0.1:61000\nexternal-ui: C:\\\\\nexternal-controller-pipe: \\\\.\\pipe\\x\n";
         let out: Value = serde_yaml_ng::from_str(&sanitize_for_service(good).unwrap()).unwrap();
         assert!(out.get("external-ui").is_none());
         assert!(out.get("external-controller-pipe").is_none());
         assert_eq!(out["external-controller"], "127.0.0.1:61000");
+
+        let clock = format!("{good}ntp: {{enable: true, write-to-system: true, server: time.example.com}}\n");
+        let out: Value = serde_yaml_ng::from_str(&sanitize_for_service(&clock).unwrap()).unwrap();
+        assert_eq!(out["ntp"]["write-to-system"], false, "the service never sets the system clock");
+        assert_eq!(out["ntp"]["enable"], true);
 
         assert!(sanitize_for_service("external-controller: 127.0.0.1:1\n").is_err(), "no secret");
         assert!(sanitize_for_service("secret: 0123456789abcdef0123\nexternal-controller: 0.0.0.0:9090\n").is_err(), "not loopback");

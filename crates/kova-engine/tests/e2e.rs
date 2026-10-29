@@ -1,6 +1,7 @@
 //! End-to-end: real Mihomo and Xray binaries, a local Xray server, real traffic.
 //!
-//! Downloads both cores from GitHub on first run (cached in `target/test-cores`).
+//! Downloads both cores from GitHub on first run (cached in `target/test-cores`): the
+//! versions pinned in `scripts/android-cores.json`, which every Kova build ships.
 //! Run with: `cargo test -p kova-engine --test e2e -- --ignored --nocapture`
 
 use std::path::PathBuf;
@@ -38,9 +39,12 @@ async fn ensure_cores() -> PathBuf {
     static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     let _one = ONE_AT_A_TIME.lock().await;
     let dir = cache_dir();
+    // The versions Kova's builds ship, so the tests check what users get.
     for core in [CoreKind::Mihomo, CoreKind::Xray] {
-        if !cores::binary_path(&dir, core).exists() {
-            let tag = cores::install_latest(&dir, core).await.expect("install core");
+        let pinned = cores::pinned_tag(core);
+        let installed = cores::installed_version(&dir, core);
+        if installed.as_deref().map(|v| v.trim_start_matches('v')) != Some(pinned.trim_start_matches('v')) {
+            let tag = cores::install_pinned(&dir, core).await.expect("install core");
             eprintln!("installed {} {tag}", core.label());
         }
     }
@@ -81,7 +85,9 @@ async fn connects_through_ws_and_bridged_xhttp() {
     eprintln!("cores: {status:?}");
     assert!(status.iter().all(|s| s.installed.is_some()));
 
-    // Local Xray acting as the remote server.
+    // Local Xray acting as the remote server. From Xray 26 a server refuses private and
+    // loopback targets unless `finalRules` allows them; every test server here does, as
+    // the test targets run on this machine.
     let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
     let (ws_port, xh_port) = (free_port(), free_port());
     let server_dir = tempfile::tempdir().unwrap();
@@ -96,7 +102,7 @@ async fn connects_through_ws_and_bridged_xhttp() {
                 { "listen": "127.0.0.1", "port": xh_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                   "streamSettings": { "network": "xhttp", "xhttpSettings": { "path": "/x" } } }
             ],
-            "outbounds": [{ "protocol": "freedom" }]
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
         })
         .to_string(),
     )
@@ -308,7 +314,7 @@ async fn smart_routing_in_real_mihomo() {
             "log": { "loglevel": "warning" },
             "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                            "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
-            "outbounds": [{ "protocol": "freedom" }]
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
         })
         .to_string(),
     )
@@ -447,7 +453,7 @@ async fn switches_away_from_a_dead_node() {
             "log": { "loglevel": "warning" },
             "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                            "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
-            "outbounds": [{ "protocol": "freedom" }]
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
         })
         .to_string(),
     )
@@ -492,6 +498,9 @@ async fn switches_away_from_a_dead_node() {
     assert_eq!((node.state, node.fix), (kova_engine::diag::State::Fail, Some("switch-node")), "{steps:?}");
     assert_eq!(engine.check_node().await, Some(("Dead".to_string(), "Live".to_string())));
     assert_eq!(engine.current_node().await.as_deref(), Some("Live"));
+    // For this connection only: the user's own choice stays saved.
+    let key = format!("{}/{PROXY}", engine.settings().active_profile.unwrap());
+    assert_eq!(engine.settings().selections.get(&key).map(String::as_str), Some("Dead"));
 
     let mut s = engine.settings();
     s.auto_switch = false;
@@ -556,7 +565,7 @@ async fn first_start_gets_routing_data_through_the_server() {
             "dns": { "hosts": { "geodata.test": "127.0.0.1" } },
             "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                            "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
-            "outbounds": [{ "protocol": "freedom", "settings": { "domainStrategy": "UseIP" } }]
+            "outbounds": [{ "protocol": "freedom", "settings": { "domainStrategy": "UseIP", "finalRules": [{ "action": "allow" }] } }]
         })
         .to_string(),
     )
@@ -637,7 +646,7 @@ async fn anti_dpi_carries_tls_traffic() {
             "inbounds": [{ "listen": "127.0.0.1", "port": tls_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                            "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" }, "security": "tls",
                                                "tlsSettings": { "certificates": [{ "certificate": cert["certificate"], "key": cert["key"] }] } } }],
-            "outbounds": [{ "protocol": "freedom" }]
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
         })
         .to_string(),
     )
@@ -762,7 +771,7 @@ async fn mobile_data_uses_its_own_server() {
         serde_json::json!({
             "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
                            "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
-            "outbounds": [{ "protocol": "freedom" }]
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
         })
         .to_string(),
     )
@@ -858,4 +867,94 @@ async fn kill_switch_reconnects_after_a_drop() {
 
     engine.stop().await.unwrap();
     assert!(!engine.status().running);
+}
+
+/// Xray in front with LAN sharing: this computer uses the proxy port without a login,
+/// the network gets the two ports above it with Kova's login, and the proxy port itself
+/// can't be reached from the network.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn xray_shares_with_the_network_only_with_the_login() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let target = target_server().await;
+
+    // Four free ports in a row: proxy, SOCKS above it, and the two for the network.
+    let seed = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().subsec_nanos() as u16;
+    let base = (0..3000u16)
+        .map(|i| 20000 + seed.wrapping_add(i * 4) % 12000)
+        .find(|&p| (p..p + 4).all(|q| std::net::TcpListener::bind(("0.0.0.0", q)).is_ok()))
+        .expect("four free ports in a row");
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = base;
+    s.core.allow_lan = true;
+    s.core.presets.clear();
+    // By address, not by name: no DNS, so a Kova running in TUN mode on this machine
+    // (fake-IP answers) can't get in the way.
+    s.core.custom_rules = vec![Rule { kind: RuleKind::IpCidr, value: "127.0.0.1/32".into(), target: PROXY.into() }];
+    engine.update_settings(s.clone()).await.unwrap();
+    let password = engine.settings().core.local_password;
+    assert!(!password.is_empty());
+
+    let link = format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Local WS");
+    let profile = engine.add_profile(&link, Some("Xray LAN".into())).await.unwrap();
+    engine.edit_profile(&profile.id, kova_engine::engine::ProfilePatch { core: Some(kova_core::CorePreference::Xray), ..Default::default() }).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    assert_eq!(engine.status().core, Some(CoreKind::Xray));
+
+    let fetch = |proxy: reqwest::Proxy| async move {
+        let c = reqwest::Client::builder().proxy(proxy).timeout(Duration::from_secs(10)).build().unwrap();
+        c.get(format!("http://127.0.0.1:{target}/")).send().await
+    };
+    let url = |scheme: &str, port: u16| format!("{scheme}://127.0.0.1:{port}");
+
+    // This computer: no login.
+    let r = fetch(reqwest::Proxy::all(url("http", base)).unwrap()).await.unwrap();
+    assert_eq!(r.text().await.unwrap(), "hello from target");
+    // The network's HTTP port: refused without the login, works with it.
+    let r = fetch(reqwest::Proxy::all(url("http", base + 2)).unwrap()).await.unwrap();
+    assert_eq!(r.status(), 407, "the LAN port must ask for the login");
+    let r = fetch(reqwest::Proxy::all(url("http", base + 2)).unwrap().basic_auth("kova", &password)).await.unwrap();
+    assert_eq!(r.text().await.unwrap(), "hello from target");
+    // The network's SOCKS port: the same.
+    assert!(fetch(reqwest::Proxy::all(url("socks5h", base + 3)).unwrap()).await.is_err(), "SOCKS without the login");
+    let r = fetch(reqwest::Proxy::all(format!("socks5h://kova:{password}@127.0.0.1:{}", base + 3)).unwrap()).await.unwrap();
+    assert_eq!(r.text().await.unwrap(), "hello from target");
+
+    // The open proxy port listens on loopback only: not on this machine's network address.
+    let lan_ip = std::net::UdpSocket::bind("0.0.0.0:0").and_then(|u| u.connect("8.8.8.8:80").and_then(|_| u.local_addr())).map(|a| a.ip()).ok().filter(|ip| !ip.is_loopback() && !ip.is_unspecified());
+    if let Some(ip) = lan_ip {
+        assert!(std::net::TcpStream::connect_timeout(&(ip, base).into(), Duration::from_secs(2)).is_err(), "proxy port reachable at {ip}");
+        assert!(std::net::TcpStream::connect_timeout(&(ip, base + 2).into(), Duration::from_secs(2)).is_ok(), "LAN port not reachable at {ip}");
+    } else {
+        eprintln!("no network address; skipped the reachability check");
+    }
+
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
 }

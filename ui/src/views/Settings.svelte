@@ -153,7 +153,10 @@
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Allow connections from LAN')}</div><div class="d">{t('Share the proxy with phones and consoles on your network')}</div>
             {#if s.core.allow_lan}
-              {#if lanIp}<div class="d">{t('Address for other devices')} <span class="mono selectable">{lanIp}:{s.core.mixed_port}</span> {t('(HTTP and SOCKS5)')}</div>{/if}
+              {#if lanIp && app.status.running && app.status.core === 'xray'}
+                <!-- Xray can't let this computer in without the login, so the network gets its own two ports. -->
+                <div class="d">{t('Address for other devices')} <span class="mono selectable">{lanIp}:{s.core.mixed_port + 2}</span> {t('(HTTP)')}, <span class="mono selectable">{lanIp}:{s.core.mixed_port + 3}</span> {t('(SOCKS5)')}</div>
+              {:else if lanIp}<div class="d">{t('Address for other devices')} <span class="mono selectable">{lanIp}:{s.core.mixed_port}</span> {t('(HTTP and SOCKS5)')}</div>{/if}
               <div class="d">{t('Other devices sign in as {user} with the password', { user: 'kova' })} <span class="mono selectable">{s.core.local_password}</span></div>
             {/if}</div>
             <button class="switch" role="switch" aria-label={t('Allow connections from LAN')} aria-checked={s.core.allow_lan} onclick={() => toggle((x) => x.core.allow_lan, (x, v) => (x.core.allow_lan = v))}></button></div>

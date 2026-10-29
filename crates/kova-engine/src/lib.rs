@@ -17,6 +17,7 @@ pub mod store;
 pub mod sysproxy;
 #[cfg(target_os = "linux")]
 pub mod tun_linux;
+pub mod tun_rights;
 
 pub use engine::{Engine, Event, NodeView, Status};
 

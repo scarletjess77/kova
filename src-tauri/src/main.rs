@@ -6,5 +6,9 @@ fn main() {
     if let Some(code) = kova_service::dispatch_cli() {
         std::process::exit(code);
     }
+    #[cfg(windows)]
+    if let Some(code) = kova_app::restore_proxy_cli() {
+        std::process::exit(code);
+    }
     kova_app::run()
 }

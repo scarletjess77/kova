@@ -16,11 +16,18 @@ pub fn mihomo_path() -> PathBuf {
     Path::new(DIR).join("mihomo")
 }
 
-/// The copy, if it is there, owned by root and still carries its capabilities.
+/// The copy, if it is there, owned by root, still carries its capabilities, and only this
+/// user's group may run it. A copy anyone may run (as earlier versions granted) doesn't
+/// count: TUN asks for the rights again, which replaces it.
 pub fn granted() -> Option<PathBuf> {
     use std::os::unix::fs::MetadataExt;
     let p = mihomo_path();
-    std::fs::metadata(&p).ok().filter(|m| m.is_file() && m.uid() == 0 && has_caps(&p)).map(|_| p)
+    // SAFETY: getgid has no preconditions.
+    let gid = unsafe { libc::getgid() };
+    std::fs::metadata(&p)
+        .ok()
+        .filter(|m| m.is_file() && m.uid() == 0 && m.gid() == gid && !crate::tun_rights::open_to_others(m.mode()) && has_caps(&p))
+        .map(|_| p)
 }
 
 /// Whether `path` has file capabilities (the `security.capability` attribute setcap
@@ -70,12 +77,12 @@ pub fn grant(mihomo: &Path) -> Result<(), Error> {
     if !mihomo.exists() {
         return Err(Error::Other("mihomo is not installed".into()));
     }
-    // A copy without its capability would only look granted: take it away on failure.
-    let script = format!(
-        "set -e; install -D -m 0755 -o root -g root \"$1\" {target}; setcap {CAPS} {target} || {{ rm -f {target}; exit 1; }}",
-        target = mihomo_path().display()
-    );
-    as_root(&script, &[&mihomo.to_string_lossy()])?;
+    // A copy without its capability would only look granted: the script takes it away on
+    // failure. Only this user's group may run the copy (see `tun_rights::grant_script`).
+    let script = crate::tun_rights::grant_script(&mihomo_path().to_string_lossy(), CAPS);
+    // SAFETY: getgid has no preconditions.
+    let gid = unsafe { libc::getgid() }.to_string();
+    as_root(&script, &[&mihomo.to_string_lossy(), &gid])?;
     if granted().is_none() {
         return Err(Error::Other("the network rights didn't stick (setcap); is the folder on a file system without capabilities?".into()));
     }

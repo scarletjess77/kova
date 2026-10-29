@@ -170,6 +170,8 @@ input, textarea, .selectable { user-select: text; }
 .i { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .mono, .num { font-family: var(--f-mono); font-variant-numeric: tabular-nums; }
 .num { font-size: .92em; }
+/* A number with a Latin unit ("1.27 KB/s") reads left to right inside Persian text too. */
+[dir='rtl'] .num { direction: ltr; unicode-bidi: isolate; }
 .muted { color: var(--muted); }
 
 /* ---------- shell ---------- */

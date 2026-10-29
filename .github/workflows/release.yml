@@ -55,8 +55,9 @@ jobs:
             no_cores: true
             system: Linux
           # One app for Apple silicon and Intel Macs: Rust builds both, one after the
-          # other, and the bundled cores hold both too.
-          - os: macos-latest
+          # other, and the bundled cores hold both too. Built on an Intel Mac: GitHub's
+          # Apple-silicon ones are often all taken, and the job then never starts.
+          - os: macos-15-intel
             bundles: app,dmg
             target: universal-apple-darwin
             rust_targets: aarch64-apple-darwin,x86_64-apple-darwin

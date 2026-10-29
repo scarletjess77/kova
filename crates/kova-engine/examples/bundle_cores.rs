@@ -1,5 +1,7 @@
 //! Put verified Mihomo and Xray (and the routing data that comes with Xray) into a
-//! folder, for the desktop installers to carry: Kova then starts without downloading
+//! folder, for the desktop installers to carry: the versions pinned in
+//! `scripts/android-cores.json`, the same Android ships, so a release never carries a
+//! core it wasn't tested with. Kova then starts without downloading
 //! anything from GitHub, which is blocked in some countries.
 //!
 //! Usage: cargo run -p kova-engine --example bundle_cores -- <folder> [target-triple]
@@ -57,7 +59,7 @@ async fn main() {
 async fn bundle(dir: &Path, arch: &str) {
     std::fs::create_dir_all(dir).expect("create the folder");
     for core in [CoreKind::Xray, CoreKind::Mihomo] {
-        let tag = cores::install_latest_for(dir, core, arch).await.unwrap_or_else(|e| panic!("{}: {e}", core.label()));
+        let tag = cores::install_pinned_for(dir, core, arch).await.unwrap_or_else(|e| panic!("{}: {e}", core.label()));
         println!("{} {tag} ({arch}), checksum ok", core.label());
     }
     // Only what Kova uses: the cores and the routing data.

@@ -18,7 +18,7 @@ Mihomo runs in front: rules, groups, TUN, connection tracking. Nodes only Xray c
 
 Clash/Mihomo YAML profiles are kept verbatim, so their groups and rules survive. Share links, base64 subscriptions and sing-box JSON are converted.
 
-Cores ship with the app and are updated from their official GitHub releases, checked by SHA-256 before install. Cores run in a Windows Job Object so they can't outlive the app. The core controller listens on localhost only and requires a per-install secret.
+Cores ship with the app, at versions pinned in `scripts/android-cores.json` and tested with Kova, and can be updated from their official GitHub releases in Settings; every download is checked by SHA-256 before install. Cores run in a Windows Job Object so they can't outlive the app. The core controller listens on localhost only and requires a per-install secret.
 
 ## TUN mode and the Kova service
 
@@ -31,7 +31,7 @@ TUN captures all traffic, including games and UDP, but creating the virtual adap
 
 Command line, from an elevated prompt: `kova.exe --service-install`, `kova.exe --service-uninstall`. For development, `kova.exe --service-console` runs the pipe server in the foreground (set `KOVA_SERVICE_HOME` and `KOVA_SERVICE_PIPE` to keep it separate from an installed service).
 
-**Linux.** TUN needs the network-admin capability. Settings → TUN mode → **Give rights** asks for the password once (polkit) and installs a copy of Kova's Mihomo as `/usr/local/lib/kova/mihomo`, owned by root, with `cap_net_admin`, `cap_net_bind_service` and `cap_net_raw` only. TUN runs with that copy; Kova itself never runs as root. After a Mihomo update the copy is offered for granting again. Without polkit: `sudo install -m 0755 <Mihomo> /usr/local/lib/kova/mihomo && sudo setcap cap_net_admin,cap_net_bind_service,cap_net_raw+ep /usr/local/lib/kova/mihomo`.
+**Linux.** TUN needs the network-admin capability. Settings → TUN mode → **Give rights** asks for the password once (polkit) and installs a copy of Kova's Mihomo as `/usr/local/lib/kova/mihomo`, owned by root, with `cap_net_admin`, `cap_net_bind_service` and `cap_net_raw` only. Only root and the group of the user who gave the rights may run the copy: file capabilities apply to whoever runs a file, so a copy anyone could run would give every account on the machine those rights. TUN runs with that copy; Kova itself never runs as root. After a Mihomo update the copy is offered for granting again, and so is a copy from an earlier Kova, which anyone could run. Without polkit: `sudo install -D -m 0750 -o root -g "$(id -g)" <Mihomo> /usr/local/lib/kova/mihomo && sudo setcap cap_net_admin,cap_net_bind_service,cap_net_raw+ep /usr/local/lib/kova/mihomo`.
 
 **macOS.** TUN still needs Kova started as administrator; a helper like the Windows service is planned.
 
