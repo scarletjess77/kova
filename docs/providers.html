@@ -1,0 +1,534 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kova for VPN providers</title>
+<meta name="description" content="Add an Add to Kova button to a subscription page: link formats, Remnawave setup, headers Kova reads and sends.">
+<link rel="icon" href="icon.png">
+<meta property="og:type" content="article">
+<meta property="og:site_name" content="Kova">
+<meta property="og:title" content="Kova for VPN providers">
+<meta property="og:description" content="One link on the subscription page and users get a free client for Windows, macOS, Linux, Android and TV. Setup for Remnawave and any other panel.">
+<meta property="og:url" content="https://scarletjess77.github.io/kova/providers.html">
+<meta property="og:image" content="https://scarletjess77.github.io/kova/og.png">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Onest:wght@400;500;600;700&family=Unbounded:wght@600;700&family=Vazirmatn:wght@400;500;600;700&display=swap">
+<style>
+/* Same tokens and layout as guide.html: graphite neutrals, near-white emphasis. */
+:root {
+  --bg: #09090a; --panel: #17171a; --sunk: #0c0c0e; --line: #242428; --line-2: #323238;
+  --fg: #ededef; --muted: #9b9ba3; --faint: #6c6c75;
+  --accent: #f2f2f4; --accent-fg: #111113; --accent-soft: #232327;
+  --ok: #74c79a; --ok-soft: #16241c; --warn: #d9b061; --warn-soft: #2a2416;
+  --head-bg: rgb(9 9 10 / .82);
+  --f-display: 'Unbounded', 'Vazirmatn', 'Segoe UI', system-ui, sans-serif;
+  --f-ui: 'Onest', 'Vazirmatn', 'Segoe UI', system-ui, sans-serif;
+  --f-mono: 'JetBrains Mono', ui-monospace, Consolas, monospace;
+  color-scheme: dark;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f4f4f6; --panel: #ffffff; --sunk: #f0f0f2; --line: #e1e1e5; --line-2: #c8c8ce;
+    --fg: #141416; --muted: #5d5d65; --faint: #85858d;
+    --accent: #17171a; --accent-fg: #ffffff; --accent-soft: #e9e9ec;
+    --ok: #2c7a4e; --ok-soft: #e0efe6; --warn: #8c620e; --warn-soft: #f4ebd3;
+    --head-bg: rgb(244 244 246 / .84);
+    color-scheme: light;
+  }
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 var(--f-ui); -webkit-font-smoothing: antialiased; }
+a { color: inherit; }
+[hidden] { display: none !important; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px; }
+.wrap { max-width: 1060px; margin: 0 auto; padding: 0 16px; }
+.top { position: sticky; top: 0; z-index: 5; background: var(--head-bg); backdrop-filter: blur(12px); border-bottom: 1px solid var(--line); }
+.top-in { display: flex; align-items: center; gap: 12px; height: 60px; }
+.brand { display: flex; align-items: center; gap: 9px; font: 700 17px var(--f-display); text-decoration: none; }
+.brand img { width: 26px; height: 26px; border-radius: 7px; }
+.spacer { flex: 1; }
+.seg { display: inline-flex; background: var(--sunk); border: 1px solid var(--line); border-radius: 9px; padding: 3px; gap: 2px; }
+.seg button { border: 0; background: none; color: var(--muted); font: 600 13px var(--f-ui); padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--panel); color: var(--fg); }
+.btn { display: inline-flex; align-items: center; gap: 6px; padding: 7px 13px; border-radius: 9px; border: 1px solid var(--line-2); text-decoration: none; font-size: 14px; font-weight: 500; }
+.btn.primary { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
+.layout { display: grid; grid-template-columns: 230px minmax(0, 1fr); gap: 40px; padding: 40px 16px 80px; }
+.toc { position: sticky; top: 84px; align-self: start; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+.toc a { color: var(--muted); text-decoration: none; padding: 5px 10px; border-radius: 8px; }
+.toc a:hover { color: var(--fg); background: var(--accent-soft); }
+@media (max-width: 820px) { .layout { grid-template-columns: minmax(0, 1fr); padding-top: 24px; } .toc { position: static; } .top-in .btn { display: none; } }
+h1 { font: 700 clamp(28px, 5vw, 40px)/1.15 var(--f-display); margin: 0 0 12px; letter-spacing: -.5px; }
+.lede { color: var(--muted); font-size: 18px; margin: 0 0 28px; max-width: 680px; }
+section { padding-top: 12px; margin-bottom: 36px; scroll-margin-top: 76px; }
+h2 { font: 600 21px/1.3 var(--f-display); margin: 0 0 12px; display: flex; gap: 12px; align-items: baseline; }
+h2 .n { font: 500 14px var(--f-mono); color: var(--faint); }
+h3 { font-size: 16px; margin: 18px 0 6px; }
+p, li { max-width: 720px; }
+ol, ul { padding-inline-start: 22px; }
+li { margin: 4px 0; }
+code { font: .9em var(--f-mono); background: var(--sunk); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; overflow-wrap: anywhere; }
+.note { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 14px 16px; margin: 14px 0; max-width: 720px; }
+.note.tip { border-color: color-mix(in srgb, var(--ok) 40%, var(--line)); background: var(--ok-soft); }
+.note.warn { border-color: color-mix(in srgb, var(--warn) 40%, var(--line)); background: var(--warn-soft); }
+.note b:first-child { display: block; margin-bottom: 2px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; max-width: 760px; margin: 12px 0; }
+.card { border: 1px solid var(--line); background: var(--panel); border-radius: 12px; padding: 13px 15px; }
+.card b { display: block; margin-bottom: 3px; }
+.card span { color: var(--muted); font-size: 14.5px; }
+table { border-collapse: collapse; width: 100%; max-width: 760px; font-size: 15px; margin: 10px 0; }
+th, td { text-align: start; padding: 9px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { color: var(--muted); font-weight: 500; font-size: 13.5px; }
+.table-scroll { overflow-x: auto; }
+/* Code to copy: always left to right, also on the Persian page. */
+.code { position: relative; max-width: 760px; margin: 12px 0; direction: ltr; text-align: left; }
+.code pre { margin: 0; padding: 14px 16px; padding-right: 76px; background: var(--sunk); border: 1px solid var(--line); border-radius: 12px; overflow-x: auto; font: 13.5px/1.6 var(--f-mono); }
+.code .copy { position: absolute; top: 8px; right: 8px; border: 1px solid var(--line-2); background: var(--panel); color: var(--fg); font: 500 12.5px var(--f-ui); padding: 4px 10px; border-radius: 7px; cursor: pointer; }
+footer { border-top: 1px solid var(--line); color: var(--faint); font-size: 14px; padding: 24px 0 40px; }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <a class="brand" href="./"><img src="icon.png" alt="">Kova</a>
+    <span class="spacer"></span>
+    <div class="seg" role="group" aria-label="Language">
+      <button type="button" data-lang="en" aria-pressed="true">EN</button>
+      <button type="button" data-lang="ru" aria-pressed="false">RU</button>
+      <button type="button" data-lang="fa" aria-pressed="false" lang="fa">FA</button>
+      <button type="button" data-lang="zh" aria-pressed="false" lang="zh">ZH</button>
+    </div>
+    <a class="btn primary" href="./#download" data-en="Download" data-ru="Скачать" data-fa="دانلود" data-zh="下载">Download</a>
+  </div>
+</header>
+
+<!-- Code blocks shared by every language, copied into each by the script below. -->
+<template id="code-links">kova://import/https://sub.example.com/abc123
+kova://import?url=https%3A%2F%2Fsub.example.com%2Fabc123
+kova://install-config?url=https%3A%2F%2Fsub.example.com%2Fabc123</template>
+<template id="code-remnawave">{
+  "id": "kova",
+  "name": "Kova",
+  "isFeatured": false,
+  "urlScheme": "kova://import/",
+  "installationStep": {
+    "buttons": [
+      { "buttonLink": "https://github.com/scarletjess77/kova/releases/latest", "buttonText": { "en": "Download", "ru": "Скачать" } }
+    ],
+    "description": { "en": "Download and install Kova", "ru": "Скачайте и установите Kova" }
+  },
+  "addSubscriptionStep": { "description": { "en": "Press the button to add the subscription, then Import", "ru": "Нажмите кнопку, чтобы добавить подписку, затем «Импортировать»" } },
+  "connectAndUseStep": { "description": { "en": "Press the round button on the Dashboard", "ru": "Нажмите круглую кнопку на главной" } }
+}</template>
+<template id="code-rule">{
+  "name": "Kova",
+  "enabled": true,
+  "operator": "AND",
+  "conditions": [
+    { "headerName": "user-agent", "operator": "CONTAINS", "value": "Kova/", "caseSensitive": false }
+  ],
+  "responseType": "MIHOMO"
+}</template>
+<template id="code-html">&lt;a href="kova://import/SUBSCRIPTION_URL"&gt;Add to Kova&lt;/a&gt;
+&lt;a href="https://github.com/scarletjess77/kova/releases/latest"&gt;Get Kova&lt;/a&gt;</template>
+<template id="code-headers">profile-title: base64:TXkgVlBO
+subscription-userinfo: upload=0; download=1073741824; total=107374182400; expire=1798675200
+profile-update-interval: 12
+profile-web-page-url: https://t.me/my_vpn_support
+announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodCBhdCAwMzowMCBVVEM=</template>
+
+<!-- ======================= English ======================= -->
+<div class="wrap layout" data-l="en">
+  <nav class="toc" aria-label="Contents">
+    <a href="#en-why">1. Why Kova</a>
+    <a href="#en-link">2. The Add to Kova link</a>
+    <a href="#en-remnawave">3. Remnawave</a>
+    <a href="#en-other">4. Any other panel</a>
+    <a href="#en-format">5. What Kova asks for</a>
+    <a href="#en-headers">6. What Kova shows</a>
+    <a href="#en-contact">7. Get in touch</a>
+  </nav>
+  <main>
+    <h1>Kova for VPN providers</h1>
+    <p class="lede">One link on your subscription page, and your users get a free client for Windows, macOS, Linux, Android phones and TVs that adds the subscription with one press.</p>
+
+    <section id="en-why">
+      <h2><span class="n">01</span>Why Kova</h2>
+      <div class="cards">
+        <div class="card"><b>Two cores in one app</b><span>Mihomo runs every node; nodes only Xray can run (XHTTP, VLESS encryption) go through Xray automatically.</span></div>
+        <div class="card"><b>TUN without admin rights</b><span>Games and every app go through the VPN; on Windows a small service provides the rights, so users never run Kova as administrator.</span></div>
+        <div class="card"><b>Anti-DPI</b><span>The start of each connection goes out in small pieces, for networks where servers stop answering.</span></div>
+        <div class="card"><b>Every device</b><span>Windows, macOS, Linux, Android phones and Android TV, with the same interface in English, Russian, Persian and Chinese.</span></div>
+        <div class="card"><b>Your branding stays</b><span>Your profile name, traffic, expiry date, support link and announcements show on the Dashboard.</span></div>
+        <div class="card"><b>Free and open source</b><span>No account, ads or tracking. Signed updates.</span></div>
+      </div>
+    </section>
+
+    <section id="en-link">
+      <h2><span class="n">02</span>The Add to Kova link</h2>
+      <p>Kova opens three forms of link. Each opens the Add profile dialog with the address filled in; nothing is imported until the user presses Import.</p>
+      <div class="code" data-code="code-links"></div>
+      <ul>
+        <li><code>kova://import/</code> followed by the subscription address as it is: the easiest, the same pattern other clients use.</li>
+        <li><code>kova://import?url=</code> or <code>kova://install-config?url=</code> with the address percent-encoded, when your page already builds links that way.</li>
+        <li>A single share link (<code>vless://…</code>, <code>trojan://…</code>) works in place of a subscription address.</li>
+      </ul>
+      <div class="note tip"><b>Show a download button next to it</b>A <code>kova://</code> link does nothing on a device without Kova, so pair it with a link to <a href="https://github.com/scarletjess77/kova/releases/latest">the latest release</a>.</div>
+    </section>
+
+    <section id="en-remnawave">
+      <h2><span class="n">03</span>Remnawave</h2>
+      <h3>The button on the subscription page</h3>
+      <p>In the Remnawave dashboard, open the Subpage Builder and add Kova for Windows, macOS, Linux and Android. Its link is <code>kova://import/</code> with the subscription address after it. Setups that still use an <code>app-config.json</code> file take this entry for each platform:</p>
+      <div class="code" data-code="code-remnawave"></div>
+      <h3>A template of its own (optional)</h3>
+      <p>Kova already gets a full Mihomo config: it asks with a User-Agent that contains <code>clash.meta</code>. To give Kova a template of its own, add a Response Rule under Subscription → Response Rules that matches <code>Kova/</code> in the User-Agent:</p>
+      <div class="code" data-code="code-rule"></div>
+    </section>
+
+    <section id="en-other">
+      <h2><span class="n">04</span>Any other panel</h2>
+      <p>Marzban, Marzneshin, 3x-ui, Hiddify or a page of your own: add a link with the user's subscription address in place of <code>SUBSCRIPTION_URL</code> (each panel has its own variable for it):</p>
+      <div class="code" data-code="code-html"></div>
+    </section>
+
+    <section id="en-format">
+      <h2><span class="n">05</span>What Kova asks for</h2>
+      <div class="table-scroll"><table>
+        <tr><th>Header Kova sends</th><th>Value</th></tr>
+        <tr><td><code>User-Agent</code></td><td><code>clash.meta/1.19 mihomo Kova/&lt;version&gt;</code>, so panels return a full Mihomo config. Users can change it per profile.</td></tr>
+        <tr><td><code>x-hwid</code></td><td>A random ID made once per install, for device limits. Not tied to the hardware.</td></tr>
+        <tr><td><code>x-device-os</code></td><td><code>Windows</code>, <code>macOS</code>, <code>Linux</code> or <code>Android</code>.</td></tr>
+      </table></div>
+      <p>Kova reads a Clash/Mihomo config (kept as it is, with its groups and rules), sing-box JSON, Xray JSON (one config or a list, as panels send it for v2rayNG), plain or base64 share links, and WireGuard <code>.conf</code> files. Pinned certificates (<code>pinnedPeerCertSha256</code>), ECH and mux are kept: Xray's mux runs on Xray, sing-mux (<code>smux</code>, <code>multiplex</code>) on Mihomo. Outbounds such as MASQUE run on Xray as written. The provider's fragment setting isn't used: Kova's own Anti-DPI does the fragmenting. If your panel needs a header of its own, users can add it to the profile.</p>
+    </section>
+
+    <section id="en-headers">
+      <h2><span class="n">06</span>What Kova shows</h2>
+      <p>The headers most panels send already appear in Kova:</p>
+      <div class="code" data-code="code-headers"></div>
+      <div class="table-scroll"><table>
+        <tr><th>Header</th><th>In Kova</th></tr>
+        <tr><td><code>profile-title</code></td><td>The profile's name (plain text or <code>base64:</code>).</td></tr>
+        <tr><td><code>subscription-userinfo</code></td><td>Traffic used and left, and the expiry date. Kova warns a few days before it ends.</td></tr>
+        <tr><td><code>profile-update-interval</code></td><td>How often Kova updates the subscription, in hours.</td></tr>
+        <tr><td><code>profile-web-page-url</code> or <code>support-url</code></td><td>A Provider support button on the Dashboard (web links).</td></tr>
+        <tr><td><code>announce</code></td><td>A message on the Dashboard, such as planned maintenance (plain text or <code>base64:</code>, up to 300 characters). Stop sending it to take it away.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="en-contact">
+      <h2><span class="n">07</span>Get in touch</h2>
+      <p>Added Kova to your page, or need something Kova doesn't do yet? Open an issue on <a href="https://github.com/scarletjess77/kova/issues">GitHub</a>. Providers that support Kova can be listed in its README.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ======================= Русский ======================= -->
+<div class="wrap layout" data-l="ru" hidden>
+  <nav class="toc" aria-label="Содержание">
+    <a href="#ru-why">1. Почему Kova</a>
+    <a href="#ru-link">2. Ссылка «Добавить в Kova»</a>
+    <a href="#ru-remnawave">3. Remnawave</a>
+    <a href="#ru-other">4. Другие панели</a>
+    <a href="#ru-format">5. Что запрашивает Kova</a>
+    <a href="#ru-headers">6. Что показывает Kova</a>
+    <a href="#ru-contact">7. Связь</a>
+  </nav>
+  <main>
+    <h1>Kova для VPN-провайдеров</h1>
+    <p class="lede">Одна ссылка на странице подписки — и пользователи получают бесплатный клиент для Windows, macOS, Linux, телефонов и телевизоров на Android, который добавляет подписку одним нажатием.</p>
+
+    <section id="ru-why">
+      <h2><span class="n">01</span>Почему Kova</h2>
+      <div class="cards">
+        <div class="card"><b>Два ядра в одном приложении</b><span>Mihomo запускает все узлы, а те, что умеет только Xray (XHTTP, шифрование VLESS), автоматически идут через Xray.</span></div>
+        <div class="card"><b>TUN без прав администратора</b><span>Игры и все программы идут через VPN; в Windows права даёт небольшая служба, и запускать Kova от администратора не нужно.</span></div>
+        <div class="card"><b>Анти-DPI</b><span>Начало каждого соединения отправляется маленькими частями — для сетей, где серверы перестают отвечать.</span></div>
+        <div class="card"><b>Все устройства</b><span>Windows, macOS, Linux, телефоны и Android TV, один интерфейс на английском, русском, персидском и китайском.</span></div>
+        <div class="card"><b>Ваш бренд на месте</b><span>Название профиля, трафик, срок действия, ссылка на поддержку и объявления видны на главной.</span></div>
+        <div class="card"><b>Бесплатно и с открытым кодом</b><span>Без аккаунта, рекламы и слежки. Подписанные обновления.</span></div>
+      </div>
+    </section>
+
+    <section id="ru-link">
+      <h2><span class="n">02</span>Ссылка «Добавить в Kova»</h2>
+      <p>Kova открывает ссылки трёх видов. Каждая открывает окно добавления профиля с уже вписанным адресом; ничего не импортируется, пока пользователь не нажмёт «Импортировать».</p>
+      <div class="code" data-code="code-links"></div>
+      <ul>
+        <li><code>kova://import/</code> и сразу адрес подписки как есть — проще всего, так же, как у других клиентов.</li>
+        <li><code>kova://import?url=</code> или <code>kova://install-config?url=</code> с закодированным адресом, если ваша страница уже собирает ссылки так.</li>
+        <li>Вместо адреса подписки подойдёт и одна ссылка на сервер (<code>vless://…</code>, <code>trojan://…</code>).</li>
+      </ul>
+      <div class="note tip"><b>Рядом поставьте кнопку загрузки</b>На устройстве без Kova ссылка <code>kova://</code> ничего не делает, поэтому добавьте ссылку на <a href="https://github.com/scarletjess77/kova/releases/latest">последний выпуск</a>.</div>
+    </section>
+
+    <section id="ru-remnawave">
+      <h2><span class="n">03</span>Remnawave</h2>
+      <h3>Кнопка на странице подписки</h3>
+      <p>В панели Remnawave откройте конструктор страницы подписки (Subpage Builder) и добавьте Kova для Windows, macOS, Linux и Android. Ссылка — <code>kova://import/</code> и адрес подписки после неё. Если у вас ещё файл <code>app-config.json</code>, добавьте для каждой платформы такую запись:</p>
+      <div class="code" data-code="code-remnawave"></div>
+      <h3>Свой шаблон (по желанию)</h3>
+      <p>Kova и так получает полный конфиг Mihomo: её User-Agent содержит <code>clash.meta</code>. Чтобы выдавать Kova отдельный шаблон, добавьте правило в Subscription → Response Rules, которое ищет <code>Kova/</code> в User-Agent:</p>
+      <div class="code" data-code="code-rule"></div>
+    </section>
+
+    <section id="ru-other">
+      <h2><span class="n">04</span>Другие панели</h2>
+      <p>Marzban, Marzneshin, 3x-ui, Hiddify или своя страница: добавьте ссылку, подставив адрес подписки пользователя вместо <code>SUBSCRIPTION_URL</code> (в каждой панели для него своя переменная):</p>
+      <div class="code" data-code="code-html"></div>
+    </section>
+
+    <section id="ru-format">
+      <h2><span class="n">05</span>Что запрашивает Kova</h2>
+      <div class="table-scroll"><table>
+        <tr><th>Заголовок от Kova</th><th>Значение</th></tr>
+        <tr><td><code>User-Agent</code></td><td><code>clash.meta/1.19 mihomo Kova/&lt;версия&gt;</code>, чтобы панель отдала полный конфиг Mihomo. Пользователь может поменять его в профиле.</td></tr>
+        <tr><td><code>x-hwid</code></td><td>Случайный ID, создаётся один раз при установке, для лимита устройств. Не связан с железом.</td></tr>
+        <tr><td><code>x-device-os</code></td><td><code>Windows</code>, <code>macOS</code>, <code>Linux</code> или <code>Android</code>.</td></tr>
+      </table></div>
+      <p>Kova читает конфиг Clash/Mihomo (как есть, с группами и правилами), JSON sing-box, JSON Xray (один конфиг или список, как панели отдают для v2rayNG) ссылки на серверы, открытым текстом или в base64, и файлы WireGuard <code>.conf</code>. Закреплённые сертификаты (<code>pinnedPeerCertSha256</code>), ECH и mux сохраняются: mux Xray работает в Xray, sing-mux (<code>smux</code>, <code>multiplex</code>) — в Mihomo. Исходящие вроде MASQUE запускаются в Xray как есть. Настройка fragment провайдера не используется: дробит соединения собственный Анти-DPI Kova. Если панели нужен свой заголовок, пользователь может добавить его в профиль.</p>
+    </section>
+
+    <section id="ru-headers">
+      <h2><span class="n">06</span>Что показывает Kova</h2>
+      <p>Заголовки, которые отдают большинство панелей, уже видны в Kova:</p>
+      <div class="code" data-code="code-headers"></div>
+      <div class="table-scroll"><table>
+        <tr><th>Заголовок</th><th>В Kova</th></tr>
+        <tr><td><code>profile-title</code></td><td>Название профиля (текст или <code>base64:</code>).</td></tr>
+        <tr><td><code>subscription-userinfo</code></td><td>Израсходованный и оставшийся трафик и срок действия. За несколько дней до конца Kova предупреждает.</td></tr>
+        <tr><td><code>profile-update-interval</code></td><td>Как часто Kova обновляет подписку, в часах.</td></tr>
+        <tr><td><code>profile-web-page-url</code> или <code>support-url</code></td><td>Кнопка «Поддержка провайдера» на главной (веб-ссылки).</td></tr>
+        <tr><td><code>announce</code></td><td>Сообщение на главной, например о плановых работах (текст или <code>base64:</code>, до 300 символов). Чтобы убрать его, перестаньте отправлять.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="ru-contact">
+      <h2><span class="n">07</span>Связь</h2>
+      <p>Добавили Kova на свою страницу или нужно то, чего Kova пока не умеет? Откройте issue на <a href="https://github.com/scarletjess77/kova/issues">GitHub</a>. Провайдеров с поддержкой Kova можно указать в её README.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ======================= فارسی ======================= -->
+<div class="wrap layout" data-l="fa" hidden>
+  <nav class="toc" aria-label="فهرست">
+    <a href="#fa-why">۱. چرا Kova</a>
+    <a href="#fa-link">۲. لینک «افزودن به Kova»</a>
+    <a href="#fa-remnawave">۳. Remnawave</a>
+    <a href="#fa-other">۴. پنل‌های دیگر</a>
+    <a href="#fa-format">۵. آنچه Kova درخواست می‌کند</a>
+    <a href="#fa-headers">۶. آنچه Kova نشان می‌دهد</a>
+    <a href="#fa-contact">۷. تماس</a>
+  </nav>
+  <main>
+    <h1>Kova برای ارائه‌دهندگان VPN</h1>
+    <p class="lede">یک لینک در صفحهٔ اشتراک، و کاربران شما یک کلاینت رایگان برای ویندوز، macOS، لینوکس، گوشی‌ها و تلویزیون‌های اندرویدی دارند که اشتراک را با یک لمس اضافه می‌کند.</p>
+
+    <section id="fa-why">
+      <h2><span class="n">01</span>چرا Kova</h2>
+      <div class="cards">
+        <div class="card"><b>دو هسته در یک برنامه</b><span>Mihomo همهٔ نودها را اجرا می‌کند و نودهایی که فقط Xray پشتیبانی می‌کند (XHTTP، رمزنگاری VLESS) خودکار از Xray می‌گذرند.</span></div>
+        <div class="card"><b>TUN بدون دسترسی مدیر</b><span>بازی‌ها و همهٔ برنامه‌ها از VPN می‌گذرند؛ در ویندوز یک سرویس کوچک دسترسی لازم را می‌دهد و نیازی به اجرای Kova به‌عنوان مدیر نیست.</span></div>
+        <div class="card"><b>ضد DPI</b><span>آغاز هر اتصال در تکه‌های کوچک فرستاده می‌شود، برای شبکه‌هایی که سرورها در آن‌ها پاسخ نمی‌دهند.</span></div>
+        <div class="card"><b>همهٔ دستگاه‌ها</b><span>ویندوز، macOS، لینوکس، گوشی‌ها و Android TV، با یک رابط به انگلیسی، روسی، فارسی و چینی.</span></div>
+        <div class="card"><b>برند شما می‌ماند</b><span>نام پروفایل، ترافیک، تاریخ پایان، لینک پشتیبانی و اطلاعیه‌ها در داشبورد دیده می‌شوند.</span></div>
+        <div class="card"><b>رایگان و متن‌باز</b><span>بدون حساب، تبلیغ یا ردیابی. به‌روزرسانی‌های امضاشده.</span></div>
+      </div>
+    </section>
+
+    <section id="fa-link">
+      <h2><span class="n">02</span>لینک «افزودن به Kova»</h2>
+      <p>Kova سه شکل لینک را باز می‌کند. هرکدام پنجرهٔ افزودن پروفایل را با نشانی پرشده باز می‌کند؛ تا کاربر «وارد کردن» را نزند چیزی وارد نمی‌شود.</p>
+      <div class="code" data-code="code-links"></div>
+      <ul>
+        <li><code>kova://import/</code> و بلافاصله نشانی اشتراک همان‌طور که هست: ساده‌ترین شکل، مانند کلاینت‌های دیگر.</li>
+        <li><code>kova://import?url=</code> یا <code>kova://install-config?url=</code> با نشانی کدگذاری‌شده، اگر صفحهٔ شما لینک‌ها را این‌طور می‌سازد.</li>
+        <li>به‌جای نشانی اشتراک، یک لینک سرور (<code>vless://…</code>، <code>trojan://…</code>) هم کار می‌کند.</li>
+      </ul>
+      <div class="note tip"><b>کنار آن دکمهٔ دانلود بگذارید</b>روی دستگاهی که Kova ندارد، لینک <code>kova://</code> کاری نمی‌کند؛ پس لینک <a href="https://github.com/scarletjess77/kova/releases/latest">آخرین نسخه</a> را هم بگذارید.</div>
+    </section>
+
+    <section id="fa-remnawave">
+      <h2><span class="n">03</span>Remnawave</h2>
+      <h3>دکمه در صفحهٔ اشتراک</h3>
+      <p>در داشبورد Remnawave، سازندهٔ صفحهٔ اشتراک (Subpage Builder) را باز کنید و Kova را برای ویندوز، macOS، لینوکس و اندروید اضافه کنید. لینک آن <code>kova://import/</code> و پس از آن نشانی اشتراک است. اگر هنوز از فایل <code>app-config.json</code> استفاده می‌کنید، برای هر سکو این مورد را اضافه کنید:</p>
+      <div class="code" data-code="code-remnawave"></div>
+      <h3>قالب جداگانه (اختیاری)</h3>
+      <p>Kova خودش کانفیگ کامل Mihomo می‌گیرد، چون User-Agent آن شامل <code>clash.meta</code> است. برای دادن قالب جداگانه به Kova، در Subscription → Response Rules قاعده‌ای بسازید که <code>Kova/</code> را در User-Agent پیدا کند:</p>
+      <div class="code" data-code="code-rule"></div>
+    </section>
+
+    <section id="fa-other">
+      <h2><span class="n">04</span>پنل‌های دیگر</h2>
+      <p>Marzban، Marzneshin، 3x-ui، Hiddify یا صفحهٔ خودتان: لینکی بگذارید و نشانی اشتراک کاربر را به‌جای <code>SUBSCRIPTION_URL</code> قرار دهید (هر پنل متغیر خودش را دارد):</p>
+      <div class="code" data-code="code-html"></div>
+    </section>
+
+    <section id="fa-format">
+      <h2><span class="n">05</span>آنچه Kova درخواست می‌کند</h2>
+      <div class="table-scroll"><table>
+        <tr><th>سرآیندی که Kova می‌فرستد</th><th>مقدار</th></tr>
+        <tr><td><code>User-Agent</code></td><td><code>clash.meta/1.19 mihomo Kova/&lt;version&gt;</code> تا پنل کانفیگ کامل Mihomo بدهد. کاربر می‌تواند آن را برای هر پروفایل عوض کند.</td></tr>
+        <tr><td><code>x-hwid</code></td><td>یک شناسهٔ تصادفی که یک بار هنگام نصب ساخته می‌شود، برای محدودیت دستگاه. به سخت‌افزار وابسته نیست.</td></tr>
+        <tr><td><code>x-device-os</code></td><td><code>Windows</code>، <code>macOS</code>، <code>Linux</code> یا <code>Android</code>.</td></tr>
+      </table></div>
+      <p>Kova کانفیگ Clash/Mihomo (همان‌طور که هست، با گروه‌ها و قوانین)، JSON سینگ‌باکس، JSON ایکس‌ری (یک کانفیگ یا فهرستی از آن‌ها، آن‌طور که پنل‌ها برای v2rayNG می‌فرستند) لینک‌های سرور، ساده یا base64، و فایل‌های WireGuard <code>.conf</code> را می‌خواند. گواهی‌های سنجاق‌شده (<code>pinnedPeerCertSha256</code>)، ECH و mux حفظ می‌شوند: mux ایکس‌ری در Xray و sing-mux (<code>smux</code>، <code>multiplex</code>) در Mihomo اجرا می‌شود. خروجی‌هایی مانند MASQUE همان‌طور که نوشته شده‌اند در Xray اجرا می‌شوند. تنظیم fragment ارائه‌دهنده استفاده نمی‌شود: ضد DPI خود Kova این کار را می‌کند. اگر پنل شما سرآیند ویژه‌ای لازم دارد، کاربر می‌تواند آن را به پروفایل اضافه کند.</p>
+    </section>
+
+    <section id="fa-headers">
+      <h2><span class="n">06</span>آنچه Kova نشان می‌دهد</h2>
+      <p>سرآیندهایی که بیشتر پنل‌ها می‌فرستند، هم‌اکنون در Kova دیده می‌شوند:</p>
+      <div class="code" data-code="code-headers"></div>
+      <div class="table-scroll"><table>
+        <tr><th>سرآیند</th><th>در Kova</th></tr>
+        <tr><td><code>profile-title</code></td><td>نام پروفایل (متن یا <code>base64:</code>).</td></tr>
+        <tr><td><code>subscription-userinfo</code></td><td>ترافیک مصرف‌شده و باقی‌مانده و تاریخ پایان. Kova چند روز پیش از پایان هشدار می‌دهد.</td></tr>
+        <tr><td><code>profile-update-interval</code></td><td>هر چند ساعت Kova اشتراک را به‌روز می‌کند.</td></tr>
+        <tr><td><code>profile-web-page-url</code> یا <code>support-url</code></td><td>دکمهٔ پشتیبانی ارائه‌دهنده در داشبورد (لینک‌های وب).</td></tr>
+        <tr><td><code>announce</code></td><td>پیامی در داشبورد، مثلاً دربارهٔ تعمیرات برنامه‌ریزی‌شده (متن یا <code>base64:</code>، تا ۳۰۰ نویسه). برای برداشتن آن، دیگر نفرستید.</td></tr>
+      </table></div>
+    </section>
+
+    <section id="fa-contact">
+      <h2><span class="n">07</span>تماس</h2>
+      <p>Kova را به صفحهٔ خود افزودید یا چیزی لازم دارید که Kova هنوز انجام نمی‌دهد؟ در <a href="https://github.com/scarletjess77/kova/issues">GitHub</a> یک issue باز کنید. ارائه‌دهندگانی که از Kova پشتیبانی می‌کنند می‌توانند در README آن فهرست شوند.</p>
+    </section>
+  </main>
+</div>
+
+<!-- ======================= 中文 ======================= -->
+<div class="wrap layout" data-l="zh" hidden>
+  <nav class="toc" aria-label="目录">
+    <a href="#zh-why">1. 为什么选 Kova</a>
+    <a href="#zh-link">2. “添加到 Kova”链接</a>
+    <a href="#zh-remnawave">3. Remnawave</a>
+    <a href="#zh-other">4. 其他面板</a>
+    <a href="#zh-format">5. Kova 请求什么</a>
+    <a href="#zh-headers">6. Kova 显示什么</a>
+    <a href="#zh-contact">7. 联系我们</a>
+  </nav>
+  <main>
+    <h1>面向 VPN 服务商的 Kova</h1>
+    <p class="lede">在订阅页面放一个链接，用户就能获得适用于 Windows、macOS、Linux、安卓手机和电视的免费客户端，一键添加订阅。</p>
+
+    <section id="zh-why">
+      <h2><span class="n">01</span>为什么选 Kova</h2>
+      <div class="cards">
+        <div class="card"><b>一个应用，两个内核</b><span>Mihomo 运行所有节点；只有 Xray 能运行的节点（XHTTP、VLESS 加密）自动经由 Xray。</span></div>
+        <div class="card"><b>无需管理员权限的 TUN</b><span>游戏和所有应用都走 VPN；Windows 上由一个小服务提供权限，用户无需以管理员身份运行 Kova。</span></div>
+        <div class="card"><b>抗 DPI</b><span>每个连接的开头分成小片发送，适用于服务器停止响应的网络。</span></div>
+        <div class="card"><b>所有设备</b><span>Windows、macOS、Linux、安卓手机和 Android TV，同一界面，支持英语、俄语、波斯语和中文。</span></div>
+        <div class="card"><b>保留您的品牌</b><span>配置名称、流量、到期时间、支持链接和公告都显示在仪表盘上。</span></div>
+        <div class="card"><b>免费开源</b><span>无需账号，没有广告和追踪。更新均已签名。</span></div>
+      </div>
+    </section>
+
+    <section id="zh-link">
+      <h2><span class="n">02</span>“添加到 Kova”链接</h2>
+      <p>Kova 支持三种链接形式。每种都会打开“添加配置”对话框并填好地址；用户按下“导入”之前不会导入任何内容。</p>
+      <div class="code" data-code="code-links"></div>
+      <ul>
+        <li><code>kova://import/</code> 后直接接订阅地址：最简单，与其他客户端的方式相同。</li>
+        <li>如果您的页面已经这样生成链接，可用 <code>kova://import?url=</code> 或 <code>kova://install-config?url=</code> 加上编码后的地址。</li>
+        <li>单个服务器链接（<code>vless://…</code>、<code>trojan://…</code>）也可以代替订阅地址。</li>
+      </ul>
+      <div class="note tip"><b>旁边放一个下载按钮</b>在未安装 Kova 的设备上，<code>kova://</code> 链接不会有反应，请同时提供<a href="https://github.com/scarletjess77/kova/releases/latest">最新版本</a>的链接。</div>
+    </section>
+
+    <section id="zh-remnawave">
+      <h2><span class="n">03</span>Remnawave</h2>
+      <h3>订阅页面上的按钮</h3>
+      <p>在 Remnawave 控制台中打开订阅页面构建器（Subpage Builder），为 Windows、macOS、Linux 和 Android 添加 Kova。链接为 <code>kova://import/</code> 后接订阅地址。仍在使用 <code>app-config.json</code> 文件的，为每个平台添加以下条目：</p>
+      <div class="code" data-code="code-remnawave"></div>
+      <h3>单独的模板（可选）</h3>
+      <p>Kova 本身就能拿到完整的 Mihomo 配置，因为它的 User-Agent 包含 <code>clash.meta</code>。若要给 Kova 单独的模板，在 Subscription → Response Rules 中添加一条匹配 User-Agent 中 <code>Kova/</code> 的规则：</p>
+      <div class="code" data-code="code-rule"></div>
+    </section>
+
+    <section id="zh-other">
+      <h2><span class="n">04</span>其他面板</h2>
+      <p>Marzban、Marzneshin、3x-ui、Hiddify 或您自己的页面：添加一个链接，用用户的订阅地址替换 <code>SUBSCRIPTION_URL</code>（每个面板都有自己的变量）：</p>
+      <div class="code" data-code="code-html"></div>
+    </section>
+
+    <section id="zh-format">
+      <h2><span class="n">05</span>Kova 请求什么</h2>
+      <div class="table-scroll"><table>
+        <tr><th>Kova 发送的请求头</th><th>值</th></tr>
+        <tr><td><code>User-Agent</code></td><td><code>clash.meta/1.19 mihomo Kova/&lt;version&gt;</code>，让面板返回完整的 Mihomo 配置。用户可按配置修改。</td></tr>
+        <tr><td><code>x-hwid</code></td><td>安装时生成一次的随机 ID，用于设备数限制，与硬件无关。</td></tr>
+        <tr><td><code>x-device-os</code></td><td><code>Windows</code>、<code>macOS</code>、<code>Linux</code> 或 <code>Android</code>。</td></tr>
+      </table></div>
+      <p>Kova 可读取 Clash/Mihomo 配置（原样保留分组和规则）、sing-box JSON、Xray JSON（单个配置或列表，与面板为 v2rayNG 提供的相同）明文或 base64 的分享链接，以及 WireGuard <code>.conf</code> 文件。证书固定（<code>pinnedPeerCertSha256</code>）、ECH 和 mux 都会保留：Xray 的 mux 在 Xray 中运行，sing-mux（<code>smux</code>、<code>multiplex</code>）在 Mihomo 中运行。MASQUE 等出站按原样在 Xray 中运行。服务商的 fragment 设置不会使用：分片由 Kova 自带的抗 DPI 完成。如果您的面板需要专门的请求头，用户可以把它加到配置中。</p>
+    </section>
+
+    <section id="zh-headers">
+      <h2><span class="n">06</span>Kova 显示什么</h2>
+      <p>大多数面板发送的响应头已经会显示在 Kova 中：</p>
+      <div class="code" data-code="code-headers"></div>
+      <div class="table-scroll"><table>
+        <tr><th>响应头</th><th>在 Kova 中</th></tr>
+        <tr><td><code>profile-title</code></td><td>配置名称（纯文本或 <code>base64:</code>）。</td></tr>
+        <tr><td><code>subscription-userinfo</code></td><td>已用和剩余流量以及到期时间。到期前几天 Kova 会提醒。</td></tr>
+        <tr><td><code>profile-update-interval</code></td><td>Kova 更新订阅的间隔（小时）。</td></tr>
+        <tr><td><code>profile-web-page-url</code> 或 <code>support-url</code></td><td>仪表盘上的“服务商支持”按钮（网页链接）。</td></tr>
+        <tr><td><code>announce</code></td><td>仪表盘上的消息，例如计划维护（纯文本或 <code>base64:</code>，最多 300 个字符）。停止发送即可撤下。</td></tr>
+      </table></div>
+    </section>
+
+    <section id="zh-contact">
+      <h2><span class="n">07</span>联系我们</h2>
+      <p>已将 Kova 加到您的页面，或需要 Kova 尚不支持的功能？请在 <a href="https://github.com/scarletjess77/kova/issues">GitHub</a> 提交 issue。支持 Kova 的服务商可以列入其 README。</p>
+    </section>
+  </main>
+</div>
+
+<footer>
+  <div class="wrap"><a href="./">Kova</a> · <a href="guide.html" data-en="Guide" data-ru="Руководство" data-fa="راهنما" data-zh="指南">Guide</a> · <a href="https://github.com/scarletjess77/kova">GitHub</a></div>
+</footer>
+
+<script>
+  // Each code block once, shown in every language, with a copy button.
+  const COPY = { en: ['Copy', 'Copied'], ru: ['Копировать', 'Скопировано'], fa: ['کپی', 'کپی شد'], zh: ['复制', '已复制'] };
+  let lang = 'en';
+  for (const box of document.querySelectorAll('[data-code]')) {
+    const pre = document.createElement('pre');
+    pre.textContent = document.getElementById(box.dataset.code).innerHTML.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'copy';
+    btn.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(pre.textContent);
+        btn.textContent = COPY[lang][1];
+        setTimeout(() => (btn.textContent = COPY[lang][0]), 1500);
+      } catch (e) { /* clipboard blocked: the text can still be selected */ }
+    });
+    box.append(pre, btn);
+  }
+  // Same language choice as the main page (stored under the same key).
+  function setLang(next, remember) {
+    lang = next;
+    document.documentElement.lang = next;
+    document.documentElement.dir = next === 'fa' ? 'rtl' : 'ltr';
+    for (const el of document.querySelectorAll('[data-l]')) el.hidden = el.dataset.l !== next;
+    for (const b of document.querySelectorAll('[data-lang]')) b.setAttribute('aria-pressed', String(b.dataset.lang === next));
+    for (const el of document.querySelectorAll('[data-en]')) el.textContent = el.dataset[next];
+    for (const b of document.querySelectorAll('.copy')) b.textContent = COPY[next][0];
+    document.title = { ru: 'Kova для VPN-провайдеров', fa: 'Kova برای ارائه‌دهندگان VPN', zh: '面向 VPN 服务商的 Kova' }[next] ?? 'Kova for VPN providers';
+    if (remember) { try { localStorage.setItem('kova-lang', next); } catch (e) { /* private window */ } }
+  }
+  for (const b of document.querySelectorAll('[data-lang]')) b.addEventListener('click', () => setLang(b.dataset.lang, true));
+  let saved = null;
+  try { saved = localStorage.getItem('kova-lang'); } catch (e) { /* storage blocked */ }
+  const LANGS = ['en', 'ru', 'fa', 'zh'];
+  const browser = (navigator.language || '').toLowerCase();
+  setLang(LANGS.includes(saved) ? saved : LANGS.find((l) => browser.startsWith(l)) ?? 'en', false);
+</script>
+</body>
+</html>

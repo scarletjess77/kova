@@ -17,7 +17,7 @@
   let sel = $derived(app.profiles.find((p) => p.id === (selectedId ?? app.settings?.active_profile)) ?? app.profiles[0]);
   $effect(() => { void sel?.id; confirmDelete = false; });
 
-  let FORMAT = $derived<Record<Profile['format'], string>>({ clash: 'Clash / Mihomo YAML', 'sing-box': 'sing-box JSON', xray: 'Xray JSON', links: t('Share links') });
+  let FORMAT = $derived<Record<Profile['format'], string>>({ clash: 'Clash / Mihomo YAML', 'sing-box': 'sing-box JSON', xray: 'Xray JSON', links: t('Share links'), wireguard: t('WireGuard config') });
   const gb = (b: number) => (b / 1024 ** 3).toFixed(b < 10 * 1024 ** 3 ? 1 : 0);
 
   async function update(id: string) {
@@ -35,6 +35,11 @@
   }
 
   const edit = (patch: Parameters<typeof api.editProfile>[1]) => sel && app.run(() => api.editProfile(sel!.id, patch));
+  /** "Name: value" lines into headers; blank lines are skipped. */
+  const parseHeaders = (text: string) => text.split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const i = l.indexOf(':');
+    return i < 0 ? { name: l, value: '' } : { name: l.slice(0, i).trim(), value: l.slice(i + 1).trim() };
+  });
 
   async function remove() {
     if (!sel) return;
@@ -120,6 +125,10 @@
               <div class="row-sw"><div><div class="t">User-Agent</div><div class="d">{t('Providers pick the format by app. The default gets a Clash/Mihomo config; an Xray app’s name, such as v2rayNG/1.10.0, often gets Xray JSON. What a panel returns depends on its settings.')}</div></div>
                 <input class="input mono ua" list="ua-presets" value={src.user_agent ?? ''} placeholder={t('clash.meta (default)')} onchange={(e) => edit({ user_agent: e.currentTarget.value })} aria-label="User-Agent" />
                 <datalist id="ua-presets"><option value="v2rayNG/1.10.0"></option><option value="Happ/3.0.0"></option><option value="sing-box/1.12.0"></option><option value="clash.meta"></option></datalist></div>
+              <div class="row-sw headers"><div><div class="t">{t('Extra headers')}</div><div class="d">{t('Only if the provider asks for them: one per line, as Name: value. Sent with every update.')}</div></div>
+                <textarea class="input mono ua" rows="2" spellcheck="false" placeholder="X-Token: …" aria-label={t('Extra headers')}
+                  value={(src.headers ?? []).map((h) => `${h.name}: ${h.value}`).join('\n')}
+                  onchange={(e) => edit({ headers: parseHeaders(e.currentTarget.value) })}></textarea></div>
             </div>
           {/if}
           {#if sel.announce}<p class="announce"><b>{t('From the provider')}:</b> <span class="selectable">{sel.announce}</span></p>{/if}
@@ -172,6 +181,7 @@
   .detail .card-h { margin: 0; }
   .small { font-size: 12px; }
   .ua { width: 220px; font-size: 12px; }
+  textarea.ua { resize: vertical; min-height: 44px; font-family: var(--f-mono); }
   .announce { margin: 0; padding: 9px 11px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
   .warn-box { font-size: 12.5px; color: var(--warn); }
   .warn-box ul { margin: 8px 0 0; padding-inline-start: 18px; color: var(--muted); font-size: 11.5px; }

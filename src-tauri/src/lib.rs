@@ -432,6 +432,12 @@ async fn service_uninstall(engine: Eng<'_>) -> R<()> {
     }
 }
 
+/// Programs running now, for choosing an app to route.
+#[tauri::command]
+async fn running_programs() -> Vec<String> {
+    tokio::task::spawn_blocking(kova_engine::programs::running).await.unwrap_or_default()
+}
+
 #[tauri::command]
 fn default_check_sites() -> Vec<kova_engine::sitecheck::Site> {
     kova_engine::sitecheck::default_sites()
@@ -898,6 +904,7 @@ pub fn run() {
             update_geodata,
             service_status,
             default_check_sites,
+            running_programs,
             check_site,
             service_install,
             service_uninstall,
