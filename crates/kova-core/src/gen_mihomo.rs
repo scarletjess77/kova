@@ -284,7 +284,7 @@ const STRIP: &[&str] = &[
     "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication", "skip-auth-prefixes",
 ];
 
-/// The profile's own extra ports (`listeners`, `tunnels`) listen where Kova's port does: on
+/// The profile's own extra ports (`listeners`, `tunnels`, the DNS server) listen where Kova's port does: on
 /// this computer only, unless LAN sharing is on. A listener with no `listen` would take
 /// every address, and one with `users: []` would skip the login. With LAN sharing on,
 /// listeners keep their address and fall back to Kova's login; tunnels can't take a login,
@@ -301,6 +301,14 @@ fn confine_inbounds(doc: &mut Mapping, allow_lan: bool) {
         }
     }
     let loopback = |address: &str| format!("127.0.0.1:{}", address.rsplit_once(':').map_or(address, |(_, port)| port));
+    // The profile's DNS server answers this computer only too, unless LAN sharing is on.
+    if !allow_lan {
+        if let Some(Yaml::Mapping(dns)) = doc.get_mut("dns") {
+            if let Some(address) = dns.get("listen").and_then(Yaml::as_str).map(loopback) {
+                dns.insert(Yaml::String("listen".into()), Yaml::String(address));
+            }
+        }
+    }
     if let Some(Yaml::Sequence(tunnels)) = doc.get_mut("tunnels") {
         for t in tunnels.iter_mut() {
             match t {
@@ -839,6 +847,9 @@ listeners:
 tunnels:
   - tcp/udp,0.0.0.0:6553,1.1.1.1:53,A
   - {network: [tcp], address: '[::]:6554', target: example.com:80, proxy: A}
+dns:
+  enable: true
+  listen: 0.0.0.0:1053
 rules:
   - MATCH,A
 ";
@@ -847,6 +858,7 @@ rules:
         assert_eq!(doc["listeners"][1]["listen"], "127.0.0.1");
         assert_eq!(doc["tunnels"][0], "tcp/udp,127.0.0.1:6553,1.1.1.1:53,A");
         assert_eq!(doc["tunnels"][1]["address"], "127.0.0.1:6554");
+        assert_eq!(doc["dns"]["listen"], "127.0.0.1:1053", "the profile's DNS server too");
 
         let mut o = opts();
         o.allow_lan = true;
@@ -856,6 +868,7 @@ rules:
         assert!(doc["listeners"][1].get("users").is_none(), "an empty list would skip Kova's login");
         assert_eq!(doc["authentication"], json!(["kova:pw"]));
         assert_eq!(doc["tunnels"][0], "tcp/udp,127.0.0.1:6553,1.1.1.1:53,A", "tunnels take no login");
+        assert_eq!(doc["dns"]["listen"], "0.0.0.0:1053", "shared on purpose");
     }
 
     #[test]

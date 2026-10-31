@@ -91,12 +91,37 @@ async fn connect() -> Result<tokio::net::windows::named_pipe::NamedPipeClient, E
     let name = pipe_name();
     for _ in 0..40 {
         match ClientOptions::new().open(&name) {
-            Ok(c) => return Ok(c),
+            // The pipe of a service run elsewhere (tests, the console mode) is whoever's.
+            Ok(c) if name != PIPE_NAME || made_by_system(&c) => return Ok(c),
+            Ok(_) => return Err(Error::Core("something other than the Kova service holds its pipe, so Kova didn't send it the connection".into())),
             Err(e) if e.raw_os_error() == Some(ERROR_PIPE_BUSY) => tokio::time::sleep(Duration::from_millis(50)).await,
             Err(e) => return Err(Error::Core(format!("the Kova service is not running ({e})"))),
         }
     }
     Err(Error::Core("the Kova service is busy".into()))
+}
+
+/// Whether `pipe` was created by SYSTEM or an administrator, as the installed service's
+/// is. With the service stopped, any program could create a pipe of the same name and
+/// receive the config Kova sends, with the servers' keys in it; such a pipe belongs to
+/// the account that made it.
+#[cfg(windows)]
+fn made_by_system(pipe: &tokio::net::windows::named_pipe::NamedPipeClient) -> bool {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::Authorization::{GetSecurityInfo, SE_KERNEL_OBJECT};
+    use windows_sys::Win32::Security::{IsWellKnownSid, OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, WinBuiltinAdministratorsSid, WinLocalSystemSid};
+    let mut owner: PSID = std::ptr::null_mut();
+    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: a live pipe handle; `owner` points into `sd`, which is freed after use.
+    unsafe {
+        let err = GetSecurityInfo(pipe.as_raw_handle() as _, SE_KERNEL_OBJECT, OWNER_SECURITY_INFORMATION, &mut owner, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut(), &mut sd);
+        let ok = err == 0 && !owner.is_null() && (IsWellKnownSid(owner, WinLocalSystemSid) != 0 || IsWellKnownSid(owner, WinBuiltinAdministratorsSid) != 0);
+        if !sd.is_null() {
+            LocalFree(sd as _);
+        }
+        ok
+    }
 }
 
 #[cfg(not(windows))]
@@ -122,6 +147,7 @@ pub async fn hello() -> Option<Response> {
 }
 
 /// A Mihomo instance running inside the service.
+#[derive(Clone)]
 pub struct RemoteCore {
     tail: Arc<Mutex<Vec<String>>>,
 }
@@ -166,5 +192,25 @@ pub async fn stop_remote() {
             return;
         }
         tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    /// The installed service's pipe passes the check. Needs the service running.
+    #[tokio::test]
+    #[ignore]
+    async fn the_installed_services_pipe_belongs_to_system() {
+        let c = tokio::net::windows::named_pipe::ClientOptions::new().open(super::PIPE_NAME).expect("the Kova service runs");
+        assert!(super::made_by_system(&c));
+    }
+
+    /// A pipe this account made does not.
+    #[tokio::test]
+    async fn a_pipe_made_by_a_user_does_not() {
+        let name = format!(r"\\.\pipe\kova-test-{}", std::process::id());
+        let _server = tokio::net::windows::named_pipe::ServerOptions::new().first_pipe_instance(true).create(&name).unwrap();
+        let c = tokio::net::windows::named_pipe::ClientOptions::new().open(&name).unwrap();
+        assert!(!super::made_by_system(&c) || crate::process::is_elevated());
     }
 }

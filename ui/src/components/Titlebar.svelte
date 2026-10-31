@@ -2,18 +2,13 @@
   import { api } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
-  import { resolveTheme } from '../lib/themes';
   import Donate from './Donate.svelte';
   import Icon from './Icon.svelte';
   import Modal from './Modal.svelte';
+  import ThemePicker from './ThemePicker.svelte';
 
   let donateOpen = $state(false);
-
-  // Flips between plain dark and light; Settings has the other themes.
-  function toggleTheme() {
-    const light = resolveTheme(app.settings?.theme).light;
-    void app.saveSettings((s) => (s.theme = light ? 'dark' : 'light'));
-  }
+  let themesOpen = $state(false);
 </script>
 
 <!-- Dragging moves the window on desktop; a phone has no window to move. -->
@@ -30,7 +25,7 @@
   {/if}
   <div class="spacer" data-tauri-drag-region={app.mobile ? undefined : ''}></div>
   <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" />{#if !app.mobile}<span>{t('Donate')}</span>{/if}</button>
-  <button class="tb-btn" onclick={toggleTheme} title={t('Switch theme')} aria-label={t('Switch theme')}><Icon name="moon" /></button>
+  <button class="tb-btn" onclick={() => (themesOpen = true)} title={t('Theme')} aria-label={t('Theme')} aria-haspopup="dialog"><Icon name="moon" /></button>
   {#if !app.mobile}
     <div class="winctl">
       <button onclick={() => api.windowAction('minimize')} aria-label={t('Minimize')}><Icon name="min" /></button>
@@ -43,6 +38,12 @@
 {#if donateOpen}
   <Modal title={t('Support Kova')} onclose={() => (donateOpen = false)}>
     <Donate />
+  </Modal>
+{/if}
+
+{#if themesOpen}
+  <Modal title={t('Theme')} onclose={() => (themesOpen = false)}>
+    <ThemePicker />
   </Modal>
 {/if}
 

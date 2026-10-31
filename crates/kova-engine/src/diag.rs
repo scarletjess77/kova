@@ -165,17 +165,9 @@ impl Engine {
             check("dns-encrypted", Warn, Some(ns.join(", ")), Some("settings"))
         });
 
-        // IPv6: with TUN on a computer and IPv6 off in Kova, the system's own IPv6 is not
-        // taken into the tunnel. (On Android it always is.)
-        let has_v6 = public_ip("https://api6.ipify.org", None).await.is_some();
-        out.push(if !has_v6 {
-            check("ipv6", Ok, None, None)
-        } else if !android && st.tun_active && !settings.core.ipv6 {
-            check("ipv6", Warn, None, Some("ipv6"))
-        } else {
-            check("ipv6", Ok, None, None)
-        });
-
+        // IPv6: TUN keeps it inside the VPN whatever the IPv6 setting, and the system proxy
+        // carries whatever goes through it, IPv6 sites included.
+        out.push(check("ipv6", Ok, None, None));
         // Apps that ignore the system proxy, and browsers' WebRTC, reach sites directly
         // unless everything is captured.
         out.push(if android || st.tun_active { check("all-apps", Ok, None, None) } else { check("all-apps", Warn, None, Some("tun")) });

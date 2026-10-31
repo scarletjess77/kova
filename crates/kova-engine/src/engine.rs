@@ -136,6 +136,8 @@ impl Front {
 }
 
 struct Running {
+    /// Tells this connection from a later one (see `spawn_watchdog`).
+    id: u64,
     front: Front,
     front_kind: CoreKind,
     sidecar: Option<CoreProcess>,
@@ -191,6 +193,11 @@ pub struct Engine {
     me: Weak<Engine>,
 }
 
+fn next_run_id() -> u64 {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+}
+
 fn free_port() -> u16 {
     std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).unwrap_or(0)
 }
@@ -242,7 +249,7 @@ async fn resolve_servers<'a>(servers: impl Iterator<Item = (&'a str, u16)>) -> V
 /// cut the way Anti-DPI cuts it. Best effort and all at once: a server that doesn't
 /// answer gets no pin, and Xray then checks its certificate normally.
 async fn cert_pins<'a>(nodes: impl Iterator<Item = &'a Node>, fragment: bool) -> HashMap<String, String> {
-    let probes = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none())).map(|n| async move {
+    let probes = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none() && t.pin.is_none())).map(|n| async move {
         let name = n.tls.as_ref().and_then(|t| t.sni.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| n.server.clone());
         let addr = tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok()?.next()?;
         let pin = crate::tls_probe::leaf_sha256(addr, &name, fragment, Duration::from_secs(6)).await?;
@@ -291,6 +298,11 @@ impl Engine {
             Ok(false) => {}
             Err(e) => tracing::warn!("could not restore the system proxy: {e}"),
         }
+        #[cfg_attr(not(target_os = "linux"), allow(unused_mut))]
+        let mut bins: Vec<PathBuf> = [CoreKind::Mihomo, CoreKind::Xray].iter().map(|c| cores::binary_path(&paths.cores_dir(), *c)).collect();
+        #[cfg(target_os = "linux")]
+        bins.push(crate::tun_linux::mihomo_path());
+        crate::process::end_leftovers(&paths.runtime_dir(), &bins);
         let settings = Settings::load(&paths);
         let profiles = ProfileIndex::load(&paths);
         let (events, _) = broadcast::channel(2048);
@@ -357,6 +369,11 @@ impl Engine {
     // ------------------------------------------------------------------ settings
 
     pub async fn update_settings(&self, new: Settings) -> Result<()> {
+        // New rules only: one saved earlier must not block every other change.
+        let before = self.settings().core.custom_rules;
+        if let Some((r, why)) = new.core.custom_rules.iter().filter(|r| !before.contains(r)).find_map(|r| r.problem().map(|why| (r, why))) {
+            return Err(Error::Other(format!("The rule \"{}\" can't be used: {why}", r.value.trim())));
+        }
         let old = {
             let mut s = self.settings.write().unwrap();
             let mut new = new;
@@ -1134,6 +1151,7 @@ impl Engine {
                 return Err(Error::Core(msg));
             }
             let mut r = Running {
+                id: next_run_id(),
                 front: Front::Local(front),
                 front_kind: CoreKind::Xray,
                 sidecar: None,
@@ -1312,6 +1330,7 @@ impl Engine {
             tokio::time::sleep(Duration::from_millis(150)).await;
         }
         let mut r = Running {
+            id: next_run_id(),
             front,
             front_kind: CoreKind::Mihomo,
             sidecar,
@@ -1532,7 +1551,7 @@ impl Engine {
                 last_down = Some(down_total);
                 engine.emit(Event::Traffic { up, down, up_total, down_total });
                 if let Some(obs) = v["observatory"].as_object() {
-                    let delays = obs.iter().map(|(k, o)| (k.clone(), o["delay"].as_u64().filter(|_| o["alive"].as_bool().unwrap_or(false)).map(|d| d as u32))).collect::<HashMap<_, _>>();
+                    let delays = obs.iter().map(|(k, o)| (gen_xray::node_of_tag(k).to_string(), o["delay"].as_u64().filter(|_| o["alive"].as_bool().unwrap_or(false)).map(|d| d as u32))).collect::<HashMap<_, _>>();
                     engine.delays.write().unwrap().extend(delays.clone());
                 }
             }
@@ -1546,15 +1565,33 @@ impl Engine {
             loop {
                 tokio::time::sleep(Duration::from_secs(2)).await;
                 let Some(engine) = me.upgrade() else { return };
-                let mut guard = engine.run.lock().await;
-                let died = match guard.as_mut() {
-                    Some(r) => match r.front.exited().await {
-                        Some(m) => Some(m),
-                        None => r.sidecar.as_mut().and_then(|s| s.exited()),
-                    },
-                    None => return,
+                // Local processes are looked at under the lock; the service is asked
+                // without it, as that can take seconds and everything else waits on it.
+                let (id, local, remote) = {
+                    let mut guard = engine.run.lock().await;
+                    let Some(r) = guard.as_mut() else { return };
+                    let local = match &mut r.front {
+                        Front::Local(p) => p.exited(),
+                        Front::Service(_) => None,
+                    };
+                    let local = local.or_else(|| r.sidecar.as_mut().and_then(|s| s.exited()));
+                    let remote = match &r.front {
+                        Front::Service(s) => Some(s.clone()),
+                        Front::Local(_) => None,
+                    };
+                    (r.id, local, remote)
+                };
+                let died = match (local, remote) {
+                    (Some(m), _) => Some(m),
+                    (None, Some(s)) => s.exited().await,
+                    (None, None) => None,
                 };
                 if let Some(msg) = died {
+                    let mut guard = engine.run.lock().await;
+                    // Disconnected or reconnected meanwhile: not this connection's to clean up.
+                    if guard.as_ref().map(|r| r.id) != Some(id) {
+                        return;
+                    }
                     let r = guard.take();
                     drop(guard);
                     let kill_switch = engine.settings().kill_switch;

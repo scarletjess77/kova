@@ -14,6 +14,13 @@ pub struct Pending(Mutex<Option<String>>);
 
 pub fn setup(app: &tauri::App) {
     app.manage(Pending::default());
+    // Linux only learns of kova:// links from an installed package's desktop entry; an
+    // AppImage has none, and one that was moved points at the old place. Registering at
+    // every start makes links open this Kova wherever it is.
+    #[cfg(target_os = "linux")]
+    if let Err(e) = app.deep_link().register_all() {
+        tracing::warn!("could not register kova:// links: {e}");
+    }
     let handle = app.handle().clone();
     app.deep_link().on_open_url(move |e| {
         for url in e.urls() {

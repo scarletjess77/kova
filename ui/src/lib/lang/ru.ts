@@ -48,7 +48,6 @@ export const ru: Dict = {
   // Window
   'Kova could not start': 'Не удалось запустить Kova',
   'Donate': 'Поддержать',
-  'Switch theme': 'Сменить тему',
   'Minimize': 'Свернуть',
   'Maximize': 'Развернуть',
   'Close to tray': 'Свернуть в трей',

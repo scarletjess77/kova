@@ -49,6 +49,7 @@ fn tls(o: &Value, always: bool) -> Option<Tls> {
         fingerprint: t.get("utls").and_then(|u| s(u, "fingerprint")),
         insecure: t.get("insecure").and_then(Value::as_bool).unwrap_or(false),
         reality,
+        pin: None,
     })
 }
 

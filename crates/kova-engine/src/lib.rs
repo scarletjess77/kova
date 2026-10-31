@@ -27,7 +27,7 @@ pub enum Error {
     #[error("{0}")]
     Io(#[from] std::io::Error),
     #[error("{}", net_message(.0))]
-    Net(#[from] reqwest::Error),
+    Net(reqwest::Error),
     #[error("{0}")]
     Http(String),
     #[error("{0}")]
@@ -38,6 +38,14 @@ pub enum Error {
     Parse(#[from] kova_core::subscription::ParseError),
     #[error("{0}")]
     Other(String),
+}
+
+/// A subscription's address is its access key, and reqwest names the address in its
+/// errors; they reach the window, the log file and reports, so it is taken out here.
+impl From<reqwest::Error> for Error {
+    fn from(e: reqwest::Error) -> Self {
+        Error::Net(e.without_url())
+    }
 }
 
 fn net_message(e: &reqwest::Error) -> String {

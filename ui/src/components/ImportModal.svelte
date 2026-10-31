@@ -24,9 +24,18 @@
   let receiving = $state<{ url: string; svg: string } | null>(null);
   let receiveError = $state<string | null>(null);
   const startCount = app.profiles.length;
+  // Plain variables: the page is started once, and stopped however the dialog closes,
+  // also before it finished starting.
+  let started = false;
+  let closed = false;
   $effect(() => {
-    if (tab !== 'device' || receiving || receiveError) return;
+    if (tab !== 'device' || receiving || receiveError || started) return;
+    started = true;
     api.receiveStart().then((r) => {
+      if (closed) {
+        void api.receiveStop();
+        return;
+      }
       const qr = qrcode(0, 'M');
       qr.addData(r.url);
       qr.make();
@@ -35,7 +44,10 @@
   });
   // Close once the other device added a profile; stop serving the page on the way out.
   $effect(() => { if (receiving && app.profiles.length > startCount) onclose(); });
-  onDestroy(() => { if (receiving) void api.receiveStop(); });
+  onDestroy(() => {
+    closed = true;
+    if (started) void api.receiveStop();
+  });
   let input = $state(fromLink ?? '');
   let name = $state('');
   let busy = $state(false);

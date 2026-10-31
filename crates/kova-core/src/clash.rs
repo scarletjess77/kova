@@ -43,6 +43,7 @@ fn tls_of(p: &Value, always: bool) -> Option<Tls> {
         fingerprint: s(p, "client-fingerprint"),
         insecure: b(p, "skip-cert-verify"),
         reality,
+        pin: s(p, "fingerprint").and_then(|f| crate::links::normalise_pin(&f)),
     })
 }
 
@@ -283,6 +284,10 @@ pub fn to_clash(n: &Node) -> Value {
         }
         if t.insecure {
             put(&mut m, "skip-cert-verify", true.into());
+        }
+        // Mihomo pins one certificate; Xray takes several.
+        if let Some(pin) = t.pin.as_deref().and_then(|p| p.split(',').next()) {
+            put(&mut m, "fingerprint", pin.into());
         }
         // Reality needs one; Russian DPI holds Chrome's more often than Firefox's.
         let fp = t.fingerprint.clone().or_else(|| t.reality.as_ref().map(|_| "firefox".to_string()));

@@ -166,6 +166,17 @@ pub fn b64_decode(s: &str) -> Option<Vec<u8>> {
         .or_else(|| URL_SAFE.decode(&clean).ok())
 }
 
+/// A certificate pin as Xray and Mihomo both take it: SHA-256 in lower-case hex, several
+/// joined by `,`. Accepts openssl's form with colons; `None` if no entry is a SHA-256.
+pub fn normalise_pin(raw: &str) -> Option<String> {
+    let pins: Vec<String> = raw
+        .split(',')
+        .map(|p| p.trim().replace(':', "").to_ascii_lowercase())
+        .filter(|p| p.len() == 64 && p.bytes().all(|b| b.is_ascii_hexdigit()))
+        .collect();
+    (!pins.is_empty()).then(|| pins.join(","))
+}
+
 fn b64_text(s: &str) -> Option<String> {
     b64_decode(s).and_then(|b| String::from_utf8(b).ok())
 }
@@ -216,6 +227,7 @@ fn tls_from(u: &Uri, default_on: bool) -> Option<Tls> {
         fingerprint: u.q(&["fp", "fingerprint"]),
         insecure: u.flag(&["allowInsecure", "insecure", "allow_insecure", "skip-cert-verify"]),
         reality,
+        pin: u.q(&["pcs", "pinnedPeerCertSha256"]).and_then(|p| normalise_pin(&p)),
     })
 }
 
@@ -300,6 +312,7 @@ fn parse_vmess(s: &str) -> Result<Node, LinkError> {
             fingerprint: str_of("fp"),
             insecure: matches!(str_of("allowInsecure").as_deref(), Some("1" | "true")),
             reality: None,
+            pin: str_of("pcs").and_then(|p| normalise_pin(&p)),
         }),
         _ => None,
     };
@@ -360,17 +373,60 @@ fn parse_ss(s: &str) -> Result<Node, LinkError> {
     })
 }
 
+/// Split `s` at each `sep` not escaped with `\`, as SIP003 plugin options are written.
+/// The escapes stay in the pieces (see [`sip003_unescape`]).
+fn split_unescaped(s: &str, sep: char) -> Vec<String> {
+    let mut out = vec![String::new()];
+    let mut escaped = false;
+    for c in s.chars() {
+        if escaped {
+            escaped = false;
+        } else if c == '\\' {
+            escaped = true;
+        } else if c == sep {
+            out.push(String::new());
+            continue;
+        }
+        out.last_mut().expect("one piece").push(c);
+    }
+    out
+}
+
+fn sip003_unescape(s: &str) -> String {
+    let mut out = String::new();
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        out.push(if c == '\\' { chars.next().unwrap_or(c) } else { c });
+    }
+    out
+}
+
+/// A SIP003 option key or value with `\`, `;` and `=` escaped.
+fn sip003_escape(s: &str) -> String {
+    let mut out = String::new();
+    for c in s.chars() {
+        if matches!(c, '\\' | ';' | '=') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
 fn parse_sip003_plugin(spec: &str) -> Option<SsPlugin> {
-    let mut parts = spec.split(';');
-    let name = parts.next()?.trim();
+    let parts = split_unescaped(spec, ';');
+    let name = sip003_unescape(parts.first()?);
+    let name = name.trim();
     let mut kv: HashMap<String, String> = HashMap::new();
     let mut flags = Vec::new();
-    for p in parts {
-        match p.split_once('=') {
-            Some((k, v)) => {
-                kv.insert(k.to_string(), v.to_string());
+    for p in &parts[1..] {
+        let pieces = split_unescaped(p, '=');
+        match pieces.as_slice() {
+            [flag] => flags.push(sip003_unescape(flag)),
+            [k, rest @ ..] => {
+                kv.insert(sip003_unescape(k), sip003_unescape(&rest.join("=")));
             }
-            None => flags.push(p.to_string()),
+            [] => {}
         }
     }
     let mut opts = indexmap::IndexMap::new();
@@ -429,6 +485,7 @@ fn parse_hy2(s: &str) -> Result<Node, LinkError> {
             fingerprint: None,
             insecure: u.flag(&["insecure", "allowInsecure"]),
             reality: None,
+            pin: None,
         }),
         udp: true,
     })
@@ -456,6 +513,7 @@ fn parse_tuic(s: &str) -> Result<Node, LinkError> {
             fingerprint: None,
             insecure: u.flag(&["allow_insecure", "insecure", "allowInsecure"]),
             reality: None,
+            pin: None,
         }),
         udp: true,
     })
@@ -511,6 +569,7 @@ fn parse_anytls(s: &str) -> Result<Node, LinkError> {
             fingerprint: u.q(&["fp"]),
             insecure: u.flag(&["insecure", "allowInsecure"]),
             reality: None,
+            pin: None,
         }),
         udp: true,
     })
@@ -609,6 +668,7 @@ fn push_stream(q: &mut Query, n: &Node) {
             if t.insecure {
                 q.push("allowInsecure", "1");
             }
+            q.push("pcs", t.pin.clone().unwrap_or_default());
             if let Some(r) = &t.reality {
                 q.push("pbk", r.public_key.clone());
                 q.push("sid", r.short_id.clone().unwrap_or_default());
@@ -659,6 +719,7 @@ pub fn to_link(n: &Node) -> Option<String> {
                 "host": hosth.unwrap_or_default(), "path": path,
                 "tls": if n.tls.is_some() { "tls" } else { "" },
                 "sni": t.sni.unwrap_or_default(), "alpn": t.alpn.join(","), "fp": t.fingerprint.unwrap_or_default(),
+                "allowInsecure": if t.insecure { "1" } else { "" }, "pcs": t.pin.unwrap_or_default(),
             });
             let b = base64::engine::general_purpose::STANDARD.encode(j.to_string());
             return Some(format!("vmess://{b}"));
@@ -676,10 +737,11 @@ pub fn to_link(n: &Node) -> Option<String> {
                         ("obfs", "host") => "obfs-host",
                         (_, k) => k,
                     };
+                    let key = sip003_escape(key);
                     match v {
                         serde_json::Value::Bool(true) => spec.push_str(&format!(";{key}")),
-                        serde_json::Value::String(s) => spec.push_str(&format!(";{key}={s}")),
-                        other => spec.push_str(&format!(";{key}={other}")),
+                        serde_json::Value::String(s) => spec.push_str(&format!(";{key}={}", sip003_escape(s))),
+                        other => spec.push_str(&format!(";{key}={}", sip003_escape(&other.to_string()))),
                     }
                 }
                 q.push("plugin", spec);
@@ -846,6 +908,19 @@ mod tests {
         // A path after the host still works.
         let v = parse_link("vless://id@a.example:443/?security=tls#V").unwrap();
         assert_eq!(v.port, 443);
+    }
+
+    /// Plugin options with SIP003's special characters survive a share link both ways.
+    #[test]
+    fn plugin_options_are_escaped() {
+        let mut n = parse_link("ss://YWVzLTEyOC1nY206dGVzdA@192.0.2.1:8888#P").unwrap();
+        let mut opts = indexmap::IndexMap::new();
+        opts.insert("path".to_string(), serde_json::Value::from("/a;b=c"));
+        if let Protocol::Shadowsocks { plugin, .. } = &mut n.protocol {
+            *plugin = Some(SsPlugin { name: "v2ray-plugin".into(), opts });
+        }
+        let back = parse_link(&to_link(&n).unwrap()).unwrap();
+        assert!(matches!(&back.protocol, Protocol::Shadowsocks { plugin: Some(p), .. } if p.opts["path"] == "/a;b=c"), "{back:?}");
     }
 
     #[test]

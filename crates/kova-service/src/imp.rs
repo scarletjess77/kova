@@ -183,6 +183,10 @@ impl Service {
         *self.exit.lock().unwrap() = None;
         let run = self.run_dir();
         std::fs::create_dir_all(&run).map_err(|e| e.to_string())?;
+        // The installed service's folder; a console run elsewhere keeps its own rights.
+        if self.home == service_home() {
+            lock_down(&run).map_err(|e| format!("could not protect Mihomo's folder: {e}"))?;
+        }
         geodata::seed_mihomo_home(&cores_dir, &run);
         let cfg = run.join("config.yaml");
         std::fs::write(&cfg, config).map_err(|e| e.to_string())?;
@@ -198,6 +202,38 @@ impl Service {
         *self.owner.lock().await = Some(owner);
         Ok(())
     }
+}
+
+/// Let only SYSTEM and administrators into `dir`, also what is already in it. Mihomo's
+/// config there holds the controller secret, and Program Files lets every account read
+/// what it holds: with the secret, any of them could load a config of its own into the
+/// Mihomo that runs as SYSTEM through the controller (`PUT /configs`), skipping what
+/// `sanitize_for_service` takes out.
+fn lock_down(dir: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Security::Authorization::{SE_FILE_OBJECT, SetNamedSecurityInfoW};
+    use windows_sys::Win32::Security::{ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, PROTECTED_DACL_SECURITY_INFORMATION};
+    let sddl: Vec<u16> = "D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)\0".encode_utf16().collect();
+    let path: Vec<u16> = dir.as_os_str().encode_wide().chain(Some(0)).collect();
+    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: NUL-terminated strings; the descriptor is freed below, after its DACL was used.
+    unsafe {
+        if ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut sd, std::ptr::null_mut()) == 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+        let (mut present, mut defaulted, mut dacl) = (0, 0, std::ptr::null_mut::<ACL>());
+        let got = GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted) != 0;
+        let err = if got {
+            SetNamedSecurityInfoW(path.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION, std::ptr::null_mut(), std::ptr::null_mut(), dacl, std::ptr::null())
+        } else {
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(1) as u32
+        };
+        LocalFree(sd as _);
+        if err != 0 {
+            return Err(std::io::Error::from_raw_os_error(err as i32));
+        }
+    }
+    Ok(())
 }
 
 fn push_log(logs: &StdMutex<Logs>, line: &str) {
@@ -617,5 +653,25 @@ mod tests {
 
         std::fs::write(home.path().join(CLIENTS), r"C:\Program Files\Kova\kova.exe").unwrap();
         assert!(!allowed_client(home.path(), &server), "any other program is refused");
+    }
+
+    /// Mihomo's folder and what is already in it end up open to SYSTEM and administrators
+    /// only, not to every account as Program Files leaves them.
+    #[test]
+    fn mihomos_folder_is_closed_to_other_accounts() {
+        let home = tempfile::tempdir().unwrap();
+        let run = home.path().join("run");
+        std::fs::create_dir_all(&run).unwrap();
+        std::fs::write(run.join("config.yaml"), "secret: x").unwrap();
+        lock_down(&run).unwrap();
+        let acl = |p: &Path| String::from_utf8_lossy(&std::process::Command::new("icacls").arg(p).output().unwrap().stdout).to_string();
+        for p in [run.clone(), run.join("config.yaml")] {
+            let text = acl(&p);
+            assert!(text.contains(r"NT AUTHORITY\SYSTEM") && text.contains(r"BUILTIN\Administrators"), "{text}");
+            let me = format!(r"\{}:", std::env::var("USERNAME").unwrap());
+            assert!(!text.contains("Users:") && !text.contains("Everyone:") && !text.contains(&me), "{text}");
+        }
+        // Give it back to this account so the folder can be removed.
+        let _ = std::process::Command::new("icacls").arg(&run).args(["/reset", "/T", "/Q"]).output();
     }
 }
