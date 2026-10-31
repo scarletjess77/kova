@@ -105,11 +105,15 @@ fn device_os() -> &'static str {
 
 /// `device_id` is a random value made once per install, not a hardware ID. Panels with a
 /// device limit (Remnawave and others) refuse a subscription request without it.
-pub async fn subscription(url: &str, user_agent: Option<&str>, proxy: Option<&str>, device_id: &str) -> Result<Subscription, Error> {
+pub async fn subscription(url: &str, user_agent: Option<&str>, headers: &[crate::store::Header], proxy: Option<&str>, device_id: &str) -> Result<Subscription, Error> {
     let c = client(proxy, user_agent.unwrap_or(DEFAULT_SUB_UA))?;
     let mut req = c.get(url).header("x-device-os", device_os());
     if !device_id.is_empty() {
         req = req.header("x-hwid", device_id);
+    }
+    // The profile's own headers last, so they can replace Kova's.
+    for h in headers.iter().filter(|h| h.problem().is_none()) {
+        req = req.header(h.name.trim(), h.value.trim());
     }
     let resp = req.send().await?;
     if !resp.status().is_success() {
@@ -186,9 +190,10 @@ mod tests {
     async fn sends_the_device_id_and_reads_the_announcement() {
         // "Maintenance tonight" in base64, as panels send it.
         let (url, task) = serve_once("announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodA==\r\n").await;
-        let sub = super::subscription(&url, None, None, "abc123").await.unwrap();
+        let sub = super::subscription(&url, None, &[crate::store::Header { name: "X-Provider-Token".into(), value: "t0k".into() }], None, "abc123").await.unwrap();
         let request = task.await.unwrap();
         assert!(request.contains("x-hwid: abc123"), "{request}");
+        assert!(request.contains("x-provider-token: t0k"), "the profile's own header: {request}");
         assert!(request.contains("x-device-os: "), "{request}");
         assert_eq!(sub.announce.as_deref(), Some("Maintenance tonight"));
     }
@@ -240,14 +245,14 @@ mod tests {
             let _ = s.write_all(head.as_bytes()).await;
             let _ = s.write_all(&body).await;
         });
-        let sub = super::subscription(&url, None, None, "").await.unwrap();
+        let sub = super::subscription(&url, None, &[], None, "").await.unwrap();
         assert!(sub.body.starts_with("vless://"), "{}", sub.body);
     }
 
     #[tokio::test]
     async fn no_device_id_header_when_there_is_none() {
         let (url, task) = serve_once("").await;
-        let sub = super::subscription(&url, None, None, "").await.unwrap();
+        let sub = super::subscription(&url, None, &[], None, "").await.unwrap();
         assert!(!task.await.unwrap().contains("x-hwid"));
         assert_eq!(sub.announce, None);
     }

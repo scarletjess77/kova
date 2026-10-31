@@ -137,7 +137,7 @@ mod tests {
         let profile = Profile {
             id: "abc123".into(),
             name: "Night Owl".into(),
-            source: Source::Remote { url: "https://sub.example.com/s/test".into(), user_agent: None, update_hours: 12, via_proxy: true },
+            source: Source::Remote { url: "https://sub.example.com/s/test".into(), user_agent: None, update_hours: 12, via_proxy: true, headers: vec![crate::store::Header { name: "X-Token".into(), value: "secret".into() }] },
             format: Format::Links,
             core: Default::default(),
             node_count: 1,

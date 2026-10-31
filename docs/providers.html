@@ -203,7 +203,7 @@ announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodCBhdCAwMzowMCBVVEM=</template>
         <tr><td><code>x-hwid</code></td><td>A random ID made once per install, for device limits. Not tied to the hardware.</td></tr>
         <tr><td><code>x-device-os</code></td><td><code>Windows</code>, <code>macOS</code>, <code>Linux</code> or <code>Android</code>.</td></tr>
       </table></div>
-      <p>Kova reads a Clash/Mihomo config (kept as it is, with its groups and rules), sing-box JSON, Xray JSON (one config or a list, as panels send it for v2rayNG), and plain or base64 share links. Xray 26's pinned certificates (<code>pinnedPeerCertSha256</code>) are kept. The provider's fragment and mux settings aren't used: Kova's own Anti-DPI does the fragmenting.</p>
+      <p>Kova reads a Clash/Mihomo config (kept as it is, with its groups and rules), sing-box JSON, Xray JSON (one config or a list, as panels send it for v2rayNG), plain or base64 share links, and WireGuard <code>.conf</code> files. Pinned certificates (<code>pinnedPeerCertSha256</code>), ECH and mux are kept: Xray's mux runs on Xray, sing-mux (<code>smux</code>, <code>multiplex</code>) on Mihomo. Outbounds such as MASQUE run on Xray as written. The provider's fragment setting isn't used: Kova's own Anti-DPI does the fragmenting. If your panel needs a header of its own, users can add it to the profile.</p>
     </section>
 
     <section id="en-headers">
@@ -290,7 +290,7 @@ announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodCBhdCAwMzowMCBVVEM=</template>
         <tr><td><code>x-hwid</code></td><td>Случайный ID, создаётся один раз при установке, для лимита устройств. Не связан с железом.</td></tr>
         <tr><td><code>x-device-os</code></td><td><code>Windows</code>, <code>macOS</code>, <code>Linux</code> или <code>Android</code>.</td></tr>
       </table></div>
-      <p>Kova читает конфиг Clash/Mihomo (как есть, с группами и правилами), JSON sing-box, JSON Xray (один конфиг или список, как панели отдают для v2rayNG) и ссылки на серверы, открытым текстом или в base64. Закреплённые сертификаты Xray 26 (<code>pinnedPeerCertSha256</code>) сохраняются. Настройки fragment и mux провайдера не используются: дробит соединения собственный Анти-DPI Kova.</p>
+      <p>Kova читает конфиг Clash/Mihomo (как есть, с группами и правилами), JSON sing-box, JSON Xray (один конфиг или список, как панели отдают для v2rayNG) ссылки на серверы, открытым текстом или в base64, и файлы WireGuard <code>.conf</code>. Закреплённые сертификаты (<code>pinnedPeerCertSha256</code>), ECH и mux сохраняются: mux Xray работает в Xray, sing-mux (<code>smux</code>, <code>multiplex</code>) — в Mihomo. Исходящие вроде MASQUE запускаются в Xray как есть. Настройка fragment провайдера не используется: дробит соединения собственный Анти-DPI Kova. Если панели нужен свой заголовок, пользователь может добавить его в профиль.</p>
     </section>
 
     <section id="ru-headers">
@@ -377,7 +377,7 @@ announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodCBhdCAwMzowMCBVVEM=</template>
         <tr><td><code>x-hwid</code></td><td>یک شناسهٔ تصادفی که یک بار هنگام نصب ساخته می‌شود، برای محدودیت دستگاه. به سخت‌افزار وابسته نیست.</td></tr>
         <tr><td><code>x-device-os</code></td><td><code>Windows</code>، <code>macOS</code>، <code>Linux</code> یا <code>Android</code>.</td></tr>
       </table></div>
-      <p>Kova کانفیگ Clash/Mihomo (همان‌طور که هست، با گروه‌ها و قوانین)، JSON سینگ‌باکس، JSON ایکس‌ری (یک کانفیگ یا فهرستی از آن‌ها، آن‌طور که پنل‌ها برای v2rayNG می‌فرستند) و لینک‌های سرور، ساده یا base64، را می‌خواند. گواهی‌های سنجاق‌شدهٔ Xray 26 (<code>pinnedPeerCertSha256</code>) حفظ می‌شوند. تنظیمات fragment و mux ارائه‌دهنده استفاده نمی‌شوند: ضد DPI خود Kova این کار را می‌کند.</p>
+      <p>Kova کانفیگ Clash/Mihomo (همان‌طور که هست، با گروه‌ها و قوانین)، JSON سینگ‌باکس، JSON ایکس‌ری (یک کانفیگ یا فهرستی از آن‌ها، آن‌طور که پنل‌ها برای v2rayNG می‌فرستند) لینک‌های سرور، ساده یا base64، و فایل‌های WireGuard <code>.conf</code> را می‌خواند. گواهی‌های سنجاق‌شده (<code>pinnedPeerCertSha256</code>)، ECH و mux حفظ می‌شوند: mux ایکس‌ری در Xray و sing-mux (<code>smux</code>، <code>multiplex</code>) در Mihomo اجرا می‌شود. خروجی‌هایی مانند MASQUE همان‌طور که نوشته شده‌اند در Xray اجرا می‌شوند. تنظیم fragment ارائه‌دهنده استفاده نمی‌شود: ضد DPI خود Kova این کار را می‌کند. اگر پنل شما سرآیند ویژه‌ای لازم دارد، کاربر می‌تواند آن را به پروفایل اضافه کند.</p>
     </section>
 
     <section id="fa-headers">
@@ -464,7 +464,7 @@ announce: base64:TWFpbnRlbmFuY2UgdG9uaWdodCBhdCAwMzowMCBVVEM=</template>
         <tr><td><code>x-hwid</code></td><td>安装时生成一次的随机 ID，用于设备数限制，与硬件无关。</td></tr>
         <tr><td><code>x-device-os</code></td><td><code>Windows</code>、<code>macOS</code>、<code>Linux</code> 或 <code>Android</code>。</td></tr>
       </table></div>
-      <p>Kova 可读取 Clash/Mihomo 配置（原样保留分组和规则）、sing-box JSON、Xray JSON（单个配置或列表，与面板为 v2rayNG 提供的相同）以及明文或 base64 的分享链接。Xray 26 的证书固定（<code>pinnedPeerCertSha256</code>）会被保留。服务商的 fragment 和 mux 设置不会使用：分片由 Kova 自带的抗 DPI 完成。</p>
+      <p>Kova 可读取 Clash/Mihomo 配置（原样保留分组和规则）、sing-box JSON、Xray JSON（单个配置或列表，与面板为 v2rayNG 提供的相同）明文或 base64 的分享链接，以及 WireGuard <code>.conf</code> 文件。证书固定（<code>pinnedPeerCertSha256</code>）、ECH 和 mux 都会保留：Xray 的 mux 在 Xray 中运行，sing-mux（<code>smux</code>、<code>multiplex</code>）在 Mihomo 中运行。MASQUE 等出站按原样在 Xray 中运行。服务商的 fragment 设置不会使用：分片由 Kova 自带的抗 DPI 完成。如果您的面板需要专门的请求头，用户可以把它加到配置中。</p>
     </section>
 
     <section id="zh-headers">

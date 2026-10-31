@@ -55,9 +55,6 @@ pub fn parse(doc: &Value) -> (Vec<Node>, Vec<String>) {
         if outbounds.iter().any(|o| o.get("settings").and_then(|s| s.get("fragment")).is_some()) {
             warnings.push(format!("{label}: the provider's fragment setting isn't used; Settings → Anti-DPI does the same"));
         }
-        if outbounds.iter().any(|o| o.get("mux").and_then(|m| m.get("enabled")).and_then(Value::as_bool) == Some(true)) {
-            warnings.push(format!("{label}: the provider's mux setting isn't used"));
-        }
         let proxies: Vec<&Value> = config
             .get("outbounds")
             .and_then(Value::as_array)
@@ -96,11 +93,28 @@ fn server_entry(settings: &Value) -> Option<&Value> {
     settings.get("address").map(|_| settings)
 }
 
+/// Outbounds Kova reads field by field; any other is kept whole for Xray.
+const MODELED: &[&str] = &["vless", "vmess", "trojan", "shadowsocks", "socks", "http", "wireguard"];
+
 fn convert(o: &Value, name: String) -> Result<Node, String> {
     let kind = s(o, "protocol").unwrap_or_default();
     let label = name.clone();
     let fail = |why: &str| format!("{label}: {why}");
     let settings = o.get("settings").cloned().unwrap_or(Value::Null);
+    if !kind.is_empty() && !MODELED.contains(&kind.as_str()) {
+        // MASQUE and what newer Xray adds: its server, for the list and TUN's exceptions.
+        let entry = server_entry(&settings);
+        return Ok(Node {
+            name,
+            server: entry.and_then(|e| s(e, "address")).unwrap_or_default(),
+            port: entry.and_then(port).unwrap_or(0),
+            protocol: Protocol::XrayOutbound { kind, raw: o.clone() },
+            transport: Transport::Tcp,
+            tls: None,
+            udp: true,
+            mux: None,
+        });
+    }
 
     if kind == "wireguard" {
         let peer = settings.get("peers").and_then(Value::as_array).and_then(|p| p.first()).ok_or_else(|| fail("WireGuard without a peer"))?;
@@ -123,6 +137,7 @@ fn convert(o: &Value, name: String) -> Result<Node, String> {
             transport: Transport::Tcp,
             tls: None,
             udp: true,
+            mux: None,
         });
     }
 
@@ -199,6 +214,7 @@ fn convert(o: &Value, name: String) -> Result<Node, String> {
                 reality: None,
                 // What Xray 26 has instead of `allowInsecure` for a server with its own certificate.
                 pin: s(&t, "pinnedPeerCertSha256").and_then(|p| crate::links::normalise_pin(&p)),
+                ech: s(&t, "echConfigList").and_then(|e| Ech::from_xray(&e)),
             })
         }
         Some("reality") => {
@@ -212,12 +228,18 @@ fn convert(o: &Value, name: String) -> Result<Node, String> {
                 insecure: false,
                 reality: Some(Reality { public_key, short_id: s(&r, "shortId"), spider_x: s(&r, "spiderX") }),
                 pin: None,
+                ech: None,
             })
         }
         _ => None,
     };
 
-    Ok(Node { name, server, port, protocol, transport, tls, udp: true })
+    // Xray's own mux: kept, so such a node runs on Xray (see `compat`).
+    let mux = o.get("mux").filter(|m| m.get("enabled").and_then(Value::as_bool) == Some(true)).map(|m| {
+        let n = |k: &str| m.get(k).and_then(Value::as_i64).and_then(|v| i32::try_from(v).ok());
+        Mux::Xray { concurrency: n("concurrency"), xudp_concurrency: n("xudpConcurrency"), xudp_proxy_udp443: s(m, "xudpProxyUDP443") }
+    });
+    Ok(Node { name, server, port, protocol, transport, tls, udp: true, mux })
 }
 
 #[cfg(test)]
@@ -291,7 +313,35 @@ mod tests {
         }]);
         let (nodes, warnings) = parse(&doc);
         assert_eq!(nodes.len(), 1);
-        assert_eq!(warnings.len(), 3, "{warnings:?}");
+        assert_eq!(warnings.len(), 2, "fragment and the chain: {warnings:?}");
+        assert!(matches!(nodes[0].mux, Some(Mux::Xray { .. })), "mux is kept now");
+    }
+
+    /// Mux and ECH reach the core they belong to, and a node with Xray's mux runs on Xray.
+    #[test]
+    fn mux_and_ech_are_kept() {
+        let doc = json!({ "remarks": "Muxed", "outbounds": [{ "tag": "proxy", "protocol": "vless", "mux": { "enabled": true, "concurrency": 4, "xudpConcurrency": 8 },
+            "settings": { "vnext": [{ "address": "203.0.113.7", "port": 443, "users": [{ "id": "b831381d-6324-4d53-ad4f-8cda48b30811", "encryption": "none" }] }] },
+            "streamSettings": { "network": "ws", "security": "tls", "wsSettings": { "path": "/w" }, "tlsSettings": { "serverName": "cdn.example", "echConfigList": "https://1.1.1.1/dns-query" } } }] });
+        let (nodes, _) = parse(&doc);
+        let n = &nodes[0];
+        let x = crate::gen_xray::outbound(n).unwrap();
+        assert_eq!(x["mux"], json!({ "enabled": true, "concurrency": 4, "xudpConcurrency": 8 }));
+        assert_eq!(x["streamSettings"]["tlsSettings"]["echConfigList"], "https://1.1.1.1/dns-query");
+        assert!(!crate::compat::supports(crate::CoreKind::Mihomo, n), "Xray's mux is Xray's");
+        assert!(crate::compat::supports(crate::CoreKind::Xray, n));
+        // sing-mux and ECH keys from a Clash profile go the other way.
+        let clash = json!({ "name": "S", "type": "trojan", "server": "a.example", "port": 443, "password": "x",
+            "smux": { "enabled": true, "protocol": "h2mux", "max-connections": 4, "padding": true },
+            "ech-opts": { "enable": true, "config": "AEX+DQBB" } });
+        let s = crate::clash::from_clash(&clash).unwrap();
+        assert!(matches!(&s.mux, Some(Mux::Sing { protocol: Some(p), max_connections: Some(4), padding: true, .. }) if p == "h2mux"));
+        let back = crate::clash::to_clash(&s);
+        assert_eq!(back["smux"]["protocol"], "h2mux");
+        assert_eq!(back["ech-opts"], json!({ "enable": true, "config": "AEX+DQBB" }));
+        assert!(!crate::compat::supports(crate::CoreKind::Xray, &s), "sing-mux is Mihomo's");
+        let link = crate::links::parse_link(&crate::links::to_link(n).unwrap()).unwrap();
+        assert_eq!(link.tls.unwrap().ech.unwrap().query.as_deref(), Some("https://1.1.1.1/dns-query"), "ECH survives a share link");
     }
 
     #[test]

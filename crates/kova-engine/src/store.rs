@@ -259,8 +259,32 @@ pub enum Source {
         update_hours: u32,
         #[serde(default = "yes")]
         via_proxy: bool,
+        /// Headers sent with every update, for providers that need one of their own
+        /// (a token, a client name). Values can be access keys: sealed on disk.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        headers: Vec<Header>,
     },
     Local,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Header {
+    pub name: String,
+    pub value: String,
+}
+
+impl Header {
+    /// What is wrong with the header, if anything: a name HTTP can carry, a value on one line.
+    pub fn problem(&self) -> Option<&'static str> {
+        let name = self.name.trim();
+        if name.is_empty() || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b)) {
+            return Some("a header name is letters, digits and - only");
+        }
+        if self.value.contains(['\r', '\n']) {
+            return Some("a header value is one line");
+        }
+        None
+    }
 }
 
 fn twelve() -> u32 {
@@ -305,7 +329,11 @@ impl ProfileIndex {
         let mut idx: Self = read_json(&paths.profiles_index());
         let mut unsealed = false;
         for p in &mut idx.profiles {
-            if let Source::Remote { url, .. } = &mut p.source {
+            if let Source::Remote { url, headers, .. } = &mut p.source {
+                for h in headers.iter_mut() {
+                    unsealed |= crate::secret::available() && !crate::secret::is_sealed(&h.value);
+                    h.value = crate::secret::open(&h.value).unwrap_or_default();
+                }
                 unsealed |= crate::secret::available() && !url.is_empty() && !crate::secret::is_sealed(url);
                 match crate::secret::open(url) {
                     Some(u) => *url = u,
@@ -336,9 +364,12 @@ impl ProfileIndex {
     pub fn save(&self, paths: &Paths) -> Result<(), Error> {
         let mut sealed = Self { profiles: self.profiles.clone() };
         for p in &mut sealed.profiles {
-            if let Source::Remote { url, .. } = &mut p.source {
+            if let Source::Remote { url, headers, .. } = &mut p.source {
                 if !url.is_empty() {
                     *url = crate::secret::seal(url);
+                }
+                for h in headers.iter_mut() {
+                    h.value = crate::secret::seal(&h.value);
                 }
             }
         }
@@ -390,7 +421,7 @@ mod tests {
         let profile = Profile {
             id: "p1".into(),
             name: "P".into(),
-            source: Source::Remote { url: url.into(), user_agent: None, update_hours: 12, via_proxy: true },
+            source: Source::Remote { url: url.into(), user_agent: None, update_hours: 12, via_proxy: true, headers: Vec::new() },
             format: kova_core::subscription::Format::Links,
             core: Default::default(),
             node_count: 1,

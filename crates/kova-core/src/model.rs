@@ -24,6 +24,38 @@ pub struct Node {
     pub tls: Option<Tls>,
     #[serde(default = "yes")]
     pub udp: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mux: Option<Mux>,
+}
+
+/// Several connections over one, as the provider set it. Xray's kind and sing-mux are
+/// different protocols on the server too, so each runs only on its own core (see
+/// `compat`): a node with Xray's runs on Xray, one with sing-mux on Mihomo.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum Mux {
+    /// Xray's Mux.Cool (`mux` on an outbound).
+    Xray {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        concurrency: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        xudp_concurrency: Option<i32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        xudp_proxy_udp443: Option<String>,
+    },
+    /// sing-mux: Mihomo's `smux`, sing-box's `multiplex`.
+    Sing {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        protocol: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_connections: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        min_streams: Option<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max_streams: Option<u32>,
+        #[serde(default)]
+        padding: bool,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -106,6 +138,13 @@ pub enum Protocol {
     /// A Clash proxy type we don't model (ssr, snell, mieru, ...). Kept verbatim so
     /// Mihomo can still run it.
     Other {
+        kind: String,
+        raw: serde_json::Value,
+    },
+    /// An Xray outbound Kova doesn't model (MASQUE, ...), from an Xray JSON
+    /// subscription. Kept verbatim so Xray can run it.
+    #[serde(rename = "xray-outbound")]
+    XrayOutbound {
         kind: String,
         raw: serde_json::Value,
     },
@@ -198,6 +237,46 @@ pub struct Tls {
     /// instead of the usual check: Xray's `pinnedPeerCertSha256`, Mihomo's `fingerprint`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pin: Option<String>,
+    /// Encrypted Client Hello: the server name is hidden from the network too.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ech: Option<Ech>,
+}
+
+/// Where the ECH keys come from: given (`config`, base64 ECHConfigList) or looked up in
+/// the server name's DNS HTTPS record. `query` is Xray's form of the lookup
+/// (`https://1.1.1.1/dns-query`, optionally `name+` in front); Mihomo looks up through
+/// its own DNS.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct Ech {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+}
+
+impl Ech {
+    /// From a value in Xray's `echConfigList` form: a DNS address to look up, or the keys.
+    pub fn from_xray(v: &str) -> Option<Ech> {
+        let v = v.trim();
+        if v.is_empty() {
+            None
+        } else if v.contains("://") {
+            Some(Ech { config: None, query: Some(v.to_string()) })
+        } else {
+            Some(Ech { config: Some(v.to_string()), query: None })
+        }
+    }
+
+    /// The value for Xray's `echConfigList`: the keys, or where to look them up.
+    pub fn to_xray(&self) -> String {
+        self.config.clone().or_else(|| self.query.clone()).unwrap_or_else(|| "https://1.1.1.1/dns-query".into())
+    }
+
+    /// The name whose record holds the keys when it isn't the server's own (Xray's
+    /// `name+dns` form), for Mihomo's `query-server-name`.
+    pub fn query_name(&self) -> Option<&str> {
+        self.query.as_deref().and_then(|q| q.split_once('+')).map(|(name, _)| name).filter(|n| !n.contains("://"))
+    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -223,7 +302,7 @@ impl Node {
             Protocol::Anytls { .. } => "AnyTLS".into(),
             Protocol::Socks { .. } => "SOCKS5".into(),
             Protocol::Http { .. } => "HTTP".into(),
-            Protocol::Other { kind, .. } => kind.to_uppercase(),
+            Protocol::Other { kind, .. } | Protocol::XrayOutbound { kind, .. } => kind.to_uppercase(),
         }
     }
 
