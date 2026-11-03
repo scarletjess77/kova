@@ -184,11 +184,10 @@ fn sniffing(opts: &RuntimeOptions) -> Value {
 /// certificate instead of any).
 fn with_pin(n: &Node, opts: &RuntimeOptions) -> Option<Value> {
     let mut o = outbound(n)?;
-    if n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none() && t.pin.is_none()) {
-        if let Some(pin) = opts.cert_pins.get(&n.name) {
+    if n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none() && t.pin.is_none())
+        && let Some(pin) = opts.cert_pins.get(&n.name) {
             o["streamSettings"]["tlsSettings"]["pinnedPeerCertSha256"] = pin.clone().into();
         }
-    }
     Some(o)
 }
 
@@ -374,11 +373,10 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
 
     let mut dns_servers: Vec<Value> = opts.dns.nameservers.iter().map(|s| Value::String(s.clone())).collect();
     let direct_domains: Vec<String> = opts.presets.iter().flat_map(|p| p.direct_geosites()).map(|g| format!("geosite:{g}")).collect();
-    if !direct_domains.is_empty() {
-        if let Some(d) = opts.dns.direct_nameservers.first() {
+    if !direct_domains.is_empty()
+        && let Some(d) = opts.dns.direct_nameservers.first() {
             dns_servers.push(json!({ "address": d, "domains": direct_domains, "skipFallback": true }));
         }
-    }
 
     let mut doc = json!({
         "log": log(opts),

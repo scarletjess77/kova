@@ -302,13 +302,11 @@ fn confine_inbounds(doc: &mut Mapping, allow_lan: bool) {
     }
     let loopback = |address: &str| format!("127.0.0.1:{}", address.rsplit_once(':').map_or(address, |(_, port)| port));
     // The profile's DNS server answers this computer only too, unless LAN sharing is on.
-    if !allow_lan {
-        if let Some(Yaml::Mapping(dns)) = doc.get_mut("dns") {
-            if let Some(address) = dns.get("listen").and_then(Yaml::as_str).map(loopback) {
+    if !allow_lan
+        && let Some(Yaml::Mapping(dns)) = doc.get_mut("dns")
+            && let Some(address) = dns.get("listen").and_then(Yaml::as_str).map(loopback) {
                 dns.insert(Yaml::String("listen".into()), Yaml::String(address));
             }
-        }
-    }
     if let Some(Yaml::Sequence(tunnels)) = doc.get_mut("tunnels") {
         for t in tunnels.iter_mut() {
             match t {
@@ -512,11 +510,10 @@ fn apply_anti_dpi(doc: &mut Mapping, opts: &RuntimeOptions) {
             if !matches!(p.get(&key), Some(Yaml::Mapping(_))) {
                 p.insert(key.clone(), Yaml::Mapping(Mapping::new()));
             }
-            if let Some(Yaml::Mapping(o)) = p.get_mut(&key) {
-                if !o.contains_key("dialer-proxy") {
+            if let Some(Yaml::Mapping(o)) = p.get_mut(&key)
+                && !o.contains_key("dialer-proxy") {
                     o.insert(Yaml::String("dialer-proxy".into()), Yaml::String(ANTI_DPI_PROXY.into()));
                 }
-            }
         }
     }
     if !matches!(doc.get("proxies"), Some(Yaml::Sequence(_))) {

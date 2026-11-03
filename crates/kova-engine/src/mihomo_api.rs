@@ -257,11 +257,10 @@ impl Mihomo {
             buf.extend_from_slice(&chunk?);
             while let Some(pos) = buf.iter().position(|b| *b == b'\n') {
                 let line: Vec<u8> = buf.drain(..=pos).collect();
-                if let Ok(v) = serde_json::from_slice::<Value>(&line) {
-                    if !f(v) {
+                if let Ok(v) = serde_json::from_slice::<Value>(&line)
+                    && !f(v) {
                         return Ok(());
                     }
-                }
             }
         }
         Ok(())

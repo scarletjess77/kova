@@ -310,11 +310,10 @@ pub fn to_clash(n: &Node) -> Value {
         }
         // Reality needs one; Russian DPI holds Chrome's more often than Firefox's.
         let fp = t.fingerprint.clone().or_else(|| t.reality.as_ref().map(|_| "firefox".to_string()));
-        if let Some(fp) = fp {
-            if !matches!(n.protocol, Protocol::Hysteria2 { .. } | Protocol::Tuic { .. }) {
+        if let Some(fp) = fp
+            && !matches!(n.protocol, Protocol::Hysteria2 { .. } | Protocol::Tuic { .. }) {
                 put(&mut m, "client-fingerprint", fp.into());
             }
-        }
         if let Some(e) = &t.ech {
             let mut eo = json!({ "enable": true });
             if let Some(c) = &e.config {

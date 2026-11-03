@@ -141,7 +141,7 @@ async fn shutdown(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
     stopped
 }
 
-fn close_fd(fd: i32) {
+pub(crate) fn close_fd(fd: i32) {
     unsafe {
         libc::close(fd);
     }
