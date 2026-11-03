@@ -47,6 +47,10 @@ export interface RuntimeOptions {
   smart_learn_direct: boolean;
   /** Beta: split the TLS handshake and add UDP noise on connections to the servers. */
   anti_dpi: boolean;
+  /** Address latency tests check through each server; empty for the standard one. */
+  test_url: string;
+  /** Country codes whose servers are left out, told by their names. */
+  hidden_countries: string[];
 }
 
 export type Route = 'proxy' | 'direct';

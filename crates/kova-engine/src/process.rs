@@ -185,12 +185,13 @@ pub fn end_leftovers(dir: &Path, bins: &[std::path::PathBuf]) {
                     }
                 } else if path.extension().is_some_and(|x| x == "pid") {
                     #[cfg(unix)]
-                    if let Some(pid) = std::fs::read_to_string(&path).ok().and_then(|t| t.trim().parse::<i32>().ok()) {
-                        if pid > 1 && image_of(pid).is_some_and(|img| bins.contains(&img)) {
-                            // SAFETY: plain signal to a process checked to be one of our cores.
-                            unsafe { libc::kill(pid, libc::SIGKILL) };
-                            tracing::info!("ended a core left running by a previous Kova (process {pid})");
-                        }
+                    if let Some(pid) = std::fs::read_to_string(&path).ok().and_then(|t| t.trim().parse::<i32>().ok())
+                        && pid > 1
+                        && image_of(pid).is_some_and(|img| bins.contains(&img))
+                    {
+                        // SAFETY: plain signal to a process checked to be one of our cores.
+                        unsafe { libc::kill(pid, libc::SIGKILL) };
+                        tracing::info!("ended a core left running by a previous Kova (process {pid})");
                     }
                     #[cfg(not(unix))]
                     let _ = bins;

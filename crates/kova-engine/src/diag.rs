@@ -102,7 +102,7 @@ impl Engine {
         let node = self.current_node().await;
         match (&api, &node) {
             (Some(api), Some(node)) if settings.core.mode != Mode::Direct => {
-                match api.delay(node, TEST_URL, 5000).await.ok().flatten() {
+                match api.delay(node, settings.core.test_url(), 5000).await.ok().flatten() {
                     Some(ms) => out.push(check("node", Ok, Some(format!("{node} · {ms} ms")), None)),
                     None => out.push(check("node", Fail, Some(node.clone()), Some("switch-node"))),
                 }

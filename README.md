@@ -45,7 +45,7 @@ The latest build is on the [Releases](https://github.com/scarletjess77/kova/rele
 No accounts, ads or telemetry. Kova contacts other services only for these features:
 
 - **Exit point** on the dashboard: `ipwho.is` (or `ipinfo.io`).
-- **Latency tests and health checks:** `www.gstatic.com`, through the servers.
+- **Latency tests and health checks:** `www.gstatic.com` (or the address set in Settings → Servers), through the servers.
 - **What's wrong?** diagnostics: `ya.ru`, to check that the network itself works.
 - **Privacy check:** `ipify.org`. **Speed test:** `speed.cloudflare.com`.
 - **Site check:** the sites in its list, only when it is run.

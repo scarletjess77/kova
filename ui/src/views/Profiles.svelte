@@ -112,7 +112,7 @@
             {#if sel.source.kind === 'remote'}
               <div class="fld"><label for="pf-every">{t('Auto-update')}</label>
                 <select id="pf-every" class="input" value={String(sel.source.update_hours)} onchange={(e) => edit({ update_hours: Number(e.currentTarget.value) })}>
-                  <option value="0">{t('Off')}</option><option value="6">{t('Every 6 hours')}</option><option value="12">{t('Every 12 hours')}</option><option value="24">{t('Every day')}</option><option value="72">{t('Every 3 days')}</option>
+                  <option value="0">{t('Off')}</option><option value="1">{t('Every hour')}</option><option value="3">{t('Every 3 hours')}</option><option value="6">{t('Every 6 hours')}</option><option value="12">{t('Every 12 hours')}</option><option value="24">{t('Every day')}</option><option value="48">{t('Every 2 days')}</option><option value="72">{t('Every 3 days')}</option>
                 </select></div>
             {/if}
           </div>

@@ -10,7 +10,7 @@ use kova_core::compat::{self, CoreKind, CorePreference, Plan};
 use kova_core::gen_mihomo::{self, Bridges};
 use kova_core::gen_xray::{self, Selection};
 use kova_core::model::Node;
-use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, Rule, RuleKind, RuntimeOptions, SmartRuntime, TEST_URL};
+use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, Rule, RuleKind, RuntimeOptions, SmartRuntime};
 use kova_core::subscription::{self, Format};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -378,6 +378,9 @@ impl Engine {
         let before = self.settings().core.custom_rules;
         if let Some((r, why)) = new.core.custom_rules.iter().filter(|r| !before.contains(r)).find_map(|r| r.problem().map(|why| (r, why))) {
             return Err(Error::Other(format!("The rule \"{}\" can't be used: {why}", r.value.trim())));
+        }
+        if let Some(why) = new.core.test_url_problem() {
+            return Err(Error::Other(format!("The test address can't be used: {why}")));
         }
         let old = {
             let mut s = self.settings.write().unwrap();
@@ -834,7 +837,12 @@ impl Engine {
         let id = self.settings().active_profile.ok_or_else(|| Error::Other("Add a profile first".into()))?;
         let p = self.profiles.read().unwrap().get(&id).cloned().ok_or_else(|| Error::Other("The active profile was removed. Choose another one".into()))?;
         let body = self.profile_content(&id)?;
-        let nodes = subscription::parse(&body)?.nodes;
+        let mut nodes = subscription::parse(&body)?.nodes;
+        // Servers in the countries the user hid are left out, unless that would leave none.
+        let opts = self.settings().core;
+        if nodes.iter().any(|n| !opts.hides(&n.name)) {
+            nodes.retain(|n| !opts.hides(&n.name));
+        }
         Ok((p, body, nodes))
     }
 
@@ -1861,11 +1869,13 @@ impl Engine {
                     .collect()
             }
         };
+        let test_url = self.settings().core.test_url().to_string();
         let results: Vec<(String, Option<u32>)> = futures_util::stream::iter(names)
             .map(|n| {
                 let api = api.clone();
+                let test_url = &test_url;
                 async move {
-                    let d = api.delay(&n, TEST_URL, 5000).await.ok().flatten();
+                    let d = api.delay(&n, test_url, 5000).await.ok().flatten();
                     (n, d)
                 }
             })
@@ -1983,7 +1993,8 @@ impl Engine {
         if !is_node(&chosen) {
             return None;
         }
-        if api.delay(&chosen, TEST_URL, 5000).await.ok().flatten().is_some() {
+        let test_url = self.settings().core.test_url().to_string();
+        if api.delay(&chosen, &test_url, 5000).await.ok().flatten().is_some() {
             self.node_failures.store(0, Ordering::SeqCst);
             return None;
         }
@@ -1995,8 +2006,9 @@ impl Engine {
         let tested: Vec<(String, Option<u32>)> = futures_util::stream::iter(candidates)
             .map(|n| {
                 let api = api.clone();
+                let test_url = &test_url;
                 async move {
-                    let d = api.delay(&n, TEST_URL, 5000).await.ok().flatten();
+                    let d = api.delay(&n, test_url, 5000).await.ok().flatten();
                     (n, d)
                 }
             })

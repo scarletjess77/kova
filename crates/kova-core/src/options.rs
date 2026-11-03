@@ -305,6 +305,27 @@ const COUNTRY_NAMES: &[(&str, &str)] = &[
     ("switzerland", "CH"), ("швейцария", "CH"), ("austria", "AT"), ("австрия", "AT"), ("hong kong", "HK"), ("гонконг", "HK"),
 ];
 
+/// Patterns for Mihomo's `exclude-filter` matching server names the way [`country_of`]
+/// tells their country: the flag, a leading code, or a country name. One per country,
+/// separated by a backtick as Mihomo reads them.
+pub fn country_filter(codes: &[String]) -> String {
+    codes
+        .iter()
+        .filter(|c| c.len() == 2 && c.chars().all(|c| c.is_ascii_alphabetic()))
+        .map(|c| {
+            let c = c.to_ascii_uppercase();
+            let flag: String = c.bytes().filter_map(|b| char::from_u32(0x1F1E6 + (b - b'A') as u32)).collect();
+            let mut p = format!(r"{flag}|^\s*{c}(?:[\s\d\-_|·.]|$)");
+            let names: Vec<&str> = COUNTRY_NAMES.iter().filter(|(_, v)| *v == c).map(|(k, _)| *k).collect();
+            if !names.is_empty() {
+                p.push_str(&format!("|(?i:{})", names.join("|")));
+            }
+            p
+        })
+        .collect::<Vec<_>>()
+        .join("`")
+}
+
 /// A server's country from its name: a flag emoji (🇳🇱), a leading code ("NL Amsterdam",
 /// "NL-01") or a country name. Matches `countryCode` in the UI.
 pub fn country_of(name: &str) -> Option<String> {
@@ -399,6 +420,11 @@ pub struct RuntimeOptions {
     /// checks off, for Xray to pin: Xray no longer accepts "allowInsecure". Set per run.
     #[serde(skip)]
     pub cert_pins: std::collections::HashMap<String, String>,
+    /// Address that latency tests and the automatic groups check through each server.
+    /// Empty: [`TEST_URL`].
+    pub test_url: String,
+    /// Countries (codes such as "RU") whose servers are left out, told by their names.
+    pub hidden_countries: Vec<String>,
 }
 
 /// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
@@ -450,11 +476,37 @@ impl Default for RuntimeOptions {
             anti_dpi_port: None,
             xray_legacy_masks: false,
             cert_pins: Default::default(),
+            test_url: String::new(),
+            hidden_countries: Vec::new(),
         }
     }
 }
 
 impl RuntimeOptions {
+    /// The address latency is tested with.
+    pub fn test_url(&self) -> &str {
+        let u = self.test_url.trim();
+        if u.is_empty() { TEST_URL } else { u }
+    }
+
+    /// Why the test address can't be used.
+    pub fn test_url_problem(&self) -> Option<&'static str> {
+        let u = self.test_url.trim();
+        if u.is_empty() {
+            return None;
+        }
+        let rest = u.strip_prefix("https://").or_else(|| u.strip_prefix("http://"));
+        match rest {
+            Some(r) if !r.is_empty() && !r.starts_with('/') && !u.chars().any(|c| c.is_whitespace() || c.is_control()) => None,
+            _ => Some("it must be an http:// or https:// address"),
+        }
+    }
+
+    /// Whether a server called `name` is in a country the user hid.
+    pub fn hides(&self, name: &str) -> bool {
+        !self.hidden_countries.is_empty() && country_of(name).is_some_and(|c| self.hidden_countries.iter().any(|h| h.eq_ignore_ascii_case(&c)))
+    }
+
     /// Custom rules, then presets, then LAN, then the catch-all.
     pub fn rules(&self) -> Vec<Rule> {
         // A rule saved before Kova checked them, which Mihomo can't read, is left out
