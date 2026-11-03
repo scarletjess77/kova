@@ -184,6 +184,9 @@ pub fn to_clash(n: &Node) -> Value {
     if let Protocol::XrayOutbound { kind, .. } = &n.protocol {
         return json!({ "name": n.name, "type": kind });
     }
+    if let Protocol::Naive { .. } = &n.protocol {
+        return json!({ "name": n.name, "type": "naive" });
+    }
     let mut m = Map::new();
     let put = |m: &mut Map<String, Value>, k: &str, v: Value| {
         m.insert(k.into(), v);
@@ -200,7 +203,7 @@ pub fn to_clash(n: &Node) -> Value {
         Protocol::Anytls { .. } => "anytls",
         Protocol::Socks { .. } => "socks5",
         Protocol::Http { .. } => "http",
-        Protocol::Other { .. } | Protocol::XrayOutbound { .. } => unreachable!(),
+        Protocol::Other { .. } | Protocol::XrayOutbound { .. } | Protocol::Naive { .. } => unreachable!(),
     };
     put(&mut m, "type", kind.into());
     put(&mut m, "server", n.server.clone().into());
@@ -283,7 +286,7 @@ pub fn to_clash(n: &Node) -> Value {
                 put(&mut m, "password", p.clone().into());
             }
         }
-        Protocol::Other { .. } | Protocol::XrayOutbound { .. } => {}
+        Protocol::Other { .. } | Protocol::XrayOutbound { .. } | Protocol::Naive { .. } => {}
     }
 
     if let Some(t) = &n.tls {

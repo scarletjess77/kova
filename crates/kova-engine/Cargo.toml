@@ -26,6 +26,8 @@ tokio = { version = "1.54.0", features = ["full"] }
 tracing = "0.1.44"
 uuid = { version = "1.28.0", features = ["v4"] }
 zip = "9.0.5"
+# Shoes ships as a tar.gz.
+tar = "0.4.46"
 
 [target."cfg(unix)".dependencies]
 libc = "0.2"

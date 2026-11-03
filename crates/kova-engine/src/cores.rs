@@ -16,6 +16,8 @@ pub fn binary_name(core: CoreKind) -> &'static str {
         (CoreKind::Mihomo, false) => "mihomo",
         (CoreKind::Xray, true) => "xray.exe",
         (CoreKind::Xray, false) => "xray",
+        (CoreKind::Shoes, true) => "shoes.exe",
+        (CoreKind::Shoes, false) => "shoes",
     }
 }
 
@@ -41,6 +43,7 @@ mod android {
         match core {
             CoreKind::Mihomo => "libmihomo.so",
             CoreKind::Xray => "libxray.so",
+            CoreKind::Shoes => "libshoes.so",
         }
     }
 
@@ -57,10 +60,17 @@ mod android {
     }
 }
 
+/// Whether `core` exists for this system. Shoes publishes Linux and macOS builds only,
+/// and isn't built into the Android app.
+pub fn available(core: CoreKind) -> bool {
+    core != CoreKind::Shoes || cfg!(any(target_os = "linux", target_os = "macos"))
+}
+
 fn repo(core: CoreKind) -> &'static str {
     match core {
         CoreKind::Mihomo => "MetaCubeX/mihomo",
         CoreKind::Xray => "XTLS/Xray-core",
+        CoreKind::Shoes => "cfal/shoes",
     }
 }
 
@@ -94,6 +104,7 @@ pub fn installed_version(cores_dir: &Path, core: CoreKind) -> Option<String> {
     let arg = match core {
         CoreKind::Mihomo => "-v",
         CoreKind::Xray => "version",
+        CoreKind::Shoes => "--version",
     };
     let mut cmd = Command::new(bin);
     cmd.arg(arg);
@@ -130,6 +141,7 @@ pub fn pinned_tag(core: CoreKind) -> String {
     let key = match core {
         CoreKind::Mihomo => "mihomo",
         CoreKind::Xray => "xray",
+        CoreKind::Shoes => "shoes",
     };
     pins[key]["tag"].as_str().expect("a pinned tag for each core").to_string()
 }
@@ -189,6 +201,15 @@ fn pick_asset<'a>(core: CoreKind, rel: &'a Release, arch: &str) -> Option<&'a As
             let a = if arch == "arm64" { "arm64-v8a" } else { "64" };
             vec![format!("Xray-{os}-{a}.zip")]
         }
+        // Linux (the static musl build) and macOS only: Shoes publishes no Windows build.
+        CoreKind::Shoes => {
+            let a = if arch == "arm64" { "aarch64" } else { "x86_64" };
+            match os {
+                "linux" => vec![format!("shoes-{a}-unknown-linux-musl.tar.gz")],
+                "darwin" => vec![format!("shoes-{a}-apple-darwin.tar.gz")],
+                _ => Vec::new(),
+            }
+        }
     };
     candidates.iter().find_map(|c| rel.assets.iter().find(|a| &a.name == c))
 }
@@ -233,6 +254,9 @@ pub async fn install_pinned(cores_dir: &Path, core: CoreKind) -> Result<String, 
 async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, arch: &str) -> Result<String, Error> {
     if cfg!(target_os = "android") {
         return Err(Error::Core(format!("On Android, {} is updated together with Kova", core.label())));
+    }
+    if core == CoreKind::Shoes && !available(core) {
+        return Err(Error::Core("Shoes has no Windows build yet; it runs on Linux and macOS".into()));
     }
     let rel = release(core, tag).await?;
     let asset = pick_asset(core, &rel, arch).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
@@ -304,6 +328,21 @@ pub fn adopt_bundled(bundle_dir: &Path, cores_dir: &Path) -> Vec<String> {
 
 fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bool) -> Result<(), Error> {
     let bin = binary_name(core);
+    // Shoes: one program in a tar.gz.
+    if name.ends_with(".tar.gz") {
+        let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(data));
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            let file = entry.path()?.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+            if file == bin {
+                let mut buf = Vec::new();
+                entry.read_to_end(&mut buf)?;
+                std::fs::write(out.join(bin), buf)?;
+                return Ok(());
+            }
+        }
+        return Err(Error::Core(format!("{name} did not contain {bin}")));
+    }
     if name.ends_with(".gz") {
         let mut d = flate2::read::GzDecoder::new(data);
         let mut buf = Vec::new();
@@ -324,6 +363,7 @@ fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bo
         let is_core = match core {
             CoreKind::Mihomo => lower.starts_with("mihomo") && (lower.ends_with(".exe") || !lower.contains('.')),
             CoreKind::Xray => lower == "xray.exe" || lower == "xray",
+            CoreKind::Shoes => lower == "shoes.exe" || lower == "shoes",
         };
         let target = if is_core {
             bin.to_string()

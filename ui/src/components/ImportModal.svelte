@@ -54,7 +54,7 @@
   let clip = $state<string | null>(null);
   let file = $state<{ path: string; text: string } | null>(null);
 
-  const SCHEMES = /^(vless|vmess|trojan|ss|hysteria2|hy2|tuic|wireguard|wg|anytls|socks5?):\/\//im;
+  const SCHEMES = /^(vless|vmess|trojan|ss|hysteria2|hy2|tuic|wireguard|wg|anytls|socks5?|naive\+https):\/\//im;
   let clipLinks = $derived(clip ? clip.split(/\s+/).filter((l) => SCHEMES.test(l)).length : 0);
   let clipIsUrl = $derived(!!clip && /^https?:\/\/\S+$/.test(clip.trim()));
 

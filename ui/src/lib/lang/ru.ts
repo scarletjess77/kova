@@ -815,4 +815,5 @@ export const ru: Dict = {
   'Core': 'Ядро',
   'Kova picks the core for each server': 'Kova сама выбирает ядро для каждого сервера',
   'Now running on {core}': 'Теперь работает на {core}',
+  'cfal/shoes · NaiveProxy servers; installed when a profile needs it': 'cfal/shoes · серверы NaiveProxy; ставится, когда он нужен профилю',
 };

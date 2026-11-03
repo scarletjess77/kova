@@ -12,6 +12,8 @@ use crate::model::*;
 pub enum CoreKind {
     Mihomo,
     Xray,
+    /// A helper only, for servers neither of the others runs (NaiveProxy).
+    Shoes,
 }
 
 impl CoreKind {
@@ -19,6 +21,7 @@ impl CoreKind {
         match self {
             CoreKind::Mihomo => "Mihomo",
             CoreKind::Xray => "Xray",
+            CoreKind::Shoes => "Shoes",
         }
     }
 }
@@ -37,6 +40,8 @@ pub enum CorePreference {
 /// `None` if `core` can run `node`, otherwise a short reason for the UI.
 pub fn unsupported(core: CoreKind, node: &Node) -> Option<&'static str> {
     match core {
+        CoreKind::Shoes => (!crate::gen_shoes::supports(node)).then_some("Shoes runs NaiveProxy servers only"),
+        _ if matches!(node.protocol, Protocol::Naive { .. }) => Some("NaiveProxy needs the Shoes core"),
         CoreKind::Mihomo => {
             if matches!(node.mux, Some(Mux::Xray { .. })) {
                 return Some("Xray's mux needs Xray");
@@ -80,6 +85,9 @@ pub struct Plan {
     pub bridged: Vec<String>,
     /// Nodes that no selected core can run, with the reason.
     pub dropped: Vec<(String, String)>,
+    /// Nodes Shoes runs for Mihomo, like `bridged` for Xray.
+    #[serde(default)]
+    pub shoes: Vec<String>,
 }
 
 impl Plan {
@@ -89,7 +97,7 @@ impl Plan {
 }
 
 pub fn plan(nodes: &[Node], pref: CorePreference) -> Plan {
-    let mut p = Plan { front: CoreKind::Mihomo, bridged: Vec::new(), dropped: Vec::new() };
+    let mut p = Plan { front: CoreKind::Mihomo, bridged: Vec::new(), dropped: Vec::new(), shoes: Vec::new() };
     match pref {
         CorePreference::Xray => {
             p.front = CoreKind::Xray;
@@ -104,6 +112,8 @@ pub fn plan(nodes: &[Node], pref: CorePreference) -> Plan {
                 if let Some(r) = unsupported(CoreKind::Mihomo, n) {
                     if pref == CorePreference::Auto && supports(CoreKind::Xray, n) {
                         p.bridged.push(n.name.clone());
+                    } else if pref == CorePreference::Auto && supports(CoreKind::Shoes, n) {
+                        p.shoes.push(n.name.clone());
                     } else {
                         p.dropped.push((n.name.clone(), r.into()));
                     }

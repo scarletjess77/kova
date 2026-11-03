@@ -765,4 +765,5 @@ export const fa: Dict = {
   'Core': 'هسته',
   'Kova picks the core for each server': 'Kova برای هر سرور هسته را خودش انتخاب می‌کند',
   'Now running on {core}': 'اکنون روی {core} اجرا می‌شود',
+  'cfal/shoes · NaiveProxy servers; installed when a profile needs it': 'cfal/shoes · سرورهای NaiveProxy؛ وقتی پروفایلی به آن نیاز دارد نصب می‌شود',
 };

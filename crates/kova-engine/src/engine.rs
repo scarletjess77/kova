@@ -142,6 +142,8 @@ struct Running {
     front: Front,
     front_kind: CoreKind,
     sidecar: Option<CoreProcess>,
+    /// Shoes, for the servers only it runs (NaiveProxy).
+    shoes: Option<CoreProcess>,
     tasks: Vec<JoinHandle<()>>,
     api: Option<Mihomo>,
     nodes: Vec<Node>,
@@ -159,6 +161,9 @@ impl Running {
         }
         self.front.stop().await;
         if let Some(s) = self.sidecar {
+            s.stop().await;
+        }
+        if let Some(s) = self.shoes {
             s.stop().await;
         }
     }
@@ -945,7 +950,7 @@ impl Engine {
     fn remove_run_configs(&self) {
         for sub in ["main", "tester", "check"] {
             let dir = self.paths.runtime_dir().join(sub);
-            for f in [dir.join("xray.json"), dir.join("xray-sidecar.json"), dir.join("config.yaml"), dir.join("mihomo").join("config.yaml")] {
+            for f in [dir.join("xray.json"), dir.join("xray-sidecar.json"), dir.join("shoes.yaml"), dir.join("config.yaml"), dir.join("mihomo").join("config.yaml")] {
                 let _ = std::fs::remove_file(f);
             }
         }
@@ -1110,7 +1115,7 @@ impl Engine {
         // Xray only runs as Automatic there (Mihomo, with Xray bridging what needs it).
         let core = if cfg!(target_os = "android") && profile.core == CorePreference::Xray { CorePreference::Auto } else { profile.core };
         let mut plan = if profile.format == Format::Clash && core != CorePreference::Xray {
-            Plan { front: CoreKind::Mihomo, bridged: Vec::new(), dropped: Vec::new() }
+            Plan { front: CoreKind::Mihomo, bridged: Vec::new(), dropped: Vec::new(), shoes: Vec::new() }
         } else {
             compat::plan(&nodes, core)
         };
@@ -1162,6 +1167,7 @@ impl Engine {
                 front: Front::Local(front),
                 front_kind: CoreKind::Xray,
                 sidecar: None,
+                shoes: None,
                 tasks: Vec::new(),
                 api: None,
                 nodes,
@@ -1261,6 +1267,43 @@ impl Engine {
             }
         }
 
+        // Shoes runs what neither Mihomo nor Xray can (NaiveProxy), each server on a local
+        // SOCKS port like the Xray bridge. It is fetched the first time a profile needs it.
+        let mut shoes = None;
+        if !plan.shoes.is_empty() {
+            let shoes_bin = cores::binary_path(&cores_dir, CoreKind::Shoes);
+            if !shoes_bin.exists() && !quiet && cores::available(CoreKind::Shoes) {
+                if let Err(e) = cores::install_pinned(&cores_dir, CoreKind::Shoes).await {
+                    tracing::warn!("could not install Shoes: {e}");
+                }
+            }
+            if !shoes_bin.exists() {
+                let why = if cores::available(CoreKind::Shoes) { "needs the Shoes core, which could not be installed" } else { "needs the Shoes core, which has no build for this system yet" };
+                for n in std::mem::take(&mut plan.shoes) {
+                    plan.dropped.push((n, why.into()));
+                }
+            } else {
+                let served: Vec<(&Node, u16)> = nodes.iter().filter(|n| plan.shoes.contains(&n.name)).map(|n| (n, free_port())).collect();
+                for (n, port) in &served {
+                    bridges.insert(n.name.clone(), *port);
+                }
+                // In TUN mode Shoes' own connections to the servers must not loop back in.
+                opts.bypass_processes.push(cores::binary_name(CoreKind::Shoes).to_string());
+                if opts.tun.enabled && opts.tun_fd.is_none() {
+                    opts.tun_exclude.extend(resolve_servers(served.iter().map(|(n, _)| (n.server.as_str(), n.port))).await);
+                }
+                let cfg = run_dir.join("shoes.yaml");
+                std::fs::write(&cfg, kova_core::gen_shoes::config(&served, &opts))?;
+                let c = cfg.to_string_lossy().to_string();
+                let mut proc = CoreProcess::spawn("shoes", &shoes_bin, &["--no-reload", &c], &run_dir, &[], self.log_sink(quiet))?;
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                if let Some(msg) = proc.exited() {
+                    return Err(Error::Core(msg));
+                }
+                shoes = Some(proc);
+            }
+        }
+
         // Smart routing needs Kova's rules in the config; an imported Clash profile has
         // them only when the user applies them.
         if !quiet && opts.smart_routing && (profile.format != Format::Clash || opts.apply_rules_to_clash_profiles) {
@@ -1343,6 +1386,7 @@ impl Engine {
             front,
             front_kind: CoreKind::Mihomo,
             sidecar,
+            shoes,
             tasks: Vec::new(),
             api: Some(api.clone()),
             nodes,
@@ -1584,7 +1628,7 @@ impl Engine {
                         Front::Local(p) => p.exited(),
                         Front::Service(_) => None,
                     };
-                    let local = local.or_else(|| r.sidecar.as_mut().and_then(|s| s.exited()));
+                    let local = local.or_else(|| r.sidecar.as_mut().and_then(|s| s.exited())).or_else(|| r.shoes.as_mut().and_then(|s| s.exited()));
                     let remote = match &r.front {
                         Front::Service(s) => Some(s.clone()),
                         Front::Local(_) => None,
@@ -2025,7 +2069,12 @@ impl Engine {
     pub async fn core_status(&self, check_latest: bool) -> Vec<CoreStatus> {
         let dir = self.paths.cores_dir();
         let (m, x) = tokio::join!(cores::status(&dir, CoreKind::Mihomo, check_latest), cores::status(&dir, CoreKind::Xray, check_latest));
-        vec![m, x]
+        let mut out = vec![m, x];
+        // Shoes only where it is published, and only shown, never fetched on its own.
+        if cores::available(CoreKind::Shoes) && !cfg!(target_os = "android") {
+            out.push(cores::status(&dir, CoreKind::Shoes, check_latest).await);
+        }
+        out
     }
 
     /// Install or update a core. Restarts the connection if that core is in use.
@@ -2033,7 +2082,7 @@ impl Engine {
         let tag = cores::install_latest(&self.paths.cores_dir(), core).await?;
         let in_use = {
             let run = self.run.lock().await;
-            run.as_ref().is_some_and(|r| r.front_kind == core || (core == CoreKind::Xray && r.sidecar.is_some()))
+            run.as_ref().is_some_and(|r| r.front_kind == core || (core == CoreKind::Xray && r.sidecar.is_some()) || (core == CoreKind::Shoes && r.shoes.is_some()))
         };
         if in_use {
             self.restart().await?;

@@ -7,6 +7,7 @@
 pub mod clash;
 pub mod compat;
 pub mod gen_mihomo;
+pub mod gen_shoes;
 pub mod geodata;
 pub mod gen_xray;
 pub mod links;
