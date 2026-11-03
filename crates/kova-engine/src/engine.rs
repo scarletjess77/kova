@@ -1424,7 +1424,8 @@ impl Engine {
         };
         let mut s = self.settings();
         s.core.custom_rules.retain(|r| !(r.kind == rule.kind && r.value == rule.value));
-        s.core.custom_rules.push(rule);
+        // On top, like every new rule.
+        s.core.custom_rules.insert(0, rule);
         self.smart.forget(domain);
         self.update_settings(s).await
     }

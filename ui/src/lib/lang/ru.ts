@@ -812,4 +812,7 @@ export const ru: Dict = {
   'Search programs': 'Поиск программ',
   'Using the network now': 'Сейчас пользуются сетью',
   '{name} is now blocked': '{name} теперь заблокирована',
+  'Core': 'Ядро',
+  'Kova picks the core for each server': 'Kova сама выбирает ядро для каждого сервера',
+  'Now running on {core}': 'Теперь работает на {core}',
 };

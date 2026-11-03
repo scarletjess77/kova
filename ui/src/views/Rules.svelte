@@ -67,7 +67,8 @@
     const v = value.trim();
     if (!v) return;
     const rule: Rule = { kind, value: v, target };
-    void app.saveSettings((x) => (x.core.custom_rules = [...x.core.custom_rules, rule]), t('Rule added'));
+    // On top: the newest rule wins over older ones that match the same sites.
+    void app.saveSettings((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]), t('Rule added'));
     value = '';
   }
 

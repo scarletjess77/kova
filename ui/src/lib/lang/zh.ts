@@ -761,4 +761,7 @@ export const zh: Dict = {
   'Search programs': '搜索程序',
   'Using the network now': '正在使用网络',
   '{name} is now blocked': '{name} 现已被拦截',
+  'Core': '内核',
+  'Kova picks the core for each server': 'Kova 会为每个服务器自动选择内核',
+  'Now running on {core}': '现在运行于 {core}',
 };
