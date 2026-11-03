@@ -398,7 +398,7 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
         inbounds.push(json!({ "tag": "socks-lan", "listen": "0.0.0.0", "port": socks, "protocol": "socks", "settings": { "udp": true, "auth": "password", "accounts": [account] }, "sniffing": sniffing(opts) }));
     }
     if !tags.is_empty() {
-        doc["observatory"] = json!({ "subjectSelector": [NODE_TAG], "probeUrl": TEST_URL, "probeInterval": "5m", "enableConcurrency": true });
+        doc["observatory"] = json!({ "subjectSelector": [NODE_TAG], "probeUrl": opts.test_url(), "probeInterval": "5m", "enableConcurrency": true });
         doc["routing"]["balancers"] = json!([{ "tag": AUTO, "selector": [NODE_TAG], "strategy": { "type": "leastPing" }, "fallbackTag": tags[0] }]);
     }
     serde_json::to_string_pretty(&doc).expect("valid json")

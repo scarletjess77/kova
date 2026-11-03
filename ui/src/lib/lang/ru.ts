@@ -816,4 +816,13 @@ export const ru: Dict = {
   'Kova picks the core for each server': 'Kova сама выбирает ядро для каждого сервера',
   'Now running on {core}': 'Теперь работает на {core}',
   'cfal/shoes · NaiveProxy servers; installed when a profile needs it': 'cfal/shoes · серверы NaiveProxy; ставится, когда он нужен профилю',
+  'Every hour': 'Каждый час',
+  'Every 3 hours': 'Каждые 3 часа',
+  'Every 2 days': 'Каждые 2 дня',
+  'Use an http:// or https:// address': 'Нужен адрес http:// или https://',
+  'Servers': 'Серверы',
+  'Latency test address': 'Адрес для проверки задержки',
+  'Hide servers in': 'Скрыть серверы в странах',
+  'Servers whose names show one of these countries are left out.': 'Серверы, в названии которых указана одна из этих стран, не используются.',
+  'No server names in this profile show a country.': 'В названиях серверов этого профиля не указаны страны.',
 };

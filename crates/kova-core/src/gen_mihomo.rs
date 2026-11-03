@@ -246,12 +246,12 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
         sel.extend(names.iter().cloned());
         json!([
             { "name": PROXY, "type": "select", "proxies": sel },
-            { "name": AUTO, "type": "url-test", "proxies": names, "url": TEST_URL, "interval": 300, "tolerance": 50, "lazy": true },
-            { "name": FALLBACK, "type": "fallback", "proxies": names, "url": TEST_URL, "interval": 300, "lazy": true },
+            { "name": AUTO, "type": "url-test", "proxies": names, "url": opts.test_url(), "interval": 300, "tolerance": 50, "lazy": true },
+            { "name": FALLBACK, "type": "fallback", "proxies": names, "url": opts.test_url(), "interval": 300, "lazy": true },
         ])
     };
 
-    let (countries, country_targets) = country_groups(&opts.rules(), &names);
+    let (countries, country_targets) = country_groups(&opts.rules(), &names, opts.test_url());
     let groups = match groups {
         Value::Array(mut g) => {
             g.extend(countries);
@@ -358,6 +358,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     }
 
     let main = main_group(&doc);
+    hide_countries(&mut doc, opts);
     apply_anti_dpi(&mut doc, opts);
     let mut known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
@@ -368,7 +369,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
             Some(Yaml::Sequence(p)) => p.iter().filter_map(|p| p.get("name").and_then(|n| n.as_str()).map(String::from)).collect(),
             _ => Vec::new(),
         };
-        let (countries, targets) = country_groups(&opts.rules(), &servers);
+        let (countries, targets) = country_groups(&opts.rules(), &servers, opts.test_url());
         if !countries.is_empty() {
             let mut groups = match doc.remove("proxy-groups") {
                 Some(Yaml::Sequence(g)) => g,
@@ -413,6 +414,53 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
         without_geodata(&mut doc);
     }
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
+}
+
+/// Leave the servers in the countries the user hid out of an imported profile: out of its
+/// list and its groups, and out of its server providers through their filter. A group
+/// left with none rejects rather than going around the proxy. When every server would go,
+/// none is hidden.
+fn hide_countries(doc: &mut Mapping, opts: &RuntimeOptions) {
+    if opts.hidden_countries.is_empty() {
+        return;
+    }
+    let names: Vec<String> = match doc.get("proxies") {
+        Some(Yaml::Sequence(p)) => p.iter().filter_map(|p| p.get("name").and_then(|n| n.as_str()).map(String::from)).collect(),
+        _ => Vec::new(),
+    };
+    let hidden: HashSet<&str> = names.iter().filter(|n| opts.hides(n)).map(String::as_str).collect();
+    let has_providers = matches!(doc.get("proxy-providers"), Some(Yaml::Mapping(m)) if !m.is_empty());
+    if !hidden.is_empty() && (hidden.len() < names.len() || has_providers) {
+        if let Some(Yaml::Sequence(p)) = doc.get_mut("proxies") {
+            p.retain(|p| !p.get("name").and_then(|n| n.as_str()).is_some_and(|n| hidden.contains(n)));
+        }
+        if let Some(Yaml::Sequence(groups)) = doc.get_mut("proxy-groups") {
+            for g in groups {
+                let uses_more = matches!(g.get("use"), Some(Yaml::Sequence(u)) if !u.is_empty()) || g.get("include-all").and_then(Yaml::as_bool) == Some(true);
+                if let Some(Yaml::Sequence(members)) = g.get_mut("proxies") {
+                    let before = members.len();
+                    members.retain(|m| !m.as_str().is_some_and(|m| hidden.contains(m)));
+                    if members.is_empty() && before > 0 && !uses_more {
+                        members.push(Yaml::String("REJECT".into()));
+                    }
+                }
+            }
+        }
+    }
+    let filter = country_filter(&opts.hidden_countries);
+    if filter.is_empty() {
+        return;
+    }
+    if let Some(Yaml::Mapping(providers)) = doc.get_mut("proxy-providers") {
+        for (_, p) in providers.iter_mut() {
+            let Yaml::Mapping(p) = p else { continue };
+            let joined = match p.get("exclude-filter").and_then(Yaml::as_str) {
+                Some(old) if !old.is_empty() => format!("{old}`{filter}"),
+                _ => filter.clone(),
+            };
+            p.insert(Yaml::String("exclude-filter".into()), Yaml::String(joined));
+        }
+    }
 }
 
 /// Take out of an imported profile everything that would make Mihomo load the routing
@@ -475,7 +523,7 @@ pub fn sanitize_for_service(raw: &str) -> Result<String, GenError> {
 /// A url-test group for each country the rules send traffic to (`country:US`), made of
 /// `servers` in that country, and the targets that got one. A country with no servers
 /// gets none, so its rules fall back to the main group.
-fn country_groups(rules: &[Rule], servers: &[String]) -> (Vec<Value>, Vec<String>) {
+fn country_groups(rules: &[Rule], servers: &[String], test_url: &str) -> (Vec<Value>, Vec<String>) {
     let mut groups = Vec::new();
     let mut targets: Vec<String> = Vec::new();
     for r in rules {
@@ -487,7 +535,7 @@ fn country_groups(rules: &[Rule], servers: &[String]) -> (Vec<Value>, Vec<String
         if members.is_empty() {
             continue;
         }
-        groups.push(json!({ "name": country_group(code), "type": "url-test", "proxies": members, "url": TEST_URL, "interval": 300, "tolerance": 50, "lazy": true }));
+        groups.push(json!({ "name": country_group(code), "type": "url-test", "proxies": members, "url": test_url, "interval": 300, "tolerance": 50, "lazy": true }));
         targets.push(r.target.clone());
     }
     (groups, targets)
@@ -632,6 +680,53 @@ rules:
             assert_eq!(country_of(name).as_deref(), code, "{name}");
         }
         assert_eq!(country_group("US"), "US · fastest");
+    }
+
+    #[test]
+    fn hidden_countries_leave_the_profile() {
+        let mut o = RuntimeOptions { hidden_countries: vec!["RU".into()], ..Default::default() };
+        let raw = "proxies:\n  - {name: \"🇷🇺 Moscow\", type: trojan, server: a, port: 443, password: x}\n  - {name: RU-2, type: trojan, server: b, port: 443, password: x}\n  - {name: \"🇩🇪 Frankfurt\", type: trojan, server: c, port: 443, password: x}\n\
+proxy-providers:\n  sub: {type: http, url: \"https://sub.example.com/p\", path: ./p.yaml, exclude-filter: Expired}\n\
+proxy-groups:\n  - {name: Sel, type: select, proxies: [Auto, \"🇷🇺 Moscow\", \"🇩🇪 Frankfurt\"]}\n  - {name: Auto, type: url-test, proxies: [\"🇷🇺 Moscow\", RU-2]}\n  - {name: Mixed, type: select, proxies: [RU-2], use: [sub]}\nrules:\n  - MATCH,Sel\n";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let names: Vec<&str> = doc["proxies"].as_sequence().unwrap().iter().filter_map(|p| p["name"].as_str()).collect();
+        assert_eq!(names, ["🇩🇪 Frankfurt"]);
+        let group = |n: &str| -> Vec<String> {
+            let g = doc["proxy-groups"].as_sequence().unwrap().iter().find(|g| g["name"].as_str() == Some(n)).unwrap();
+            g["proxies"].as_sequence().unwrap().iter().map(|m| m.as_str().unwrap().to_string()).collect()
+        };
+        assert_eq!(group("Sel"), ["Auto", "🇩🇪 Frankfurt"]);
+        assert_eq!(group("Auto"), ["REJECT"], "an emptied group doesn't go around the proxy");
+        assert!(group("Mixed").is_empty(), "a group with a provider still has its servers");
+        let filter = doc["proxy-providers"]["sub"]["exclude-filter"].as_str().unwrap();
+        assert!(filter.starts_with("Expired`🇷🇺|"), "{filter}");
+        assert!(filter.contains("(?i:russia|россия)"), "{filter}");
+
+        // Every server in a hidden country: none is hidden.
+        o.hidden_countries = vec!["RU".into(), "DE".into()];
+        let only = "proxies:\n  - {name: RU-1, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [RU-1]}\nrules:\n  - MATCH,Sel\n";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(only, &o).unwrap()).unwrap();
+        assert_eq!(doc["proxies"].as_sequence().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn the_test_address_can_be_changed() {
+        let mut o = RuntimeOptions::default();
+        assert_eq!(o.test_url(), TEST_URL);
+        assert!(o.test_url_problem().is_none());
+        o.test_url = " https://cp.cloudflare.com/generate_204 ".into();
+        assert_eq!(o.test_url(), "https://cp.cloudflare.com/generate_204");
+        assert!(o.test_url_problem().is_none());
+        for bad in ["cp.cloudflare.com", "ftp://x", "https://", "https:///x", "https://a b"] {
+            o.test_url = bad.into();
+            assert!(o.test_url_problem().is_some(), "{bad}");
+        }
+        o.test_url = "http://example.com/204".into();
+        let nodes = vec![parse_link("trojan://x@a.example:443#A").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let yaml = from_nodes(&nodes, &p, &Bridges::new(), &o);
+        assert!(yaml.contains("http://example.com/204"), "{yaml}");
+        assert!(!yaml.contains(TEST_URL));
     }
 
     use super::*;

@@ -765,4 +765,13 @@ export const zh: Dict = {
   'Kova picks the core for each server': 'Kova 会为每个服务器自动选择内核',
   'Now running on {core}': '现在运行于 {core}',
   'cfal/shoes · NaiveProxy servers; installed when a profile needs it': 'cfal/shoes · NaiveProxy 服务器；在配置需要时安装',
+  'Every hour': '每小时',
+  'Every 3 hours': '每 3 小时',
+  'Every 2 days': '每 2 天',
+  'Use an http:// or https:// address': '请使用 http:// 或 https:// 地址',
+  'Servers': '服务器',
+  'Latency test address': '延迟测试地址',
+  'Hide servers in': '隐藏这些国家的服务器',
+  'Servers whose names show one of these countries are left out.': '名称中显示这些国家的服务器将不被使用。',
+  'No server names in this profile show a country.': '此配置中的服务器名称未显示国家。',
 };

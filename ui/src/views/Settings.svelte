@@ -3,7 +3,7 @@
   import { getVersion } from '@tauri-apps/api/app';
   import { openPath } from '@tauri-apps/plugin-opener';
   import { api, errText, type CoreKind, type CoreStatus, type GeoInfo, type GeoSource, type ServiceView, type Settings } from '../lib/api';
-  import { fmtAgo, fmtBytes, notesHtml } from '../lib/format';
+  import { countryCode, fmtAgo, fmtBytes, notesHtml } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import AppPicker from '../components/AppPicker.svelte';
@@ -49,6 +49,25 @@
   }
 
   const set = (f: (x: Settings) => void, ok?: string) => app.saveSettings(f, ok);
+
+  // Countries of the active profile's servers, all of them (hidden ones included, which
+  // the running core no longer has), for hiding a country.
+  let profileCountries = $state<string[]>([]);
+  $effect(() => {
+    const id = app.settings?.active_profile;
+    if (!id) return;
+    api.profileNodes(id).then((n) => (profileCountries = n.map((x) => countryCode(x.name)).filter((c): c is string => !!c)), () => {});
+  });
+  let countryList = $derived([...new Set([...profileCountries, ...Object.keys(app.proxies.proxies).map(countryCode).filter((c): c is string => !!c), ...(s?.core.hidden_countries ?? [])])].sort());
+  const hideCountry = (c: string) => set((x) => {
+    const h = x.core.hidden_countries;
+    x.core.hidden_countries = h.includes(c) ? h.filter((v) => v !== c) : [...h, c];
+  });
+  function setTestUrl(v: string) {
+    const u = v.trim();
+    if (u && !/^https?:\/\/[^\s/]\S*$/.test(u)) { app.notify(t('Use an http:// or https:// address')); return; }
+    void set((x) => (x.core.test_url = u), t('Saved'));
+  }
   const toggle = (get: (x: Settings) => boolean, put: (x: Settings, v: boolean) => void) => set((x) => put(x, !get(x)));
   const list = (v: string) => v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
@@ -172,6 +191,26 @@
           {/if}
           <div class="row-sw"><div><div class="t">{t('Anti-DPI')} <span class="chip">beta</span></div><div class="d">{t('Sends the start of each connection to the server in small pieces, so simpler blocking equipment can’t recognise it. Try it when servers stop connecting; it doesn’t help against whitelists. Needs the Xray core')}</div></div>
             <button class="switch" role="switch" aria-label={t('Anti-DPI')} aria-checked={s.core.anti_dpi} onclick={() => toggle((x) => x.core.anti_dpi, (x, v) => (x.core.anti_dpi = v))}></button></div>
+        </div>
+      </FoldCard>
+
+      <FoldCard id="servers" title={t('Servers')}>
+        <div class="form">
+          <div class="fld full"><label for="st-test">{t('Latency test address')}</label>
+            <input id="st-test" class="input mono small" value={s.core.test_url} placeholder="https://www.gstatic.com/generate_204" onchange={(e) => setTestUrl(e.currentTarget.value)} /></div>
+        </div>
+        <div class="rows">
+          <div class="t">{t('Hide servers in')}</div>
+          <div class="d">{t('Servers whose names show one of these countries are left out.')}</div>
+          {#if countryList.length}
+            <div class="countries" role="group" aria-label={t('Hide servers in')}>
+              {#each countryList as c (c)}
+                <button class="chip mono" class:off={s.core.hidden_countries.includes(c)} aria-pressed={s.core.hidden_countries.includes(c)} onclick={() => hideCountry(c)}>{c}</button>
+              {/each}
+            </div>
+          {:else}
+            <div class="d">{t('No server names in this profile show a country.')}</div>
+          {/if}
         </div>
       </FoldCard>
 
@@ -455,4 +494,9 @@
   .led { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
   .mobile-server { max-width: 46%; }
+  .rows > .t { font-weight: 500; }
+  .rows > .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .countries { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .countries .chip { cursor: pointer; color: var(--fg); }
+  .countries .chip.off { color: var(--faint); text-decoration: line-through; background: transparent; }
 </style>

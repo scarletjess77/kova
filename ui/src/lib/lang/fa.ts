@@ -766,4 +766,13 @@ export const fa: Dict = {
   'Kova picks the core for each server': 'Kova برای هر سرور هسته را خودش انتخاب می‌کند',
   'Now running on {core}': 'اکنون روی {core} اجرا می‌شود',
   'cfal/shoes · NaiveProxy servers; installed when a profile needs it': 'cfal/shoes · سرورهای NaiveProxy؛ وقتی پروفایلی به آن نیاز دارد نصب می‌شود',
+  'Every hour': 'هر ساعت',
+  'Every 3 hours': 'هر ۳ ساعت',
+  'Every 2 days': 'هر ۲ روز',
+  'Use an http:// or https:// address': 'یک نشانی http:// یا https:// وارد کنید',
+  'Servers': 'سرورها',
+  'Latency test address': 'نشانی آزمایش تأخیر',
+  'Hide servers in': 'پنهان کردن سرورهای این کشورها',
+  'Servers whose names show one of these countries are left out.': 'سرورهایی که نامشان یکی از این کشورها را نشان می‌دهد کنار گذاشته می‌شوند.',
+  'No server names in this profile show a country.': 'نام هیچ سروری در این پروفایل کشوری را نشان نمی‌دهد.',
 };
