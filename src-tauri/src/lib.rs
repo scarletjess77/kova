@@ -579,7 +579,8 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
     // Cores are required to do anything; fetch any that are missing.
     let l = i18n::lang(&engine.settings());
     for st in engine.core_status(false).await {
-        if st.installed.is_none() {
+        // Shoes is fetched only when a profile needs it (see the engine).
+        if st.installed.is_none() && st.core != kova_core::CoreKind::Shoes {
             let name = st.core.label();
             let _ = app.emit("toast", tr(l, "Downloading {}…", &[name]));
             match engine.install_core(st.core).await {

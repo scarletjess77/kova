@@ -36,6 +36,7 @@ pub fn parse_link(s: &str) -> Result<Node, LinkError> {
         "wireguard" | "wg" => parse_wireguard(s),
         "anytls" => parse_anytls(s),
         "socks" | "socks5" => parse_socks(s),
+        "naive+https" | "naive" => parse_naive(s),
         other => Err(LinkError::Scheme(other.to_string())),
     }
 }
@@ -589,6 +590,25 @@ fn parse_anytls(s: &str) -> Result<Node, LinkError> {
     })
 }
 
+/// `naive+https://user:pass@host:port?padding=true#name`.
+fn parse_naive(s: &str) -> Result<Node, LinkError> {
+    let u = split_uri(s, "NaiveProxy")?;
+    Ok(Node {
+        name: u.name.clone(),
+        server: u.host.clone(),
+        port: u.port("NaiveProxy")?,
+        protocol: Protocol::Naive {
+            username: u.user.clone().ok_or_else(|| invalid("NaiveProxy", "missing user"))?,
+            password: u.pass.clone().unwrap_or_default(),
+            padding: !matches!(u.q(&["padding"]).as_deref(), Some("false" | "0")),
+        },
+        transport: Transport::Tcp,
+        tls: Some(Tls { sni: u.q(&["sni", "peer"]), insecure: u.flag(&["insecure", "allowInsecure"]), ..Default::default() }),
+        udp: true,
+        mux: None,
+    })
+}
+
 fn parse_socks(s: &str) -> Result<Node, LinkError> {
     let u = split_uri(s, "SOCKS")?;
     let (username, password) = match (&u.user, &u.pass) {
@@ -798,6 +818,15 @@ pub fn to_link(n: &Node) -> Option<String> {
             }
             _ => format!("socks://{host}:{}", n.port),
         },
+        Protocol::Naive { username, password, padding } => {
+            if let Some(sni) = n.tls.as_ref().and_then(|t| t.sni.clone()) {
+                q.push("sni", sni);
+            }
+            if !padding {
+                q.push("padding", "false");
+            }
+            format!("naive+https://{}:{}@{host}:{}{}", enc(username), enc(password), n.port, q.render())
+        }
         Protocol::Http { .. } | Protocol::Other { .. } | Protocol::XrayOutbound { .. } => return None,
     };
     Some(link + &frag)

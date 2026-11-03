@@ -14,7 +14,7 @@ ui                   Svelte 5 + TypeScript interface.
 
 ## One profile, both cores
 
-Mihomo runs in front: rules, groups, TUN, connection tracking. Nodes only Xray can run, such as VLESS over XHTTP, are bridged through a local Xray sidecar automatically. A profile can also be pinned to Mihomo only or Xray only.
+Mihomo runs in front: rules, groups, TUN, connection tracking. Nodes only Xray can run, such as VLESS over XHTTP, are bridged through a local Xray sidecar automatically. NaiveProxy servers, which neither core runs, go through [Shoes](https://github.com/cfal/shoes) the same way on Linux and macOS; Kova downloads it the first time a profile needs it (Shoes publishes no Windows build). A profile can also be pinned to Mihomo only or Xray only.
 
 Clash/Mihomo YAML profiles are kept verbatim, so their groups and rules survive. Share links, base64 subscriptions and sing-box JSON are converted.
 

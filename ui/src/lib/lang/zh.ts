@@ -764,4 +764,5 @@ export const zh: Dict = {
   'Core': '内核',
   'Kova picks the core for each server': 'Kova 会为每个服务器自动选择内核',
   'Now running on {core}': '现在运行于 {core}',
+  'cfal/shoes · NaiveProxy servers; installed when a profile needs it': 'cfal/shoes · NaiveProxy 服务器；在配置需要时安装',
 };
