@@ -147,6 +147,12 @@ pub(crate) fn close_fd(fd: i32) {
     }
 }
 
+/// End the process without running exit handlers, which crash with Android's threads
+/// still running.
+pub(crate) fn end_process() -> ! {
+    unsafe { libc::_exit(0) }
+}
+
 /// Close the interface and stop the service.
 async fn close(app: &AppHandle, engine: &Arc<Engine>) {
     if let Some(fd) = engine.take_tun_fd() {
@@ -181,11 +187,11 @@ fn watch(app: AppHandle, engine: Arc<Engine>, session: u64) {
             core_down = if !st.running && !st.busy { core_down + 1 } else { 0 };
             let state: Option<Active> = call(&app, "status", ()).await.ok();
             vpn_gone = if matches!(state, Some(Active { active: false, .. })) { vpn_gone + 1 } else { 0 };
-            if let Some(a) = &state {
-                if quiet == a.screen_on {
-                    quiet = !a.screen_on;
-                    engine.set_quiet(quiet);
-                }
+            if let Some(a) = &state
+                && quiet == a.screen_on
+            {
+                quiet = !a.screen_on;
+                engine.set_quiet(quiet);
             }
             // The notification shows the node and the speeds while someone can see it.
             tick += 1;
