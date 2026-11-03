@@ -50,7 +50,19 @@ fn tls(o: &Value, always: bool) -> Option<Tls> {
         insecure: t.get("insecure").and_then(Value::as_bool).unwrap_or(false),
         reality,
         pin: None,
+        // The keys as PEM lines; Mihomo and Xray take the base64 inside.
+        ech: t.get("ech").filter(|e| e.get("enabled").and_then(Value::as_bool).unwrap_or(false)).map(|e| Ech {
+            config: e.get("config").and_then(Value::as_array).map(|lines| lines.iter().filter_map(Value::as_str).filter(|l| !l.starts_with("-----")).collect::<String>()).filter(|c| !c.is_empty()),
+            query: None,
+        }),
     })
+}
+
+/// An outbound's `multiplex`, when it is on.
+fn multiplex(o: &Value) -> Option<Mux> {
+    let m = o.get("multiplex").filter(|m| m.get("enabled").and_then(Value::as_bool).unwrap_or(false))?;
+    let n = |k: &str| m.get(k).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
+    Some(Mux::Sing { protocol: s(m, "protocol"), max_connections: n("max_connections"), min_streams: n("min_streams"), max_streams: n("max_streams"), padding: m.get("padding").and_then(Value::as_bool).unwrap_or(false) })
 }
 
 fn transport(o: &Value) -> Transport {
@@ -127,5 +139,5 @@ fn convert(o: &Value, kind: &str) -> Result<Node, String> {
         "http" => (Protocol::Http { username: s(o, "username"), password: s(o, "password") }, Transport::Tcp, tls(o, false)),
         other => return Err(format!("{name}: sing-box type `{other}` is not supported")),
     };
-    Ok(Node { name, server, port, protocol, transport: tr, tls: tl, udp: true })
+    Ok(Node { name, server, port, protocol, transport: tr, tls: tl, udp: true, mux: multiplex(o) })
 }

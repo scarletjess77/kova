@@ -95,6 +95,7 @@ pub struct ProfilePatch {
     pub user_agent: Option<String>,
     pub update_hours: Option<u32>,
     pub via_proxy: Option<bool>,
+    pub headers: Option<Vec<crate::store::Header>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -480,13 +481,13 @@ impl Engine {
     /// while Kova is connected, the other way: through the proxy where the provider's
     /// site is blocked, directly where the provider refuses the server's address. A
     /// server that answers with an error is not asked again.
-    async fn fetch_subscription(&self, url: &str, user_agent: Option<&str>, via_proxy: bool) -> Result<fetch::Subscription> {
+    async fn fetch_subscription(&self, url: &str, user_agent: Option<&str>, headers: &[crate::store::Header], via_proxy: bool) -> Result<fetch::Subscription> {
         let device = self.settings().device_id;
-        let first = fetch::subscription(url, user_agent, self.fetch_proxy(via_proxy).as_deref(), &device).await;
+        let first = fetch::subscription(url, user_agent, headers, self.fetch_proxy(via_proxy).as_deref(), &device).await;
         match first {
             Err(e @ Error::Net(_)) if self.status().running => {
                 let other = if via_proxy { None } else { self.proxy_url() };
-                match fetch::subscription(url, user_agent, other.as_deref(), &device).await {
+                match fetch::subscription(url, user_agent, headers, other.as_deref(), &device).await {
                     Ok(sub) => {
                         let how = if via_proxy { "directly" } else { "through the proxy" };
                         self.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("the subscription was downloaded {how}, the usual way failed: {e}") });
@@ -520,12 +521,12 @@ impl Engine {
         let is_url = (input.starts_with("http://") || input.starts_with("https://")) && !input.contains(char::is_whitespace);
         let id = uuid::Uuid::new_v4().simple().to_string()[..12].to_string();
         let (body, profile) = if is_url {
-            let sub = self.fetch_subscription(input, None, true).await?;
+            let sub = self.fetch_subscription(input, None, &[], true).await?;
             let parsed = subscription::parse(&sub.body)?;
             let p = Profile {
                 id: id.clone(),
                 name: name.or(sub.title).unwrap_or_else(|| host_of(input)),
-                source: Source::Remote { url: input.to_string(), user_agent: None, update_hours: sub.update_hours.unwrap_or(12), via_proxy: true },
+                source: Source::Remote { url: input.to_string(), user_agent: None, update_hours: sub.update_hours.unwrap_or(12), via_proxy: true, headers: Vec::new() },
                 format: parsed.format,
                 core: CorePreference::Auto,
                 node_count: parsed.nodes.len(),
@@ -566,10 +567,10 @@ impl Engine {
 
     pub async fn update_profile(&self, id: &str) -> Result<Profile> {
         let p = self.profiles.read().unwrap().get(id).cloned().ok_or_else(|| Error::Other("profile not found".into()))?;
-        let Source::Remote { url, user_agent, via_proxy, .. } = &p.source else {
+        let Source::Remote { url, user_agent, via_proxy, headers, .. } = &p.source else {
             return Ok(p);
         };
-        let sub = self.fetch_subscription(url, user_agent.as_deref(), *via_proxy).await?;
+        let sub = self.fetch_subscription(url, user_agent.as_deref(), headers, *via_proxy).await?;
         let parsed = subscription::parse(&sub.body)?;
         let updated = {
             let mut idx = self.profiles.write().unwrap();
@@ -661,7 +662,13 @@ impl Engine {
             if let Some(c) = patch.core {
                 p.core = c;
             }
-            if let Source::Remote { url, user_agent, update_hours, via_proxy } = &mut p.source {
+            if let Some(why) = patch.headers.iter().flatten().find_map(|h| h.problem()) {
+                return Err(Error::Other(format!("That header can't be sent: {why}")));
+            }
+            if let Source::Remote { url, user_agent, update_hours, via_proxy, headers } = &mut p.source {
+                if let Some(h) = patch.headers {
+                    *headers = h.into_iter().map(|h| crate::store::Header { name: h.name.trim().into(), value: h.value.trim().into() }).collect();
+                }
                 if let Some(u) = patch.url.filter(|u| !u.trim().is_empty()) {
                     *url = u.trim().to_string();
                 }
@@ -1172,6 +1179,8 @@ impl Engine {
 
         // Mihomo in front, with an Xray sidecar for nodes only Xray can run.
         // TUN needs elevated rights. Without them, Mihomo runs inside the Kova service.
+        // Only Windows switches to the service on its own; elsewhere this stays as set here.
+        #[cfg_attr(not(windows), allow(unused_mut))]
         let mut via_service = !quiet && std::env::var_os("KOVA_FORCE_SERVICE").is_some();
         // Android: TUN is the VPN interface the system gave Kova, which needs no rights.
         let tun_fd = if quiet { None } else { *self.tun_fd.lock().unwrap() };
@@ -1415,7 +1424,8 @@ impl Engine {
         };
         let mut s = self.settings();
         s.core.custom_rules.retain(|r| !(r.kind == rule.kind && r.value == rule.value));
-        s.core.custom_rules.push(rule);
+        // On top, like every new rule.
+        s.core.custom_rules.insert(0, rule);
         self.smart.forget(domain);
         self.update_settings(s).await
     }

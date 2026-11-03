@@ -109,15 +109,18 @@ export interface UpdateInfo { version: string; date: string | null; body: string
 
 export interface UserInfo { upload: number; download: number; total: number; expire: number | null }
 
+/** A header a profile sends with every update. */
+export interface Header { name: string; value: string }
+
 export type Source =
-  | { kind: 'remote'; url: string; user_agent: string | null; update_hours: number; via_proxy: boolean }
+  | { kind: 'remote'; url: string; user_agent: string | null; update_hours: number; via_proxy: boolean; headers?: Header[] }
   | { kind: 'local' };
 
 export interface Profile {
   id: string;
   name: string;
   source: Source;
-  format: 'clash' | 'sing-box' | 'xray' | 'links';
+  format: 'clash' | 'sing-box' | 'xray' | 'links' | 'wireguard';
   core: CorePreference;
   node_count: number;
   usage: UserInfo | null;
@@ -180,7 +183,7 @@ export const api = {
   updateAllProfiles: () => invoke<[string, string][]>('update_all_profiles'),
   removeProfile: (id: string) => invoke<void>('remove_profile', { id }),
   setActiveProfile: (id: string) => invoke<void>('set_active_profile', { id }),
-  editProfile: (id: string, patch: Partial<{ name: string; core: CorePreference; url: string; user_agent: string; update_hours: number; via_proxy: boolean }>) =>
+  editProfile: (id: string, patch: Partial<{ name: string; core: CorePreference; url: string; user_agent: string; update_hours: number; via_proxy: boolean; headers: Header[] }>) =>
     invoke<Profile>('edit_profile', { id, patch }),
   getProfileContent: (id: string) => invoke<string>('get_profile_content', { id }),
   saveProfileContent: (id: string, text: string) => invoke<void>('save_profile_content', { id, text }),
@@ -189,6 +192,7 @@ export const api = {
   selectProxy: (group: string, name: string) => invoke<void>('select_proxy', { group, name }),
   testDelays: (names?: string[]) => invoke<Record<string, number | null>>('test_delays', { names }),
   getConnections: () => invoke<ConnectionsSnapshot>('get_connections'),
+  runningPrograms: () => invoke<string[]>('running_programs'),
   closeConnection: (id: string) => invoke<void>('close_connection', { id }),
   closeAllConnections: () => invoke<void>('close_all_connections'),
   coreStatus: (checkLatest: boolean) => invoke<CoreStatus[]>('core_status', { checkLatest }),

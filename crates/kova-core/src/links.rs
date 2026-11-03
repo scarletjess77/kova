@@ -228,6 +228,7 @@ fn tls_from(u: &Uri, default_on: bool) -> Option<Tls> {
         insecure: u.flag(&["allowInsecure", "insecure", "allow_insecure", "skip-cert-verify"]),
         reality,
         pin: u.q(&["pcs", "pinnedPeerCertSha256"]).and_then(|p| normalise_pin(&p)),
+        ech: u.q(&["ech", "echConfigList"]).and_then(|e| Ech::from_xray(&e)),
     })
 }
 
@@ -249,6 +250,7 @@ fn parse_vless(s: &str) -> Result<Node, LinkError> {
         transport: transport_from(&u),
         tls: tls_from(&u, false),
         udp: true,
+        mux: None,
     })
 }
 
@@ -263,6 +265,7 @@ fn parse_trojan(s: &str) -> Result<Node, LinkError> {
         transport: transport_from(&u),
         tls: tls_from(&u, true),
         udp: true,
+        mux: None,
     })
 }
 
@@ -283,6 +286,7 @@ fn parse_vmess(s: &str) -> Result<Node, LinkError> {
             transport: transport_from(&u),
             tls: tls_from(&u, false),
             udp: true,
+            mux: None,
         });
     };
     let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| invalid("VMess", e.to_string()))?;
@@ -313,6 +317,7 @@ fn parse_vmess(s: &str) -> Result<Node, LinkError> {
             insecure: matches!(str_of("allowInsecure").as_deref(), Some("1" | "true")),
             reality: None,
             pin: str_of("pcs").and_then(|p| normalise_pin(&p)),
+            ech: None,
         }),
         _ => None,
     };
@@ -328,6 +333,7 @@ fn parse_vmess(s: &str) -> Result<Node, LinkError> {
         transport,
         tls,
         udp: true,
+        mux: None,
     })
 }
 
@@ -370,6 +376,7 @@ fn parse_ss(s: &str) -> Result<Node, LinkError> {
         transport: Transport::Tcp,
         tls: None,
         udp: true,
+        mux: None,
     })
 }
 
@@ -486,8 +493,10 @@ fn parse_hy2(s: &str) -> Result<Node, LinkError> {
             insecure: u.flag(&["insecure", "allowInsecure"]),
             reality: None,
             pin: None,
+            ech: None,
         }),
         udp: true,
+        mux: None,
     })
 }
 
@@ -514,8 +523,10 @@ fn parse_tuic(s: &str) -> Result<Node, LinkError> {
             insecure: u.flag(&["allow_insecure", "insecure", "allowInsecure"]),
             reality: None,
             pin: None,
+            ech: None,
         }),
         udp: true,
+        mux: None,
     })
 }
 
@@ -552,6 +563,7 @@ fn parse_wireguard(s: &str) -> Result<Node, LinkError> {
         transport: Transport::Tcp,
         tls: None,
         udp: true,
+        mux: None,
     })
 }
 
@@ -570,8 +582,10 @@ fn parse_anytls(s: &str) -> Result<Node, LinkError> {
             insecure: u.flag(&["insecure", "allowInsecure"]),
             reality: None,
             pin: None,
+            ech: None,
         }),
         udp: true,
+        mux: None,
     })
 }
 
@@ -593,6 +607,7 @@ fn parse_socks(s: &str) -> Result<Node, LinkError> {
         transport: Transport::Tcp,
         tls: None,
         udp: true,
+        mux: None,
     })
 }
 
@@ -669,6 +684,7 @@ fn push_stream(q: &mut Query, n: &Node) {
                 q.push("allowInsecure", "1");
             }
             q.push("pcs", t.pin.clone().unwrap_or_default());
+            q.push("ech", t.ech.as_ref().map(Ech::to_xray).unwrap_or_default());
             if let Some(r) = &t.reality {
                 q.push("pbk", r.public_key.clone());
                 q.push("sid", r.short_id.clone().unwrap_or_default());
@@ -782,7 +798,7 @@ pub fn to_link(n: &Node) -> Option<String> {
             }
             _ => format!("socks://{host}:{}", n.port),
         },
-        Protocol::Http { .. } | Protocol::Other { .. } => return None,
+        Protocol::Http { .. } | Protocol::Other { .. } | Protocol::XrayOutbound { .. } => return None,
     };
     Some(link + &frag)
 }

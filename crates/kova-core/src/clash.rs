@@ -44,7 +44,19 @@ fn tls_of(p: &Value, always: bool) -> Option<Tls> {
         insecure: b(p, "skip-cert-verify"),
         reality,
         pin: s(p, "fingerprint").and_then(|f| crate::links::normalise_pin(&f)),
+        ech: p.get("ech-opts").filter(|o| b(o, "enable")).map(|o| Ech {
+            config: s(o, "config"),
+            // Mihomo looks the keys up through its own DNS; only another name to look up carries over.
+            query: s(o, "query-server-name").map(|n| format!("{n}+https://1.1.1.1/dns-query")),
+        }),
     })
+}
+
+/// A proxy's `smux`, when it is on.
+fn smux_of(p: &Value) -> Option<Mux> {
+    let o = p.get("smux").filter(|o| b(o, "enabled"))?;
+    let n = |k: &str| s(o, k).and_then(|v| v.parse().ok());
+    Some(Mux::Sing { protocol: s(o, "protocol"), max_connections: n("max-connections"), min_streams: n("min-streams"), max_streams: n("max-streams"), padding: b(o, "padding") })
 }
 
 fn transport_of(p: &Value) -> Transport {
@@ -158,7 +170,7 @@ pub fn from_clash(p: &Value) -> Result<Node, String> {
         "http" => (Protocol::Http { username: s(p, "username"), password: s(p, "password") }, Transport::Tcp, tls_of(p, false)),
         other => (Protocol::Other { kind: other.to_string(), raw: p.clone() }, Transport::Tcp, None),
     };
-    Ok(Node { name, server, port, protocol, transport, tls, udp })
+    Ok(Node { name, server, port, protocol, transport, tls, udp, mux: smux_of(p) })
 }
 
 /// Render a node as a Mihomo `proxies:` entry.
@@ -167,6 +179,10 @@ pub fn to_clash(n: &Node) -> Value {
         let mut raw = raw.clone();
         raw["name"] = n.name.clone().into();
         return raw;
+    }
+    // Never sent to Mihomo (see `compat`); named so a mistake would show in its error.
+    if let Protocol::XrayOutbound { kind, .. } = &n.protocol {
+        return json!({ "name": n.name, "type": kind });
     }
     let mut m = Map::new();
     let put = |m: &mut Map<String, Value>, k: &str, v: Value| {
@@ -184,7 +200,7 @@ pub fn to_clash(n: &Node) -> Value {
         Protocol::Anytls { .. } => "anytls",
         Protocol::Socks { .. } => "socks5",
         Protocol::Http { .. } => "http",
-        Protocol::Other { .. } => unreachable!(),
+        Protocol::Other { .. } | Protocol::XrayOutbound { .. } => unreachable!(),
     };
     put(&mut m, "type", kind.into());
     put(&mut m, "server", n.server.clone().into());
@@ -267,7 +283,7 @@ pub fn to_clash(n: &Node) -> Value {
                 put(&mut m, "password", p.clone().into());
             }
         }
-        Protocol::Other { .. } => {}
+        Protocol::Other { .. } | Protocol::XrayOutbound { .. } => {}
     }
 
     if let Some(t) = &n.tls {
@@ -296,6 +312,16 @@ pub fn to_clash(n: &Node) -> Value {
                 put(&mut m, "client-fingerprint", fp.into());
             }
         }
+        if let Some(e) = &t.ech {
+            let mut eo = json!({ "enable": true });
+            if let Some(c) = &e.config {
+                eo["config"] = c.clone().into();
+            }
+            if let Some(name) = e.query_name() {
+                eo["query-server-name"] = name.into();
+            }
+            put(&mut m, "ech-opts", eo);
+        }
         if let Some(r) = &t.reality {
             let mut ro = Map::new();
             ro.insert("public-key".into(), r.public_key.clone().into());
@@ -306,6 +332,18 @@ pub fn to_clash(n: &Node) -> Value {
         }
     }
 
+    if let Some(Mux::Sing { protocol, max_connections, min_streams, max_streams, padding }) = &n.mux {
+        let mut o = json!({ "enabled": true, "padding": padding });
+        if let Some(p) = protocol {
+            o["protocol"] = p.clone().into();
+        }
+        for (k, v) in [("max-connections", max_connections), ("min-streams", min_streams), ("max-streams", max_streams)] {
+            if let Some(v) = v {
+                o[k] = (*v).into();
+            }
+        }
+        put(&mut m, "smux", o);
+    }
     match &n.transport {
         Transport::Tcp => {}
         Transport::Ws { path, host } | Transport::HttpUpgrade { path, host } => {

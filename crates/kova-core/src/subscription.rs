@@ -16,6 +16,9 @@ pub enum Format {
     Xray,
     /// Plain or base64 list of share links.
     Links,
+    /// A WireGuard `.conf` file, such as a Cloudflare WARP profile.
+    #[serde(rename = "wireguard")]
+    WireGuard,
 }
 
 impl Format {
@@ -25,6 +28,7 @@ impl Format {
             Format::SingBox => "sing-box JSON",
             Format::Xray => "Xray JSON",
             Format::Links => "Share links",
+            Format::WireGuard => "WireGuard config",
         }
     }
 }
@@ -65,6 +69,9 @@ pub fn parse(body: &str) -> Result<Parsed, ParseError> {
         }
     }
 
+    if let Some((node, warnings)) = wireguard_conf(body) {
+        return finish(Format::WireGuard, &mut vec![node], warnings);
+    }
     if looks_like_clash(body) {
         let doc: Value = serde_yaml_ng::from_str(body).map_err(|e| ParseError::Clash(e.to_string()))?;
         let mut nodes = Vec::new();
@@ -104,6 +111,66 @@ fn finish(format: Format, nodes: &mut Vec<Node>, warnings: Vec<String>) -> Resul
     }
     dedupe_names(nodes);
     Ok(Parsed { format, nodes: std::mem::take(nodes), warnings })
+}
+
+/// A WireGuard `.conf`: `[Interface]` with the key and addresses, `[Peer]` with the
+/// server (the first one). `None` when `body` isn't one.
+fn wireguard_conf(body: &str) -> Option<(Node, Vec<String>)> {
+    if !body.lines().any(|l| l.trim().eq_ignore_ascii_case("[interface]")) {
+        return None;
+    }
+    let (mut section, mut peers) = (String::new(), 0);
+    let mut get: std::collections::HashMap<(String, String), String> = Default::default();
+    let mut warnings = Vec::new();
+    for line in body.lines().map(|l| l.split('#').next().unwrap_or_default().trim()).filter(|l| !l.is_empty()) {
+        if line.starts_with('[') {
+            section = line.trim_matches(['[', ']']).trim().to_ascii_lowercase();
+            if section == "peer" {
+                peers += 1;
+            }
+            continue;
+        }
+        if section == "peer" && peers > 1 {
+            continue;
+        }
+        if let Some((k, v)) = line.split_once('=') {
+            get.insert((section.clone(), k.trim().to_ascii_lowercase()), v.trim().to_string());
+        }
+    }
+    let field = |sec: &str, k: &str| get.get(&(sec.to_string(), k.to_string())).cloned().filter(|v| !v.is_empty());
+    let endpoint = field("peer", "endpoint")?;
+    let (host, port) = endpoint.rsplit_once(':')?;
+    if peers > 1 {
+        warnings.push("Only the first [Peer] of the WireGuard config is used".to_string());
+    }
+    // AmneziaWG's extra settings, which plain WireGuard servers don't take.
+    if ["jc", "jmin", "jmax", "s1", "s2", "h1", "h2", "h3", "h4"].iter().any(|k| field("interface", k).is_some()) {
+        warnings.push("The AmneziaWG settings (Jc, S1, H1, ...) aren't used".to_string());
+    }
+    let reserved = field("peer", "reserved")
+        .map(|r| r.trim_matches(['[', ']']).split(',').filter_map(|x| x.trim().parse::<u8>().ok()).collect::<Vec<u8>>())
+        .filter(|r| r.len() == 3)
+        .unwrap_or_default();
+    let addresses: Vec<String> = field("interface", "address").map(|a| a.split(',').map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()).unwrap_or_default();
+    let host = host.trim_matches(['[', ']']).to_string();
+    let node = Node {
+        name: if host.contains("cloudflareclient.com") || host.starts_with("162.159.") { "Cloudflare WARP".into() } else { format!("WireGuard {host}") },
+        server: host,
+        port: port.parse().ok()?,
+        protocol: crate::model::Protocol::Wireguard {
+            private_key: field("interface", "privatekey")?,
+            public_key: field("peer", "publickey")?,
+            pre_shared_key: field("peer", "presharedkey"),
+            addresses: addresses.into_iter().map(|a| if a.contains('/') { a } else if a.contains(':') { format!("{a}/128") } else { format!("{a}/32") }).collect(),
+            mtu: field("interface", "mtu").and_then(|m| m.parse().ok()),
+            reserved,
+        },
+        transport: crate::model::Transport::Tcp,
+        tls: None,
+        udp: true,
+        mux: None,
+    };
+    Some((node, warnings))
 }
 
 fn looks_like_clash(body: &str) -> bool {
@@ -190,5 +257,25 @@ mod tests {
         assert_eq!(u.expire, Some(1798675200));
         assert_eq!(decode_title("base64:0J/RgNC40LLQtdGC"), "Привет");
         assert_eq!(parse_userinfo("upload=1; expire=0").expire, None);
+    }
+
+    /// A WARP profile as wgcf writes it, and an Xray outbound Kova doesn't model.
+    #[test]
+    fn wireguard_conf_and_masque() {
+        let conf = "[Interface]\nPrivateKey = cHJpdmF0ZWtleXByaXZhdGVrZXlwcml2YXRla2V5MDA9\nAddress = 172.16.0.2/32, 2606:4700:110:8a36::2/128\nDNS = 1.1.1.1\nMTU = 1280\n\n[Peer]\nPublicKey = bmXOC+F1FxEMF9dyiK2H5/1SUtzH0JuVo51h2wPfgyo=\nAllowedIPs = 0.0.0.0/0, ::/0\nEndpoint = engage.cloudflareclient.com:2408\n";
+        let p = parse(conf).unwrap();
+        assert_eq!(p.format, Format::WireGuard);
+        let n = &p.nodes[0];
+        assert_eq!((n.name.as_str(), n.server.as_str(), n.port), ("Cloudflare WARP", "engage.cloudflareclient.com", 2408));
+        assert!(matches!(&n.protocol, crate::model::Protocol::Wireguard { addresses, mtu: Some(1280), .. } if addresses.len() == 2));
+        assert_eq!(crate::clash::to_clash(n)["type"], "wireguard");
+
+        let masque = r#"{"remarks":"WARP over MASQUE","outbounds":[{"tag":"proxy","protocol":"masque","settings":{"address":"162.159.198.2","port":443},"streamSettings":{"method":"masque","security":"tls"}}]}"#;
+        let p = parse(masque).unwrap();
+        let n = &p.nodes[0];
+        assert_eq!((n.server.as_str(), n.port, n.protocol_label().as_str()), ("162.159.198.2", 443, "MASQUE"));
+        assert!(!crate::compat::supports(crate::CoreKind::Mihomo, n) && crate::compat::supports(crate::CoreKind::Xray, n));
+        let o = crate::gen_xray::outbound(n).unwrap();
+        assert_eq!((o["tag"].as_str(), o["protocol"].as_str()), (Some("WARP over MASQUE"), Some("masque")));
     }
 }

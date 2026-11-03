@@ -38,6 +38,12 @@ pub enum CorePreference {
 pub fn unsupported(core: CoreKind, node: &Node) -> Option<&'static str> {
     match core {
         CoreKind::Mihomo => {
+            if matches!(node.mux, Some(Mux::Xray { .. })) {
+                return Some("Xray's mux needs Xray");
+            }
+            if matches!(node.protocol, Protocol::XrayOutbound { .. }) {
+                return Some("this protocol needs Xray");
+            }
             if matches!(node.transport, Transport::Xhttp { .. }) {
                 return Some("XHTTP transport needs Xray");
             }
@@ -54,6 +60,7 @@ pub fn unsupported(core: CoreKind, node: &Node) -> Option<&'static str> {
             Protocol::Anytls { .. } => Some("AnyTLS needs Mihomo"),
             Protocol::Other { .. } => Some("this protocol needs Mihomo"),
             Protocol::Shadowsocks { plugin: Some(_), .. } => Some("Shadowsocks plugins need Mihomo"),
+            _ if matches!(node.mux, Some(Mux::Sing { .. })) => Some("sing-mux needs Mihomo"),
             _ if matches!(node.transport, Transport::H2 { .. }) => Some("HTTP/2 transport was removed from Xray"),
             _ => None,
         },

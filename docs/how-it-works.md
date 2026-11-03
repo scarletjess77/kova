@@ -92,7 +92,7 @@ A server whose link turns certificate checks off is asked for its certificate on
 
 **"Add to Kova" links.** Kova opens `kova://import/<subscription address>` (the address appended as it is, like `happ://add/`), `kova://import?url=<encoded address>` and `kova://install-config?url=<encoded address>`. The link opens the Add profile dialog with the address filled in; the user presses Import. Share links (`vless://…`) work the same way.
 
-On a Remnawave subscription page, add Kova to `app-config.json` for each platform, for example:
+The provider page, [scarletjess77.github.io/kova/providers.html](https://scarletjess77.github.io/kova/providers.html), has all of this ready to copy, in four languages. On Remnawave, add Kova in the dashboard's Subpage Builder with the link `kova://import/` before the subscription address; setups that still use `app-config.json` take this entry for each platform:
 
 ```json
 {
@@ -111,7 +111,7 @@ On a Remnawave subscription page, add Kova to `app-config.json` for each platfor
 }
 ```
 
-**Formats Kova reads:** a Clash/Mihomo config (kept as it is), sing-box JSON, Xray JSON (one config or a list of them, as panels send it for v2rayNG or Happ), and plain or base64 share links. From Xray JSON Kova takes each server and its transport and security; the provider's fragment, mux and outbound chains aren't used (Kova's Anti-DPI replaces fragment), and the profile lists what was left out. A panel picks the format by User-Agent: Kova asks as `clash.meta`, and a profile's User-Agent can be changed in Profiles to get another format.
+**Formats Kova reads:** a Clash/Mihomo config (kept as it is), sing-box JSON, Xray JSON (one config or a list of them, as panels send it for v2rayNG or Happ), plain or base64 share links, and WireGuard `.conf` files (a Cloudflare WARP profile, for example). From Xray JSON Kova takes each server with its transport and security, pinned certificate, ECH and mux; an outbound Kova doesn't read field by field, such as MASQUE, runs on Xray as the provider wrote it. The provider's fragment and outbound chains aren't used (Kova's Anti-DPI replaces fragment), and the profile lists what was left out. Mux comes in two kinds that don't mix: Xray's runs on Xray and sing-mux (Clash `smux`, sing-box `multiplex`) on Mihomo, so Automatic picks the core a server's mux needs. A profile can also send headers of its own with every update (Profiles → Extra headers) for providers that ask for one. A panel picks the format by User-Agent: Kova asks as `clash.meta`, and a profile's User-Agent can be changed in Profiles to get another format.
 
 **Headers Kova reads:** `subscription-userinfo` (traffic and expiry), `profile-title`, `profile-update-interval`, `profile-web-page-url` or `support-url` (the Provider button) and `announce` (a message shown on the Dashboard; plain text or `base64:`).
 

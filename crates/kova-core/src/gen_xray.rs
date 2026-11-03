@@ -74,6 +74,9 @@ fn stream(n: &Node) -> Value {
                     if let Some(pin) = &t.pin {
                         tls["pinnedPeerCertSha256"] = pin.clone().into();
                     }
+                    if let Some(ech) = &t.ech {
+                        tls["echConfigList"] = ech.to_xray().into();
+                    }
                     // Certificate checks off: Xray no longer has "allowInsecure"; the
                     // certificate is pinned instead (see `with_pin`).
                     s.insert("tlsSettings".into(), tls);
@@ -86,6 +89,11 @@ fn stream(n: &Node) -> Value {
 
 /// One Xray outbound for `n`, tagged with the node name. `None` if Xray can't run it.
 pub fn outbound(n: &Node) -> Option<Value> {
+    if let Protocol::XrayOutbound { raw, .. } = &n.protocol {
+        let mut o = raw.clone();
+        o["tag"] = n.name.clone().into();
+        return Some(o);
+    }
     let settings = match &n.protocol {
         Protocol::Vless { uuid, flow, encryption } => json!({ "vnext": [{ "address": n.server, "port": n.port, "users": [{
             "id": uuid, "encryption": encryption.clone().unwrap_or_else(|| "none".into()), "flow": flow.clone().unwrap_or_default()
@@ -133,6 +141,19 @@ pub fn outbound(n: &Node) -> Option<Value> {
         _ => unreachable!(),
     };
     let mut o = json!({ "tag": n.name, "protocol": protocol, "settings": settings });
+    if let Some(Mux::Xray { concurrency, xudp_concurrency, xudp_proxy_udp443 }) = &n.mux {
+        let mut m = json!({ "enabled": true });
+        if let Some(c) = concurrency {
+            m["concurrency"] = (*c).into();
+        }
+        if let Some(c) = xudp_concurrency {
+            m["xudpConcurrency"] = (*c).into();
+        }
+        if let Some(p) = xudp_proxy_udp443 {
+            m["xudpProxyUDP443"] = p.clone().into();
+        }
+        o["mux"] = m;
+    }
     if !matches!(n.protocol, Protocol::Wireguard { .. }) {
         o["streamSettings"] = stream(n);
     }
