@@ -1,6 +1,6 @@
 name: Core versions
 
-# Once a week: if Mihomo or Xray has a release newer than the one pinned in
+# Once a week: if Mihomo, Xray or Shoes has a release newer than the one pinned in
 # scripts/android-cores.json, open an issue saying so. Every Kova build ships the pinned
 # versions (the desktop installers too), so a new core reaches users only as a reviewed
 # change to that file. On the desktop the cores can still be updated by hand in Settings.
@@ -23,19 +23,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -eu
-          for core in mihomo:MetaCubeX/mihomo xray:XTLS/Xray-core; do
+          for core in mihomo:MetaCubeX/mihomo xray:XTLS/Xray-core shoes:cfal/shoes; do
             name=${core%%:*}; repo=${core#*:}
             pinned=$(jq -r ".$name.tag" scripts/android-cores.json)
             latest=$(gh api "repos/$repo/releases/latest" -q .tag_name)
             echo "$name: pinned $pinned, latest $latest"
             [ "$pinned" = "$latest" ] && continue
-            title="Android: $name $latest is out (pinned $pinned)"
+            title="$name $latest is out (pinned $pinned)"
             if gh issue list --state open --search "\"$title\" in:title" --json number -q '.[0].number' | grep -q .; then
               echo "already reported"; continue
             fi
             commit=$(gh api "repos/$repo/commits/$latest" -q .sha)
             gh issue create --title "$title" --body "$(printf '%s\n\n%s\n%s\n\n%s' \
-              "[$repo $latest](https://github.com/$repo/releases/tag/$latest) is out; the Android build still pins $pinned." \
+              "[$repo $latest](https://github.com/$repo/releases/tag/$latest) is out; Kova still pins $pinned." \
               "To update, set in \`scripts/android-cores.json\`:" \
               "\`\"tag\": \"$latest\", \"commit\": \"$commit\"\`" \
               "The release workflow builds the new cores and checks them; read the release notes for breaking changes first.")"

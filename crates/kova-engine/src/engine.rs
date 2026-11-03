@@ -284,14 +284,13 @@ fn parse_log(core: &str, line: &str) -> (String, String) {
         return (level.to_string(), msg);
     }
     // 2025/01/01 00:00:00.000000 [Warning] message
-    if let Some(start) = line.find('[') {
-        if let Some(end) = line[start..].find(']') {
+    if let Some(start) = line.find('[')
+        && let Some(end) = line[start..].find(']') {
             let lvl = line[start + 1..start + end].to_ascii_lowercase();
             if ["debug", "info", "warning", "error"].contains(&lvl.as_str()) {
                 return (lvl, line[start + end + 1..].trim().to_string());
             }
         }
-    }
     let msg = line.splitn(3, ' ').nth(2).filter(|_| line.as_bytes().first().is_some_and(u8::is_ascii_digit)).unwrap_or(line);
     ("info".into(), msg.trim().to_string())
 }
@@ -884,11 +883,10 @@ impl Engine {
                     let _ = api.select("GLOBAL", &main_group).await;
                     self.restore_selections(&api).await;
                     // Connected on mobile data: its own server, over the saved choice.
-                    if self.on_mobile.load(std::sync::atomic::Ordering::Relaxed) {
-                        if let Some(server) = self.settings().mobile_server {
+                    if self.on_mobile.load(std::sync::atomic::Ordering::Relaxed)
+                        && let Some(server) = self.settings().mobile_server {
                             let _ = api.select(&main_group, &server).await;
                         }
-                    }
                 }
                 if let Err(e) = self.apply_system_proxy() {
                     self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("could not set the system proxy: {e}") });
@@ -1272,11 +1270,10 @@ impl Engine {
         let mut shoes = None;
         if !plan.shoes.is_empty() {
             let shoes_bin = cores::binary_path(&cores_dir, CoreKind::Shoes);
-            if !shoes_bin.exists() && !quiet && cores::available(CoreKind::Shoes) {
-                if let Err(e) = cores::install_pinned(&cores_dir, CoreKind::Shoes).await {
+            if !shoes_bin.exists() && !quiet && cores::available(CoreKind::Shoes)
+                && let Err(e) = cores::install_pinned(&cores_dir, CoreKind::Shoes).await {
                     tracing::warn!("could not install Shoes: {e}");
                 }
-            }
             if !shoes_bin.exists() {
                 let why = if cores::available(CoreKind::Shoes) { "needs the Shoes core, which could not be installed" } else { "needs the Shoes core, which has no build for this system yet" };
                 for n in std::mem::take(&mut plan.shoes) {
@@ -1507,11 +1504,10 @@ impl Engine {
     /// Make the running core pick up a changed learned list.
     async fn refresh_learned(&self) {
         let api = self.run.lock().await.as_ref().and_then(|r| r.api.clone());
-        if let Some(api) = api {
-            if self.settings().core.smart_routing {
+        if let Some(api) = api
+            && self.settings().core.smart_routing {
                 crate::smart::refresh(&api).await;
             }
-        }
     }
 
     /// Relay Mihomo's log lines from the service into the normal log stream.

@@ -50,11 +50,10 @@ mod imp {
             while more {
                 // Processes of other accounts and the system can't be opened, and the
                 // ones from the Windows folder are Windows' own.
-                if let Some(path) = path_of(e.th32ProcessID).filter(|p| !p.to_lowercase().starts_with(&windows)) {
-                    if let Some(name) = std::path::Path::new(&path).file_name() {
+                if let Some(path) = path_of(e.th32ProcessID).filter(|p| !p.to_lowercase().starts_with(&windows))
+                    && let Some(name) = std::path::Path::new(&path).file_name() {
                         out.push(name.to_string_lossy().into_owned());
                     }
-                }
                 more = Process32NextW(snap, &mut e) != 0;
             }
             CloseHandle(snap);

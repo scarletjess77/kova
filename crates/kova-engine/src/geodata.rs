@@ -59,11 +59,10 @@ fn categories_of(path: &Path) -> Option<std::sync::Arc<Vec<String>>> {
     let meta = std::fs::metadata(path).ok()?;
     let key = (meta.len(), meta.modified().ok());
     let cache = CACHE.get_or_init(Default::default);
-    if let Some((k, cats)) = cache.lock().unwrap().get(path) {
-        if *k == key {
+    if let Some((k, cats)) = cache.lock().unwrap().get(path)
+        && *k == key {
             return Some(cats.clone());
         }
-    }
     let data = std::fs::read(path).ok()?;
     let cats = Arc::new(kova_core::geodata::categories(&data).ok()?);
     cache.lock().unwrap().insert(path.to_path_buf(), (key, cats.clone()));
@@ -151,11 +150,10 @@ pub async fn switch_to(cores_dir: &Path, source: &GeoSource, proxy: Option<&str>
 /// from another source. Unlike [`switch_to`] an old copy is kept: used when a download
 /// would hold up connecting, while regular refreshes happen elsewhere.
 pub async fn ensure(cores_dir: &Path, source: &GeoSource, proxy: Option<&str>) -> Result<(Marker, bool), Error> {
-    if let Some(m) = marker(cores_dir) {
-        if m.source == source.id() && FILES.iter().all(|f| cores_dir.join(f).exists()) {
+    if let Some(m) = marker(cores_dir)
+        && m.source == source.id() && FILES.iter().all(|f| cores_dir.join(f).exists()) {
             return Ok((m, false));
         }
-    }
     switch_to(cores_dir, source, proxy).await
 }
 

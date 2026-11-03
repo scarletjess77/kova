@@ -344,11 +344,10 @@ impl Node {
                 if let Some(tls) = &self.tls {
                     parts.push(if tls.reality.is_some() { "Reality".into() } else { "TLS".into() });
                 }
-                if let Protocol::Vless { flow: Some(f), .. } = &self.protocol {
-                    if f.contains("vision") {
+                if let Protocol::Vless { flow: Some(f), .. } = &self.protocol
+                    && f.contains("vision") {
                         parts.push("Vision".into());
                     }
-                }
                 if parts.is_empty() {
                     parts.push("TCP".into());
                 }

@@ -11,8 +11,8 @@
 
 ## Features
 
-- **Both cores in one app.** Mihomo runs in front; nodes only Xray can run (such as VLESS over XHTTP) are bridged through Xray automatically.
-- **Any subscription.** Clash/Mihomo YAML kept as is, share links (`vless`, `vmess`, `trojan`, `ss`, `hysteria2`, `tuic`, `wireguard`, `anytls`, `socks`), base64, sing-box JSON and Xray JSON. Import from the clipboard, a file, a QR code, or another device on the same network.
+- **Both cores in one app.** Mihomo runs in front; nodes only Xray can run (such as VLESS over XHTTP, Xray's mux or MASQUE) are bridged through Xray automatically, and NaiveProxy runs through [Shoes](https://github.com/cfal/shoes) on Linux and macOS. The core can also be chosen on the Dashboard.
+- **Any subscription.** Clash/Mihomo YAML kept as is, share links (`vless`, `vmess`, `trojan`, `ss`, `hysteria2`, `tuic`, `wireguard`, `anytls`, `socks`, `naive+https`), base64, sing-box JSON, Xray JSON and WireGuard `.conf` files, with pinned certificates, ECH and mux kept. A profile can send headers of its own for providers that ask for one. Import from the clipboard, a file, a QR code, or another device on the same network.
 - **Routing.** Presets (Russia, China, Iran direct; ad blocking; only blocked sites through the proxy), rules for sites and apps, and [smart routing](docs/how-it-works.md#smart-routing-beta), which learns sites that fail on their usual path.
 - **Works where GitHub is blocked.** Cores and routing data ship with the app; missing data is fetched through the server once connected.
 - **Against blocking.** Anti-DPI (beta) splits the start of each connection so simpler filtering can't recognise it; on Android a separate server can be chosen for mobile data, where networks may allow only whitelisted sites; the kill switch (beta) keeps apps offline when the connection drops and reconnects.
@@ -45,6 +45,8 @@ The latest build is on the [Releases](https://github.com/scarletjess77/kova/rele
 No accounts, ads or telemetry. Kova contacts other services only for these features:
 
 - **Exit point** on the dashboard: `ipwho.is` (or `ipinfo.io`).
+- **Latency tests and health checks:** `www.gstatic.com`, through the servers.
+- **What's wrong?** diagnostics: `ya.ru`, to check that the network itself works.
 - **Privacy check:** `ipify.org`. **Speed test:** `speed.cloudflare.com`.
 - **Site check:** the sites in its list, only when it is run.
 - **Updates:** `github.com`, for Kova, the cores and the routing data.

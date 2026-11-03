@@ -407,11 +407,10 @@ async fn smart_routing_in_real_mihomo() {
     let mut opened = None;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while opened.is_none() && tokio::time::Instant::now() < deadline {
-        if let Ok(Ok(kova_engine::Event::Log { source, message, .. })) = tokio::time::timeout(Duration::from_millis(500), events.recv()).await {
-            if source == "mihomo" {
+        if let Ok(Ok(kova_engine::Event::Log { source, message, .. })) = tokio::time::timeout(Duration::from_millis(500), events.recv()).await
+            && source == "mihomo" {
                 opened = message.find("[TCP] ").and_then(|i| parse_opened(&message[i..])).filter(|o| o.host == "localhost" && o.direct);
             }
-        }
     }
     let o = opened.expect("Mihomo's line for an opened connection was not recognised");
     assert_eq!(o.port, slow);
@@ -449,11 +448,10 @@ async fn smart_routing_in_real_mihomo() {
     let mut parsed = None;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
     while parsed.is_none() && tokio::time::Instant::now() < deadline {
-        if let Ok(Ok(kova_engine::Event::Log { source, message, .. })) = tokio::time::timeout(Duration::from_millis(500), events.recv()).await {
-            if source == "mihomo" {
+        if let Ok(Ok(kova_engine::Event::Log { source, message, .. })) = tokio::time::timeout(Duration::from_millis(500), events.recv()).await
+            && source == "mihomo" {
                 parsed = message.find("[TCP] dial").and_then(|i| parse_dial_failure(&message[i..]));
             }
-        }
     }
     let f = parsed.expect("Mihomo's dial warning was not recognised");
     assert!(f.rule == "Match" && !f.direct && f.host == "example.com", "{f:?}");
