@@ -52,11 +52,10 @@ pub fn unsupported(core: CoreKind, node: &Node) -> Option<&'static str> {
             if matches!(node.transport, Transport::Xhttp { .. }) {
                 return Some("XHTTP transport needs Xray");
             }
-            if let Protocol::Vless { encryption: Some(e), .. } = &node.protocol {
-                if e != "none" {
+            if let Protocol::Vless { encryption: Some(e), .. } = &node.protocol
+                && e != "none" {
                     return Some("VLESS encryption needs Xray");
                 }
-            }
             None
         }
         CoreKind::Xray => match &node.protocol {

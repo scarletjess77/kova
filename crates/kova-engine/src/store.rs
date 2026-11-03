@@ -348,11 +348,10 @@ impl ProfileIndex {
         // made of pasted servers (no address) are sealed too.
         if crate::secret::available() {
             for p in &idx.profiles {
-                if let Ok(body) = std::fs::read_to_string(paths.profile_body(&p.id)) {
-                    if !crate::secret::is_sealed(&body) {
+                if let Ok(body) = std::fs::read_to_string(paths.profile_body(&p.id))
+                    && !crate::secret::is_sealed(&body) {
                         let _ = paths.write_body(&p.id, &body);
                     }
-                }
             }
         }
         if unsealed {

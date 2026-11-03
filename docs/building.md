@@ -2,7 +2,7 @@
 
 ## Desktop
 
-Requirements: Rust (stable), Node.js 20+, and on Windows the MSVC C++ build tools.
+Requirements: Rust 1.90 or newer, Node.js 20+, and on Windows the MSVC C++ build tools.
 
 ```bash
 npm install
@@ -36,10 +36,10 @@ npm run check                                                           # UI typ
 
 The end-to-end test downloads the real cores, starts a local Xray server with VLESS over WebSocket and XHTTP, imports both as share links, tests latency, connects, and fetches a page through each node, including the bridged XHTTP one. It also checks switching away from a dead node and connecting without routing data. None of the tests touch the system proxy or enable TUN.
 
-`npm run check` also checks that every interface text has a Russian translation (`ui/src/lib/lang/ru.ts`; the English text is the key).
+`npm run check` also checks that every interface text has a Russian, Persian and Chinese translation (`ui/src/lib/lang/`; the English text is the key), and that none is left over.
 
 ## Releases
 
-The cores every build ships, desktop installers included, are the versions pinned in `scripts/android-cores.json`; the end-to-end tests run against the same. To move to a new Mihomo or Xray, change the pin (the **Core versions** workflow opens an issue when one is out) and run the end-to-end tests.
+The cores every build ships, desktop installers included, are the versions pinned in `scripts/android-cores.json`; the end-to-end tests run against the same. To move to a new Mihomo, Xray or Shoes, change the pin (the **Core versions** workflow opens an issue when one is out) and run the end-to-end tests.
 
-`node scripts/bump-version.mjs <version>` sets the version everywhere. A `v<version>` tag starts the **Release** workflow, which builds and signs every installer and APK into a draft release. Installed copies see the update once the draft is published. The **CI** workflow runs the tests on Windows, Linux and macOS for every push.
+`node scripts/bump-version.mjs <version>` sets the version everywhere. A `v<version>` tag starts the **Release** workflow, which builds and signs every installer and APK into a draft release. Installed copies see the update once the draft is published. The **CI** workflow runs the tests on Windows and Linux for every push; macOS runs when the workflow is started by hand (Actions → CI → Run workflow), as hosted Macs are often unavailable.

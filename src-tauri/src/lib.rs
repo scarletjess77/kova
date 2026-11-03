@@ -919,10 +919,27 @@ pub fn run() {
         if let RunEvent::Exit = e {
             // Always give the system proxy (or the VPN) back, whatever path led here.
             let engine = app.state::<Arc<Engine>>().inner().clone();
-            let app = app.clone();
-            tauri::async_runtime::block_on(async move {
-                let _ = stop(&app, &engine).await;
-            });
+            // Android: Kova's window was closed (swiped away from the recent apps) and
+            // Tauri exits with it. This runs on Android's main thread, which a call to
+            // the VPN service also needs, so asking it to stop here would wait forever and
+            // Android would close Kova as not responding. Stop the cores and close the
+            // interface instead; the VPN service ends with the process.
+            #[cfg(target_os = "android")]
+            {
+                tauri::async_runtime::block_on(async {
+                    let _ = engine.stop().await;
+                });
+                if let Some(fd) = engine.take_tun_fd() {
+                    android::close_fd(fd);
+                }
+            }
+            #[cfg(not(target_os = "android"))]
+            {
+                let app = app.clone();
+                tauri::async_runtime::block_on(async move {
+                    let _ = stop(&app, &engine).await;
+                });
+            }
         }
     });
 }

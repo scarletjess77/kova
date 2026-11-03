@@ -522,11 +522,10 @@ impl Health {
 
     async fn ok(&self, proxy: &str) -> bool {
         let mut seen = self.seen.lock().await;
-        if let Some((at, ok)) = seen.get(proxy) {
-            if at.elapsed() < Duration::from_secs(60) {
+        if let Some((at, ok)) = seen.get(proxy)
+            && at.elapsed() < Duration::from_secs(60) {
                 return *ok;
             }
-        }
         let ok = matches!(probe(&self.url, Some(proxy)).await.outcome, Outcome::Ok);
         seen.insert(proxy.to_string(), (Instant::now(), ok));
         ok

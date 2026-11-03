@@ -56,8 +56,8 @@ pub fn parse(body: &str) -> Result<Parsed, ParseError> {
         return Err(ParseError::Empty);
     }
 
-    if body.starts_with('{') || body.starts_with('[') {
-        if let Ok(doc) = serde_json::from_str::<Value>(body) {
+    if (body.starts_with('{') || body.starts_with('['))
+        && let Ok(doc) = serde_json::from_str::<Value>(body) {
             if xray_json::looks_like(&doc) {
                 let (mut nodes, warnings) = xray_json::parse(&doc);
                 return finish(Format::Xray, &mut nodes, warnings);
@@ -67,7 +67,6 @@ pub fn parse(body: &str) -> Result<Parsed, ParseError> {
                 return finish(Format::SingBox, &mut nodes, warnings);
             }
         }
-    }
 
     if let Some((node, warnings)) = wireguard_conf(body) {
         return finish(Format::WireGuard, &mut vec![node], warnings);

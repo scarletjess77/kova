@@ -8,7 +8,7 @@ authors = ["scarletjess77"]
 repository = "https://github.com/scarletjess77/kova"
 edition = "2024"
 license = "GPL-3.0-or-later"
-rust-version = "1.85"
+rust-version = "1.90"
 
 [profile.release]
 lto = "thin"
