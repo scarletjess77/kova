@@ -359,6 +359,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
 
     let main = main_group(&doc);
     hide_countries(&mut doc, opts);
+    reality_mlkem(&mut doc);
     apply_anti_dpi(&mut doc, opts);
     let mut known = names_in(&doc);
     let mut ours: Vec<String> = bypass_rules(opts);
@@ -414,6 +415,19 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
         without_geodata(&mut doc);
     }
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
+}
+
+/// REALITY servers in an imported profile offer the post-quantum key share too (see
+/// [`crate::clash::REALITY_MLKEM`]), unless the profile turns it off itself.
+fn reality_mlkem(doc: &mut Mapping) {
+    let Some(Yaml::Sequence(proxies)) = doc.get_mut("proxies") else { return };
+    for p in proxies.iter_mut() {
+        if let Some(Yaml::Mapping(r)) = p.get_mut("reality-opts")
+            && !r.contains_key(crate::clash::REALITY_MLKEM)
+        {
+            r.insert(Yaml::String(crate::clash::REALITY_MLKEM.into()), Yaml::Bool(true));
+        }
+    }
 }
 
 /// Leave the servers in the countries the user hid out of an imported profile: out of its
@@ -707,6 +721,18 @@ proxy-groups:\n  - {name: Sel, type: select, proxies: [Auto, \"🇷🇺 Moscow\"
         let only = "proxies:\n  - {name: RU-1, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [RU-1]}\nrules:\n  - MATCH,Sel\n";
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(only, &o).unwrap()).unwrap();
         assert_eq!(doc["proxies"].as_sequence().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn reality_offers_the_post_quantum_key_share() {
+        let raw = "proxies:\n  - {name: A, type: vless, server: a, port: 443, uuid: 11111111-1111-1111-1111-111111111111, reality-opts: {public-key: k}}\n  - {name: B, type: vless, server: b, port: 443, uuid: 11111111-1111-1111-1111-111111111111, reality-opts: {public-key: k, support-x25519mlkem768: false}}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A, B]}\nrules:\n  - MATCH,Sel\n";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &RuntimeOptions::default()).unwrap()).unwrap();
+        let flag = |i: usize| doc["proxies"][i]["reality-opts"][crate::clash::REALITY_MLKEM].as_bool();
+        assert_eq!((flag(0), flag(1)), (Some(true), Some(false)), "the profile's own choice is kept");
+        let node = parse_link("vless://11111111-1111-1111-1111-111111111111@a.example:443?security=reality&pbk=k&sid=ab&sni=www.example.com&fp=chrome#R").unwrap();
+        let nodes = vec![node];
+        let yaml = from_nodes(&nodes, &plan(&nodes, CorePreference::Auto), &Bridges::new(), &opts());
+        assert!(yaml.contains("support-x25519mlkem768: true"), "{yaml}");
     }
 
     #[test]

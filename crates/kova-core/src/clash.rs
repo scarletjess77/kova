@@ -173,6 +173,11 @@ pub fn from_clash(p: &Value) -> Result<Node, String> {
     Ok(Node { name, server, port, protocol, transport, tls, udp, mux: smux_of(p) })
 }
 
+/// Mihomo leaves the post-quantum key share out of a REALITY Client Hello unless told
+/// otherwise, and REALITY servers from Xray 26.9.30 on turn such a Client Hello away as
+/// a plain visitor ("REALITY authentication failed"). Xray servers since early 2025 accept it.
+pub const REALITY_MLKEM: &str = "support-x25519mlkem768";
+
 /// Render a node as a Mihomo `proxies:` entry.
 pub fn to_clash(n: &Node) -> Value {
     if let Protocol::Other { raw, .. } = &n.protocol {
@@ -330,6 +335,7 @@ pub fn to_clash(n: &Node) -> Value {
             if let Some(sid) = &r.short_id {
                 ro.insert("short-id".into(), sid.clone().into());
             }
+            ro.insert(REALITY_MLKEM.into(), true.into());
             put(&mut m, "reality-opts", Value::Object(ro));
         }
     }
