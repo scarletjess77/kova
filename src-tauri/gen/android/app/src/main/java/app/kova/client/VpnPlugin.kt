@@ -23,6 +23,7 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSArray
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
+import app.tauri.plugin.PluginManager
 import java.io.ByteArrayOutputStream
 
 @InvokeArg
@@ -58,6 +59,11 @@ class TunnelArgs {
  */
 @TauriPlugin(permissions = [Permission(strings = [android.Manifest.permission.POST_NOTIFICATIONS], alias = "notifications")])
 class VpnPlugin(private val activity: Activity) : Plugin(activity) {
+    /** The window open now: the one this plugin was made with is gone once Kova's window
+     *  was closed and opened again while the VPN kept running. */
+    private val current: Activity
+        get() = PluginManager.activity ?: activity
+
     @Command
     fun prepare(invoke: Invoke) {
         // Android 13 and later hide the VPN's notification, Disconnect button included,
@@ -77,7 +83,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
 
     private fun prepareVpn(invoke: Invoke) {
         // Asks only the first time, or after another VPN app took over.
-        val intent = VpnService.prepare(activity)
+        val intent = VpnService.prepare(current)
         if (intent == null) {
             invoke.resolve(JSObject().put("granted", true))
         } else {
@@ -93,8 +99,8 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun establish(invoke: Invoke) {
         val args = invoke.parseArgs(TunnelArgs::class.java)
-        KovaVpnService.open(activity, args) { fd, error ->
-            if (fd != null) invoke.resolve(JSObject().put("fd", fd)) else invoke.reject(error ?: "Could not start the VPN")
+        KovaVpnService.open(current, args) { fd, error ->
+            if (fd != null) invoke.resolve(JSObject().put("fd", fd).put("dns", JSArray(KovaVpnService.networkDns))) else invoke.reject(error ?: "Could not start the VPN")
         }
     }
 
@@ -107,7 +113,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     /** Whether the VPN is up, and whether the screen is on (to work less while it is off). */
     @Command
     fun status(invoke: Invoke) {
-        val power = activity.getSystemService(android.os.PowerManager::class.java)
+        val power = current.getSystemService(android.os.PowerManager::class.java)
         invoke.resolve(JSObject().put("active", KovaVpnService.active).put("screenOn", power?.isInteractive ?: true))
     }
 
@@ -127,7 +133,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun openVpnSettings(invoke: Invoke) {
         try {
-            activity.startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
+            current.startActivity(Intent(Settings.ACTION_VPN_SETTINGS))
             invoke.resolve()
         } catch (e: Exception) {
             invoke.reject(e.message ?: "Could not open the VPN settings")
@@ -138,11 +144,11 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
      *  whether battery saving leaves Kova alone, and who made it (for its own settings). */
     @Command
     fun device(invoke: Invoke) {
-        val ui = activity.getSystemService(android.app.UiModeManager::class.java)
+        val ui = current.getSystemService(android.app.UiModeManager::class.java)
         val tv = ui?.currentModeType == android.content.res.Configuration.UI_MODE_TYPE_TELEVISION
-        val camera = activity.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
-        val power = activity.getSystemService(android.os.PowerManager::class.java)
-        val batteryFree = power?.isIgnoringBatteryOptimizations(activity.packageName) ?: true
+        val camera = current.packageManager.hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)
+        val power = current.getSystemService(android.os.PowerManager::class.java)
+        val batteryFree = power?.isIgnoringBatteryOptimizations(current.packageName) ?: true
         invoke.resolve(
             JSObject().put("tv", tv).put("camera", camera).put("batteryFree", batteryFree)
                 .put("maker", Build.MANUFACTURER.lowercase())
@@ -154,11 +160,11 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun allowBackground(invoke: Invoke) {
         try {
-            val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + activity.packageName))
-            activity.startActivity(ask)
+            val ask = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, android.net.Uri.parse("package:" + current.packageName))
+            current.startActivity(ask)
         } catch (e: Exception) {
             // Some phones don't offer the direct question: the list of apps instead.
-            activity.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+            current.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
         invoke.resolve()
     }
@@ -172,18 +178,18 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
             "com.huawei.systemmanager" to "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity",
             "com.coloros.safecenter" to "com.coloros.safecenter.permission.startup.StartupAppListActivity",
             "com.oplus.safecenter" to "com.oplus.safecenter.permission.startup.StartupAppListActivity",
-            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.activity.BgStartUpManagerActivity",
+            "com.vivo.permissionmanager" to "com.vivo.permissionmanager.current.BgStartUpManagerActivity",
         )
         for ((pkg, cls) in pages) {
             try {
-                activity.startActivity(Intent().setClassName(pkg, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                current.startActivity(Intent().setClassName(pkg, cls).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
                 invoke.resolve()
                 return
             } catch (e: Exception) {
                 // Not this maker's: try the next one.
             }
         }
-        activity.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + activity.packageName)))
+        current.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:" + current.packageName)))
         invoke.resolve()
     }
 
@@ -205,7 +211,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         }
         try {
             val args = invoke.parseArgs(DocumentArgs::class.java)
-            activity.contentResolver.openOutputStream(uri, "wt")?.use { it.write(args.text.toByteArray()) }
+            current.contentResolver.openOutputStream(uri, "wt")?.use { it.write(args.text.toByteArray()) }
             invoke.resolve(JSObject().put("saved", true))
         } catch (e: Exception) {
             invoke.reject(e.message ?: "Could not save the file")
@@ -227,7 +233,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
             return
         }
         try {
-            val bytes = activity.contentResolver.openInputStream(uri)?.use { input ->
+            val bytes = current.contentResolver.openInputStream(uri)?.use { input ->
                 val out = ByteArrayOutputStream()
                 val buf = ByteArray(64 * 1024)
                 while (true) {
@@ -249,17 +255,17 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     fun installApk(invoke: Invoke) {
         val args = invoke.parseArgs(ApkArgs::class.java)
         try {
-            if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
+            if (Build.VERSION.SDK_INT >= 26 && !current.packageManager.canRequestPackageInstalls()) {
                 // Android lets an app install others only once the user allows it.
-                activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + activity.packageName)))
+                current.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, android.net.Uri.parse("package:" + current.packageName)))
                 invoke.reject("Allow Kova to install apps, then press Download update again")
                 return
             }
-            val uri = androidx.core.content.FileProvider.getUriForFile(activity, activity.packageName + ".fileprovider", java.io.File(args.path))
+            val uri = androidx.core.content.FileProvider.getUriForFile(current, current.packageName + ".fileprovider", java.io.File(args.path))
             val view = Intent(Intent.ACTION_VIEW)
                 .setDataAndType(uri, "application/vnd.android.package-archive")
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-            activity.startActivity(view)
+            current.startActivity(view)
             invoke.resolve()
         } catch (e: Exception) {
             invoke.reject(e.message ?: "Could not open the installer")
@@ -271,7 +277,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
     fun apps(invoke: Invoke) {
         Thread {
             try {
-                val pm = activity.packageManager
+                val pm = current.packageManager
                 val installed = if (Build.VERSION.SDK_INT >= 33) {
                     pm.getInstalledApplications(PackageManager.ApplicationInfoFlags.of(0))
                 } else {
@@ -279,7 +285,7 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
                 }
                 val list = JSArray()
                 for (info in installed) {
-                    if (info.packageName == activity.packageName) continue
+                    if (info.packageName == current.packageName) continue
                     if (pm.checkPermission(android.Manifest.permission.INTERNET, info.packageName) != PackageManager.PERMISSION_GRANTED) continue
                     list.put(
                         JSObject()

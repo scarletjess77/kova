@@ -17,6 +17,8 @@ class MainActivity : TauriActivity() {
      */
     fun connectIntent(context: Context): Intent = Intent().setClassName(context, "app.kova.client.Connect")
     private const val HANDLED = "app.kova.client.HANDLED"
+    /** A window was made in this process before. */
+    private var opened = false
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -31,6 +33,10 @@ class MainActivity : TauriActivity() {
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
       WindowInsetsCompat.CONSUMED
     }
+    // Closed from the recent apps while connected, Kova keeps running for the VPN; opened
+    // again, it needs its page in this new window.
+    if (opened) Actions.send(Actions.WINDOW, keep = true)
+    opened = true
     connectIfAsked(intent)
   }
 

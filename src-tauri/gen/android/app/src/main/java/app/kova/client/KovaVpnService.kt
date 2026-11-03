@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
+import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
@@ -29,6 +30,11 @@ class KovaVpnService : VpnService() {
 
         /** The notification's Disconnect button. */
         const val ACTION_STOP = "app.kova.client.STOP"
+
+        /** DNS servers of the network the phone is on, read when the VPN comes up. */
+        @Volatile
+        var networkDns: List<String> = emptyList()
+            private set
 
         private var instance: KovaVpnService? = null
         private var pending: ((Int?, String?) -> Unit)? = null
@@ -158,6 +164,7 @@ class KovaVpnService : VpnService() {
             active = true
             node = ""
             speeds = ""
+            networkDns = getSystemService(ConnectivityManager::class.java)?.let { underlyingDns(it, it.activeNetwork) }.orEmpty()
             showNotification(waiting = false)
             stateChanged(this)
             watchNetwork()
@@ -186,6 +193,20 @@ class KovaVpnService : VpnService() {
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetwork: String? = null
+    private var lastDns: List<String>? = null
+
+    /** The DNS servers of [network], unless it is a VPN (Kova's own included). */
+    private fun underlyingDns(cm: ConnectivityManager, network: Network?, lp: LinkProperties? = null): List<String> {
+        if (network == null) return emptyList()
+        return try {
+            if (cm.getNetworkCapabilities(network)?.hasTransport(NetworkCapabilities.TRANSPORT_VPN) == true) return emptyList()
+            (lp ?: cm.getLinkProperties(network))?.dnsServers.orEmpty()
+                .filter { !it.isLinkLocalAddress && !it.isLoopbackAddress && !it.isAnyLocalAddress }
+                .mapNotNull { it.hostAddress?.substringBefore('%') }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
 
     /**
      * Tell Kova when the phone moves between Wi-Fi and mobile data, so it can use another
@@ -210,6 +231,16 @@ class KovaVpnService : VpnService() {
                     Actions.send("network:$kind", keep = true)
                 }
             }
+
+            // Some Wi-Fi networks answer DNS only from their own servers: Kova uses them
+            // too for the sites that go direct.
+            override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
+                val dns = underlyingDns(cm, network, lp)
+                if (dns.isNotEmpty() && dns != lastDns) {
+                    lastDns = dns
+                    Actions.send("dns:" + dns.joinToString(","), keep = true)
+                }
+            }
         }
         try {
             cm.registerDefaultNetworkCallback(callback)
@@ -222,6 +253,7 @@ class KovaVpnService : VpnService() {
         val callback = networkCallback ?: return
         networkCallback = null
         lastNetwork = null
+        lastDns = null
         try {
             getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback)
         } catch (_: Exception) {
