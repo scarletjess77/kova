@@ -67,7 +67,7 @@ impl Engine {
         let has_profile = settings.active_profile.as_ref().is_some_and(|id| self.profiles().iter().any(|p| &p.id == id));
         out.push(if has_profile { check("profile", Ok, None, None) } else { check("profile", Fail, None, Some("add-profile")) });
 
-        let missing: Vec<String> = self.core_status(false).await.into_iter().filter(|c| c.installed.is_none()).map(|c| c.core.label().to_string()).collect();
+        let missing: Vec<String> = self.core_status(false).await.into_iter().filter(|c| c.installed.is_none() && c.core != kova_core::CoreKind::Shoes).map(|c| c.core.label().to_string()).collect();
         out.push(if missing.is_empty() { check("cores", Ok, None, None) } else { check("cores", Fail, Some(missing.join(", ")), Some("install-cores")) });
 
         // The network itself, without Kova: a captive portal or no signal looks like a

@@ -31,6 +31,7 @@
   let cores = $state<CoreStatus[]>([]);
   let checking = $state(false);
   let installing = $state<CoreKind | null>(null);
+  const CORE_NAMES: Record<CoreKind, string> = { mihomo: 'Mihomo', xray: 'Xray', shoes: 'Shoes' };
 
   async function loadCores(latest: boolean) {
     checking = latest;
@@ -42,7 +43,7 @@
   const norm = (v: string | null) => (v ?? '').replace(/^v/, '');
   async function install(c: CoreKind) {
     installing = c;
-    await app.run(() => api.installCore(c), (tag) => t('{core} {tag} installed', { core: c === 'xray' ? 'Xray' : 'Mihomo', tag }));
+    await app.run(() => api.installCore(c), (tag) => t('{core} {tag} installed', { core: CORE_NAMES[c], tag }));
     installing = null;
     await loadCores(false);
   }
@@ -316,7 +317,7 @@
       <FoldCard id="cores" title={t('Cores')}>
         {#snippet aside()}{#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}{/snippet}
         {#each cores as c (c.core)}
-          {@const name = c.core === 'xray' ? 'Xray' : 'Mihomo'}
+          {@const name = CORE_NAMES[c.core]}
           {@const update = c.latest && norm(c.latest) !== norm(c.installed)}
           <div class="core">
             <span class="ico">{name[0]}</span>
@@ -327,7 +328,7 @@
             {:else}
               <span class="chip">{c.latest ? t('Up to date') : t('Installed')}</span>
             {/if}
-            <span class="d">{c.core === 'xray' ? t('XTLS/Xray-core · XHTTP, Reality, bridged nodes') : t('MetaCubeX/mihomo · rules, groups, TUN, most protocols')}{!c.installed ? ` · ${t('not installed')}` : ''}</span>
+            <span class="d">{c.core === 'xray' ? t('XTLS/Xray-core · XHTTP, Reality, bridged nodes') : c.core === 'shoes' ? t('cfal/shoes · NaiveProxy servers; installed when a profile needs it') : t('MetaCubeX/mihomo · rules, groups, TUN, most protocols')}{!c.installed ? ` · ${t('not installed')}` : ''}</span>
           </div>
         {/each}
         <p class="hint">{app.mobile ? t('Included with the app and updated together with it.') : t('Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.')}</p>

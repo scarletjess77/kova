@@ -135,6 +135,13 @@ pub enum Protocol {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         password: Option<String>,
     },
+    /// NaiveProxy: HTTP/2 CONNECT over TLS with padding. Run by the Shoes core.
+    Naive {
+        username: String,
+        password: String,
+        #[serde(default = "yes")]
+        padding: bool,
+    },
     /// A Clash proxy type we don't model (ssr, snell, mieru, ...). Kept verbatim so
     /// Mihomo can still run it.
     Other {
@@ -301,6 +308,7 @@ impl Node {
             Protocol::Wireguard { .. } => "WireGuard".into(),
             Protocol::Anytls { .. } => "AnyTLS".into(),
             Protocol::Socks { .. } => "SOCKS5".into(),
+            Protocol::Naive { .. } => "NaiveProxy".into(),
             Protocol::Http { .. } => "HTTP".into(),
             Protocol::Other { kind, .. } | Protocol::XrayOutbound { kind, .. } => kind.to_uppercase(),
         }

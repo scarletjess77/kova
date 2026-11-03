@@ -4,7 +4,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { friendly } from './errors';
 
-export type CoreKind = 'mihomo' | 'xray';
+export type CoreKind = 'mihomo' | 'xray' | 'shoes';
 export type CorePreference = 'auto' | 'mihomo' | 'xray';
 export type Mode = 'rule' | 'global' | 'direct';
 export type Preset = 'block-ads' | 'direct-ru' | 'direct-cn' | 'direct-ir' | 'proxy-blocked-ru';
