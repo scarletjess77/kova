@@ -2,7 +2,7 @@
   import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { api, errText, type ExitInfo, type Mode, type Preset } from '../lib/api';
+  import { api, errText, type CorePreference, type ExitInfo, type Mode, type Preset } from '../lib/api';
   import { countryCode, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -96,6 +96,10 @@
   onDestroy(() => { clearInterval(tick); clearInterval(poll); });
 
   const setMode = (m: Mode) => app.saveSettings((x) => (x.core.mode = m));
+  // The active profile's core; a running connection restarts on it.
+  const CORE_NAME: Record<CorePreference, string> = { auto: '', mihomo: 'Mihomo', xray: 'Xray' };
+  const setCore = (c: CorePreference) => profile && profile.core !== c &&
+    app.run(() => api.editProfile(profile!.id, { core: c }), c === 'auto' ? t('Kova picks the core for each server') : t('Now running on {core}', { core: CORE_NAME[c] }));
   let details = $state(false);
   let diagnosing = $state(false);
 
@@ -196,12 +200,24 @@
     </div>
     {#if settings}
       <div class="hero-controls">
+        <div class="col">
         <div class="fld"><span class="lbl">{t('Routing mode')}</span>
           <div class="seg" role="group" aria-label={t('Routing mode')}>
             {#each [['rule', tx('mode', 'Rule')], ['global', tx('mode', 'Global')], ['direct', tx('mode', 'Direct')]] as [m, l] (m)}
               <button aria-pressed={settings.core.mode === m} onclick={() => setMode(m as Mode)}>{l}</button>
             {/each}
           </div>
+        </div>
+        {#if profile}
+          <div class="fld"><span class="lbl">{t('Core')}</span>
+            <div class="seg" role="group" aria-label={t('Core')}>
+              <!-- On a phone the VPN needs Mihomo in front; Xray still runs what only it supports. -->
+              {#each [['auto', t('Automatic')], ['mihomo', 'Mihomo'], ...(!app.mobile || profile.core === 'xray' ? [['xray', 'Xray']] : [])] as [c, l] (c)}
+                <button aria-pressed={profile.core === c} onclick={() => setCore(c as CorePreference)}>{l}</button>
+              {/each}
+            </div>
+          </div>
+        {/if}
         </div>
         <!-- On a phone the VPN captures everything; there is nothing to choose. -->
         {#if !app.mobile}
@@ -321,6 +337,7 @@
   .route .end { font-weight: 600; }
   .hero-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
   .hero-meta .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .hero-controls .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
   .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 18px; border-top: 1px solid var(--line); }
   @container hero (max-width: 420px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
   /* The first-start guide is long: in a narrow desktop card the power button goes above it, so

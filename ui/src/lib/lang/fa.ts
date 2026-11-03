@@ -762,4 +762,7 @@ export const fa: Dict = {
   'Search programs': 'جستجوی برنامه‌ها',
   'Using the network now': 'اکنون از شبکه استفاده می‌کنند',
   '{name} is now blocked': '{name} اکنون مسدود است',
+  'Core': 'هسته',
+  'Kova picks the core for each server': 'Kova برای هر سرور هسته را خودش انتخاب می‌کند',
+  'Now running on {core}': 'اکنون روی {core} اجرا می‌شود',
 };
