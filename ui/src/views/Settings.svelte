@@ -463,7 +463,7 @@
 {/if}
 
 <style>
-  .contacts dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 0; font-size: 12.5px; }
+  .contacts dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: 6px 14px; margin: 8px 0 0; font-size: 12px; }
   .contacts dt { overflow-wrap: anywhere; }
   .contacts dd { margin: 0; color: var(--muted); }
   .set { columns: 2; column-gap: 14px; }
@@ -472,8 +472,8 @@
   .aside-btn, .aside-sw { margin-inline-start: auto; }
   .core { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
   .core:first-of-type { border-top: 0; padding-top: 0; }
-  .ico { grid-row: span 2; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--sunk); border: 1px solid var(--line); font: 700 12px var(--f-display); }
-  .core .t { font-weight: 600; }
+  .ico { grid-row: span 2; width: 36px; height: 36px; border-radius: 8px; display: grid; place-items: center; background: var(--sunk); border: 1px solid var(--line); font: 500 12px var(--f-display); }
+  .core .t { font-weight: 500; }
   .core .d { font-size: 12px; color: var(--muted); }
   .core .btn, .core .chip { grid-row: span 2; }
   .rows { margin-top: 8px; }
@@ -484,9 +484,9 @@
   .data .d { word-break: break-all; }
   .warn-text { color: var(--warn); }
   .upd { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); margin-bottom: 4px; }
-  .upd .t { font-weight: 600; }
+  .upd .t { font-weight: 500; }
   .upd .d { font-size: 12px; color: var(--muted); }
-  .notes { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); white-space: pre-wrap; }
+  .notes { margin: 4px 0 0; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
   .svc { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); flex-wrap: wrap; }
   .svc-text { flex: 1; min-width: 200px; }
   .svc .t { font-weight: 500; }

@@ -83,7 +83,7 @@ export const ru: Dict = {
   'Copied': 'Скопировано',
   'Copy address': 'Копировать адрес',
   'Open in Tonkeeper': 'Открыть в Tonkeeper',
-  'Or scan the code with any TON wallet. Thank you!': 'Или отсканируйте код любым кошельком TON. Спасибо!',
+  'Or scan the code with any TON wallet. Thank you': 'Или отсканируйте код любым кошельком TON. Спасибо',
 
   // Config editor
   'Saved. The next subscription update will replace your edits.': 'Сохранено. Следующее обновление подписки заменит ваши правки.',
@@ -166,7 +166,6 @@ export const ru: Dict = {
   'Nodes appear here once a profile is added.': 'Серверы появятся здесь, когда вы добавите профиль.',
   'open right now': 'открыто сейчас',
   'Downloaded': 'Загружено',
-  'this session': 'за сеанс',
   'Uploaded': 'Отдано',
   'Core memory': 'Память ядра',
   'not reported by Xray': 'Xray не сообщает',

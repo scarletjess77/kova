@@ -49,14 +49,14 @@
 
 <style>
   .titlebar { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; padding-inline-start: 14px; border-bottom: 1px solid var(--line); background: var(--win); }
-  .brand { display: flex; align-items: center; gap: 9px; font-family: var(--f-display); font-weight: 700; font-size: 13px; letter-spacing: .02em; }
+  .brand { display: flex; align-items: center; gap: 8px; font-family: var(--f-display); font-weight: 500; font-size: 13px; letter-spacing: .02em; }
   .brand svg { width: 20px; height: 20px; }
-  .tb-profile { color: var(--muted); font-size: 12.5px; display: flex; gap: 8px; min-width: 0; }
+  .tb-profile { color: var(--muted); font-size: 12px; display: flex; gap: 8px; min-width: 0; }
   .tb-profile b { font-weight: 500; color: var(--fg); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spacer { flex: 1; align-self: stretch; }
   .tb-btn { height: 28px; width: 30px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--muted); }
   @media (hover: hover) { .tb-btn:hover { background: var(--sunk); color: var(--fg); } }
-  .tb-btn.donate { width: auto; gap: 6px; padding: 0 9px; display: flex; align-items: center; font-size: 12.5px; font-weight: 500; }
+  .tb-btn.donate { width: auto; gap: 6px; padding: 0 8px; display: flex; align-items: center; font-size: 12px; font-weight: 500; }
   .tb-btn.donate :global(.i) { width: 15px; height: 15px; }
   .winctl { display: flex; height: 100%; }
   :global(.app.mobile) .titlebar { padding: 0 6px; gap: 8px; }

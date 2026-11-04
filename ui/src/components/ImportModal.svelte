@@ -185,10 +185,10 @@
   .qrbox :global(svg) { width: 100%; height: 100%; display: block; }
   .drop { border: 1.5px dashed var(--line-2); border-radius: var(--r); padding: 24px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .drop :global(.i) { width: 26px; height: 26px; color: var(--faint); }
-  .drop b { color: var(--fg); font-weight: 600; }
+  .drop b { color: var(--fg); font-weight: 500; }
   .small { font-size: 12px; word-break: break-all; }
   .fmt { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-  textarea { font-size: 12.5px; }
+  textarea { font-size: 12px; }
   /* On a phone the four tabs sit two by two rather than three and one. */
   @media (max-width: 520px) { .tabs button { flex-basis: 40%; } }
 </style>

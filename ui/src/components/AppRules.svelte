@@ -114,17 +114,17 @@
 </Modal>
 
 <style>
-  .hint { margin: 0 0 12px; font-size: 12.5px; color: var(--muted); }
+  .hint { margin: 0 0 12px; font-size: 12px; color: var(--muted); }
   .tools { display: flex; gap: 8px; margin-bottom: 10px; }
   .tools .input { flex: 1; min-width: 0; }
   .list { display: flex; flex-direction: column; max-height: 50vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
-  .sec { position: sticky; top: 0; z-index: 1; padding: 6px 12px; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--sunk); border-bottom: 1px solid var(--line); }
+  .sec { position: sticky; top: 0; z-index: 1; padding: 6px 12px; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--sunk); border-bottom: 1px solid var(--line); }
   .row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
   .row + .row { border-top: 1px solid var(--line); }
   .nm { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .nm .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .nm .d { font-size: 11.5px; color: var(--muted); }
-  .small-btn { height: 28px; font-size: 12.5px; }
+  .nm .d { font-size: 12px; color: var(--muted); }
+  .small-btn { height: 28px; font-size: 12px; }
   .small-btn[aria-pressed='true'] { background: var(--accent); color: var(--accent-fg); border-color: var(--accent); }
   .icon-btn { height: 28px; width: 28px; padding: 0; justify-content: center; }
   .muted { color: var(--muted); font-size: 13px; }

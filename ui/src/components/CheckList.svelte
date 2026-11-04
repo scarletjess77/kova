@@ -31,7 +31,7 @@
   .checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
   li { display: flex; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--line); }
   li:first-child { border-top: 0; }
-  .mark { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 600; color: var(--faint); background: var(--sunk); }
+  .mark { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; font-weight: 500; color: var(--faint); background: var(--sunk); }
   .mark :global(.i) { width: 14px; height: 14px; stroke-width: 2.2; }
   .ok .mark { color: var(--ok); background: var(--ok-soft); }
   .warn .mark { color: var(--warn); background: var(--warn-soft); }
@@ -39,5 +39,5 @@
   .skipped { opacity: .55; }
   .txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; font-size: 13px; }
   .txt span { color: var(--muted); overflow-wrap: anywhere; }
-  .small-btn { height: 30px; font-size: 12.5px; flex: none; }
+  .small-btn { height: 30px; font-size: 12px; flex: none; }
 </style>

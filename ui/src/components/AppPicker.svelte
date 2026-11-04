@@ -88,7 +88,7 @@
 </Modal>
 
 <style>
-  .hint { margin: 10px 0 0; font-size: 12.5px; color: var(--muted); }
+  .hint { margin: 10px 0 0; font-size: 12px; color: var(--muted); }
   .tools { display: flex; gap: 12px; align-items: center; margin-top: 14px; flex-wrap: wrap; }
   .tools .search { flex: 1 1 200px; }
   .tools .search .input { width: 100%; }
@@ -101,6 +101,6 @@
   .nm .t { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nm .p { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .row input { width: 18px; height: 18px; flex: none; accent-color: var(--accent); }
-  .count { margin-inline-end: auto; font-size: 12.5px; }
+  .count { margin-inline-end: auto; font-size: 12px; }
   .muted { padding: 8px 2px; }
 </style>
