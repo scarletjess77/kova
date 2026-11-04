@@ -84,7 +84,10 @@ class KovaVpnService : VpnService() {
          * so the core stops too, or when Kova isn't there to ask, by closing the VPN.
          */
         fun requestStop() {
-            if (!Actions.send(Actions.DISCONNECT, keep = false)) close()
+            // With Kova's window closed the Rust side can stop its cores but can't reach
+            // this service, so the VPN closes here too.
+            val delivered = Actions.send(Actions.DISCONNECT, keep = false)
+            if (!delivered || !MainActivity.isOpen()) close()
         }
     }
 

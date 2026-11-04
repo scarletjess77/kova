@@ -25,7 +25,15 @@ pub fn plugin() -> TauriPlugin<Wry> {
         .build()
 }
 
+/// What `call` answers while Kova has no window.
+const NO_WINDOW: &str = "Kova's window is closed";
+
 async fn call<T: DeserializeOwned>(app: &AppHandle, command: &str, payload: impl Serialize) -> Result<T, Error> {
+    // A plugin call runs on Kova's window; with none (closed from the recent apps while
+    // the VPN keeps Kova running) the webview library panics and the app dies.
+    if !window_open() {
+        return Err(Error::Other(NO_WINDOW.into()));
+    }
     let vpn = app.state::<Vpn>();
     vpn.0.run_mobile_plugin_async(command, payload).await.map_err(|e| Error::Other(e.to_string()))
 }
@@ -145,6 +153,38 @@ async fn shutdown(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
     stopped
 }
 
+/// Whether Kova has a window now, asked from Android directly: `MainActivity.isOpen()`
+/// through the app's class loader, which needs no window.
+pub(crate) fn window_open() -> bool {
+    use jni::objects::{GlobalRef, JClass, JObject, JValue};
+    static CLASS: std::sync::OnceLock<Option<GlobalRef>> = std::sync::OnceLock::new();
+    let ctx = ndk_context::android_context();
+    let Ok(vm) = (unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }) else { return false };
+    let Ok(mut env) = vm.attach_current_thread_as_daemon() else { return false };
+    let class = CLASS.get_or_init(|| {
+        let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+        let found = (|| {
+            let loader = env.call_method(&context, "getClassLoader", "()Ljava/lang/ClassLoader;", &[])?.l()?;
+            let name = env.new_string("app.kova.client.MainActivity")?;
+            let class = env.call_method(&loader, "loadClass", "(Ljava/lang/String;)Ljava/lang/Class;", &[JValue::Object(&name)])?.l()?;
+            env.new_global_ref(class)
+        })();
+        if found.is_err() {
+            let _ = env.exception_clear();
+        }
+        found.ok()
+    });
+    let Some(class) = class else { return false };
+    let class: &JClass = class.as_obj().into();
+    match env.call_static_method(class, "isOpen", "()Z", &[]).and_then(|v| v.z()) {
+        Ok(open) => open,
+        Err(_) => {
+            let _ = env.exception_clear();
+            false
+        }
+    }
+}
+
 pub(crate) fn close_fd(fd: i32) {
     unsafe {
         libc::close(fd);
@@ -256,7 +296,10 @@ pub fn listen_for_actions(app: AppHandle, engine: Arc<Engine>) {
             let a: Action = match call(&app, "nextAction", ()).await {
                 Ok(a) => a,
                 Err(e) => {
-                    tracing::warn!("waiting for VPN actions failed: {e}");
+                    // No window: requests wait in Kova's Kotlin side until it is back.
+                    if e.to_string() != NO_WINDOW {
+                        tracing::warn!("waiting for VPN actions failed: {e}");
+                    }
                     tokio::time::sleep(Duration::from_secs(2)).await;
                     continue;
                 }

@@ -2452,10 +2452,12 @@ dependencies = [
 name = "kova"
 version = "0.1.28"
 dependencies = [
+ "jni 0.21.1",
  "kova-core",
  "kova-engine",
  "kova-service",
  "libc",
+ "ndk-context",
  "reqwest",
  "semver",
  "serde",
