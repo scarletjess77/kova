@@ -916,11 +916,22 @@ pub fn run() {
         .expect("failed to build Kova");
 
     app.run(|app, e| {
+        // Android: the window was closed (swiped away from the recent apps). While
+        // connected Kova keeps running without it, as the VPN does; opened again, it gets
+        // a new window (`android::reopen_window`).
+        #[cfg(target_os = "android")]
+        if let RunEvent::ExitRequested { code: None, api, .. } = &e
+            && app.state::<Arc<Engine>>().has_tun_fd()
+        {
+            tracing::info!("window closed; staying connected");
+            api.prevent_exit();
+            return;
+        }
         if let RunEvent::Exit = e {
             // Always give the system proxy (or the VPN) back, whatever path led here.
             let engine = app.state::<Arc<Engine>>().inner().clone();
-            // Android: Kova's window was closed (swiped away from the recent apps) and
-            // Tauri exits with it. Stop the cores and close the interface; the VPN service
+            // Android: Kova's window was closed while disconnected and Tauri exits with it.
+            // Stop the cores and close the interface (in case); the VPN service
             // ends with the process. Then end the process at once: Tauri would call
             // `exit`, which runs the native libraries' cleanup while Android's own threads
             // still use them, and that crashes.

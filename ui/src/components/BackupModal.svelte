@@ -139,8 +139,8 @@
   .bad { color: var(--bad); font-size: 12px; }
   .drop { border: 1.5px dashed var(--line-2); border-radius: var(--r); padding: 24px; text-align: center; color: var(--muted); display: flex; flex-direction: column; gap: 8px; align-items: center; }
   .drop :global(.i) { width: 26px; height: 26px; color: var(--faint); }
-  .drop b { color: var(--fg); font-weight: 600; }
-  .names { margin: 6px 0 0; padding-inline-start: 18px; max-height: 160px; overflow: auto; color: var(--muted); font-size: 13px; }
+  .drop b { color: var(--fg); font-weight: 500; }
+  .names { margin: 6px 0 0; padding-inline-start: 16px; max-height: 160px; overflow: auto; color: var(--muted); font-size: 13px; }
   .chk { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
   .muted { color: var(--muted); margin: 0; }
 </style>

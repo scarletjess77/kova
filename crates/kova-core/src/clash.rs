@@ -178,6 +178,12 @@ pub fn from_clash(p: &Value) -> Result<Node, String> {
 /// a plain visitor ("REALITY authentication failed"). Xray servers since early 2025 accept it.
 pub const REALITY_MLKEM: &str = "support-x25519mlkem768";
 
+/// The one Mihomo fingerprint whose Client Hello has that key share: its "firefox"
+/// (Firefox 120), "safari", "ios", "edge" and the others don't, so with them those
+/// REALITY servers fail the same way. Mihomo's REALITY servers use it whatever the
+/// profile says.
+pub const REALITY_FINGERPRINT: &str = "chrome";
+
 /// Render a node as a Mihomo `proxies:` entry.
 pub fn to_clash(n: &Node) -> Value {
     if let Protocol::Other { raw, .. } = &n.protocol {
@@ -313,8 +319,7 @@ pub fn to_clash(n: &Node) -> Value {
         if let Some(pin) = t.pin.as_deref().and_then(|p| p.split(',').next()) {
             put(&mut m, "fingerprint", pin.into());
         }
-        // Reality needs one; Russian DPI holds Chrome's more often than Firefox's.
-        let fp = t.fingerprint.clone().or_else(|| t.reality.as_ref().map(|_| "firefox".to_string()));
+        let fp = if t.reality.is_some() { Some(REALITY_FINGERPRINT.to_string()) } else { t.fingerprint.clone() };
         if let Some(fp) = fp
             && !matches!(n.protocol, Protocol::Hysteria2 { .. } | Protocol::Tuic { .. }) {
                 put(&mut m, "client-fingerprint", fp.into());

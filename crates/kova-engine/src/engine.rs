@@ -192,6 +192,8 @@ pub struct Engine {
     quiet: std::sync::atomic::AtomicBool,
     /// Android: the phone is on mobile data rather than Wi-Fi (see `mobile_server`).
     on_mobile: std::sync::atomic::AtomicBool,
+    /// Android: the DNS servers of the network the phone is on (see `set_network_dns`).
+    network_dns: std::sync::RwLock<Vec<String>>,
     /// The kill switch is holding: the connection dropped and the system proxy stays on
     /// until it is back or the user disconnects.
     holding: std::sync::atomic::AtomicBool,
@@ -326,6 +328,7 @@ impl Engine {
             node_failures: Default::default(),
             quiet: Default::default(),
             on_mobile: Default::default(),
+            network_dns: Default::default(),
             holding: Default::default(),
             events,
             me: me.clone(),
@@ -1202,6 +1205,12 @@ impl Engine {
         if let Some(fd) = tun_fd {
             opts.tun.enabled = true;
             opts.tun_fd = Some(fd);
+            for d in self.network_dns.read().unwrap().iter() {
+                let d = if d.contains(':') { format!("[{d}]") } else { d.clone() };
+                if !opts.dns.direct_nameservers.contains(&d) {
+                    opts.dns.direct_nameservers.push(d);
+                }
+            }
         } else if opts.tun.enabled && !crate::process::is_elevated() {
             #[cfg(target_os = "linux")]
             match crate::tun_linux::granted() {
@@ -1897,6 +1906,29 @@ impl Engine {
     }
 
     /// Android: the phone moved between Wi-Fi and mobile data. With a server set for
+    /// Android: the DNS servers of the network the phone is on. Sites that go direct are
+    /// looked up with them too, as some Wi-Fi networks let no other DNS server answer. A
+    /// change while connected restarts the core: the new network has broken its
+    /// connections anyway.
+    pub async fn set_network_dns(&self, dns: Vec<String>) {
+        let dns: Vec<String> = dns.iter().map(|d| d.trim()).filter(|d| d.parse::<std::net::IpAddr>().is_ok()).map(String::from).collect();
+        if dns.is_empty() {
+            return;
+        }
+        {
+            let mut cur = self.network_dns.write().unwrap();
+            if *cur == dns {
+                return;
+            }
+            *cur = dns;
+        }
+        if self.status().running && self.has_tun_fd()
+            && let Err(e) = self.restart().await
+        {
+            tracing::warn!("restart for the new network's DNS failed: {e}");
+        }
+    }
+
     /// mobile data, switch to it there and back to the usual choice on Wi-Fi. Neither
     /// switch is saved as the user's choice, which stays the Wi-Fi one.
     pub async fn network_changed(&self, mobile: bool) {

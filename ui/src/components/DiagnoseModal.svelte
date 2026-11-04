@@ -42,7 +42,7 @@
 </Modal>
 
 <style>
-  .hint { margin: 0 0 10px; font-size: 12.5px; color: var(--muted); }
-  .verdict { margin: 0 0 6px; font-weight: 600; font-size: 13.5px; }
+  .hint { margin: 0 0 10px; font-size: 12px; color: var(--muted); }
+  .verdict { margin: 0 0 6px; font-weight: 500; font-size: 14px; }
   .muted { color: var(--muted); }
 </style>

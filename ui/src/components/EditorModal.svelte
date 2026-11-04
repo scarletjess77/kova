@@ -49,5 +49,5 @@
 <style>
   .code { font: 12px/1.6 var(--f-mono); background: var(--sunk); border: 1px solid var(--line); border-radius: 8px; padding: 12px; width: 100%; min-height: 420px; resize: vertical; white-space: pre; tab-size: 2; color: var(--fg); }
   .code:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  .err { display: flex; gap: 8px; align-items: flex-start; color: var(--bad); background: var(--bad-soft); padding: 10px 12px; border-radius: 8px; font-size: 12.5px; }
+  .err { display: flex; gap: 8px; align-items: flex-start; color: var(--bad); background: var(--bad-soft); padding: 10px 12px; border-radius: 8px; font-size: 12px; }
 </style>

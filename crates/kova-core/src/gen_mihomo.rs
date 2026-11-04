@@ -417,16 +417,15 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
 }
 
-/// REALITY servers in an imported profile offer the post-quantum key share too (see
-/// [`crate::clash::REALITY_MLKEM`]), unless the profile turns it off itself.
+/// REALITY servers in an imported profile offer the post-quantum key share too, with the
+/// fingerprint that has it (see [`crate::clash::REALITY_MLKEM`]).
 fn reality_mlkem(doc: &mut Mapping) {
     let Some(Yaml::Sequence(proxies)) = doc.get_mut("proxies") else { return };
     for p in proxies.iter_mut() {
-        if let Some(Yaml::Mapping(r)) = p.get_mut("reality-opts")
-            && !r.contains_key(crate::clash::REALITY_MLKEM)
-        {
-            r.insert(Yaml::String(crate::clash::REALITY_MLKEM.into()), Yaml::Bool(true));
-        }
+        let Yaml::Mapping(m) = p else { continue };
+        let Some(Yaml::Mapping(r)) = m.get_mut("reality-opts") else { continue };
+        r.insert(Yaml::String(crate::clash::REALITY_MLKEM.into()), Yaml::Bool(true));
+        m.insert(Yaml::String("client-fingerprint".into()), Yaml::String(crate::clash::REALITY_FINGERPRINT.into()));
     }
 }
 
@@ -725,14 +724,18 @@ proxy-groups:\n  - {name: Sel, type: select, proxies: [Auto, \"🇷🇺 Moscow\"
 
     #[test]
     fn reality_offers_the_post_quantum_key_share() {
-        let raw = "proxies:\n  - {name: A, type: vless, server: a, port: 443, uuid: 11111111-1111-1111-1111-111111111111, reality-opts: {public-key: k}}\n  - {name: B, type: vless, server: b, port: 443, uuid: 11111111-1111-1111-1111-111111111111, reality-opts: {public-key: k, support-x25519mlkem768: false}}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A, B]}\nrules:\n  - MATCH,Sel\n";
+        let raw = "proxies:\n  - {name: A, type: vless, server: a, port: 443, uuid: 11111111-1111-1111-1111-111111111111, client-fingerprint: firefox, reality-opts: {public-key: k}}\n  - {name: B, type: vless, server: b, port: 443, uuid: 11111111-1111-1111-1111-111111111111, reality-opts: {public-key: k, support-x25519mlkem768: false}}\n  - {name: C, type: vless, server: c, port: 443, uuid: 11111111-1111-1111-1111-111111111111, tls: true, client-fingerprint: firefox}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A, B, C]}\nrules:\n  - MATCH,Sel\n";
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &RuntimeOptions::default()).unwrap()).unwrap();
-        let flag = |i: usize| doc["proxies"][i]["reality-opts"][crate::clash::REALITY_MLKEM].as_bool();
-        assert_eq!((flag(0), flag(1)), (Some(true), Some(false)), "the profile's own choice is kept");
-        let node = parse_link("vless://11111111-1111-1111-1111-111111111111@a.example:443?security=reality&pbk=k&sid=ab&sni=www.example.com&fp=chrome#R").unwrap();
+        for i in 0..2 {
+            assert_eq!(doc["proxies"][i]["reality-opts"][crate::clash::REALITY_MLKEM].as_bool(), Some(true));
+            assert_eq!(doc["proxies"][i]["client-fingerprint"].as_str(), Some("chrome"));
+        }
+        assert_eq!(doc["proxies"][2]["client-fingerprint"].as_str(), Some("firefox"), "plain TLS keeps its own");
+        let node = parse_link("vless://11111111-1111-1111-1111-111111111111@a.example:443?security=reality&pbk=k&sid=ab&sni=www.example.com&fp=firefox#R").unwrap();
         let nodes = vec![node];
         let yaml = from_nodes(&nodes, &plan(&nodes, CorePreference::Auto), &Bridges::new(), &opts());
         assert!(yaml.contains("support-x25519mlkem768: true"), "{yaml}");
+        assert!(yaml.contains("client-fingerprint: chrome") && !yaml.contains("firefox"), "{yaml}");
     }
 
     #[test]

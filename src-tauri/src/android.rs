@@ -38,6 +38,9 @@ struct Granted {
 #[derive(Deserialize)]
 struct Tunnel {
     fd: i32,
+    /// The DNS servers of the network the phone is on.
+    #[serde(default)]
+    dns: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -112,6 +115,7 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
         close_fd(old);
     }
     engine.set_tun_fd(Some(t.fd));
+    engine.set_network_dns(t.dns).await;
     if let Err(e) = engine.start().await {
         close(app, engine).await;
         return Err(e);
@@ -151,6 +155,18 @@ pub(crate) fn close_fd(fd: i32) {
 /// still running.
 pub(crate) fn end_process() -> ! {
     unsafe { libc::_exit(0) }
+}
+
+/// Kova's window was closed while connected and Kova kept running for the VPN; now it is
+/// opened again: make the page anew in the new window.
+fn reopen_window(app: &AppHandle) -> Result<(), Error> {
+    if app.get_webview_window("main").is_some() {
+        return Ok(());
+    }
+    let config = app.config().app.windows.first().cloned().ok_or_else(|| Error::Other("no window in the config".into()))?;
+    tauri::WebviewWindowBuilder::from_config(app, &config).and_then(|w| w.build()).map_err(|e| Error::Other(e.to_string()))?;
+    tracing::info!("window opened again");
+    Ok(())
 }
 
 /// Close the interface and stop the service.
@@ -250,6 +266,11 @@ pub fn listen_for_actions(app: AppHandle, engine: Arc<Engine>) {
                 "disconnect" => disconnect(&app, &engine).await,
                 "network:mobile" | "network:wifi" => {
                     engine.network_changed(a.action == "network:mobile").await;
+                    Ok(())
+                }
+                "window" => reopen_window(&app),
+                dns if dns.starts_with("dns:") => {
+                    engine.set_network_dns(dns[4..].split(',').map(String::from).collect()).await;
                     Ok(())
                 }
                 _ => Ok(()),

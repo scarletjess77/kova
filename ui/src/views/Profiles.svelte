@@ -168,22 +168,22 @@
   .plist { display: flex; flex-direction: column; gap: 10px; }
   .prof { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; }
   .prof:hover { border-color: var(--line-2); }
-  .prof[aria-current='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .prof[aria-current='true'] { border-color: var(--faint); background: var(--accent-soft); }
   .radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-2); margin-top: 2px; display: grid; place-items: center; }
   .radio.on { border-color: var(--accent); }
   .radio.on::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
-  .t b { font-weight: 600; }
+  .t b { font-weight: 500; }
   .m { grid-column: 2; display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-  .u { grid-column: 2; display: flex; flex-direction: column; gap: 5px; margin-top: 6px; }
+  .u { grid-column: 2; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
   .s { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .detail { display: flex; flex-direction: column; gap: 14px; }
   .detail .card-h { margin: 0; }
   .small { font-size: 12px; }
   .ua { width: 220px; font-size: 12px; }
   textarea.ua { resize: vertical; min-height: 44px; font-family: var(--f-mono); }
-  .announce { margin: 0; padding: 9px 11px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
-  .warn-box { font-size: 12.5px; color: var(--warn); }
-  .warn-box ul { margin: 8px 0 0; padding-inline-start: 18px; color: var(--muted); font-size: 11.5px; }
+  .announce { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--sunk); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
+  .warn-box { font-size: 12px; color: var(--warn); }
+  .warn-box ul { margin: 8px 0 0; padding-inline-start: 16px; color: var(--muted); font-size: 12px; }
   .confirm { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; }
 </style>

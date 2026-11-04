@@ -13,7 +13,7 @@
   <span><span class="led" class:on={s.running}></span>{s.busy ? t('Working…') : s.running ? t('Running · {core}', { core: coreName(s.core) + (s.bridged.length ? ' + Xray' : '') }) : t('Stopped')}</span>
   {#if st}
     <span>{t('Port')} <span class="num">{st.core.mixed_port}</span></span>
-    <span>{[s.tun_active && 'TUN', st.system_proxy && t('System proxy')].filter(Boolean).join(' + ') || t('Proxy port only')}</span>
+    {#if s.running}<span>{[s.tun_active && 'TUN', st.system_proxy && t('System proxy')].filter(Boolean).join(' + ') || t('Proxy port only')}</span>{/if}
     <span>{modeName}</span>
   {/if}
   <span class="sp"></span>
@@ -22,9 +22,9 @@
 </footer>
 
 <style>
-  .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; }
+  .status { grid-column: 1 / -1; display: flex; align-items: center; gap: 16px; padding: 0 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; }
   .sp { flex: 1; }
-  .num { font-size: 11.5px; }
+  .num { font-size: 12px; }
   .led { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; margin-inline-end: 6px; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
 </style>

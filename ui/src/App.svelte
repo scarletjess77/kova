@@ -57,5 +57,5 @@
 {#if app.toast}<div class="toast" role="status">{app.toast}</div>{/if}
 
 <style>
-  .toast { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); background: var(--fg); color: var(--win); padding: 9px 14px; border-radius: 9px; font-size: 13px; box-shadow: var(--shadow); z-index: 30; max-width: min(640px, calc(100% - 32px)); }
+  .toast { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); background: var(--fg); color: var(--win); padding: 8px 14px; border-radius: 9px; font-size: 13px; box-shadow: var(--shadow); z-index: 30; max-width: min(640px, calc(100% - 32px)); }
 </style>
