@@ -399,6 +399,8 @@
   .preset .t { font-weight: 500; font-size: 14px; }
   .preset .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .preset .switch { margin-inline-start: auto; margin-top: 2px; }
+  .preset > div { display: flex; flex-direction: column; align-self: stretch; }
+  .preset .link { margin-top: auto; padding-top: 8px; align-self: start; text-align: start; }
   .link { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
   .add { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px auto; gap: 8px; }
   .ai { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }

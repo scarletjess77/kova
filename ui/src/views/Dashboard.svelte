@@ -363,10 +363,10 @@
   .tog :global(.i) { color: var(--muted); }
   .tog span { font-size: 13px; font-weight: 500; }
   .tog small { display: block; color: var(--faint); font-size: 11px; font-weight: 400; }
-  .exit { display: flex; flex-direction: column; gap: 14px; }
+  .exit { display: flex; flex-direction: column; gap: 14px; align-self: start; }
   .ip { font: 500 22px var(--f-mono); letter-spacing: -.01em; }
   .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
-  .foot { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .foot { display: flex; gap: 8px; flex-wrap: wrap; }
   .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-inline-start: auto; }
   .leg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .leg i { width: 10px; height: 3px; border-radius: 2px; display: block; }

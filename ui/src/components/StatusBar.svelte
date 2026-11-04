@@ -13,7 +13,7 @@
   <span><span class="led" class:on={s.running}></span>{s.busy ? t('Working…') : s.running ? t('Running · {core}', { core: coreName(s.core) + (s.bridged.length ? ' + Xray' : '') }) : t('Stopped')}</span>
   {#if st}
     <span>{t('Port')} <span class="num">{st.core.mixed_port}</span></span>
-    <span>{[s.tun_active && 'TUN', st.system_proxy && t('System proxy')].filter(Boolean).join(' + ') || t('Proxy port only')}</span>
+    {#if s.running}<span>{[s.tun_active && 'TUN', st.system_proxy && t('System proxy')].filter(Boolean).join(' + ') || t('Proxy port only')}</span>{/if}
     <span>{modeName}</span>
   {/if}
   <span class="sp"></span>

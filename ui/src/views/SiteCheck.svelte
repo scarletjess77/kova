@@ -178,12 +178,12 @@
   </div>
 {/if}
 
-{#each groups as g (g)}
-  <div class="eyebrow group">{GROUP[g] ?? g}</div>
-  <div class="twrap">
-    <table>
-      <thead><tr><th>{t('Site')}</th><th>{t('Through Kova')}</th><th>{t('Without Kova')}</th><th>{t('Result')}</th><th></th></tr></thead>
+<div class="twrap">
+  <table>
+    <thead><tr><th>{t('Site')}</th><th>{t('Through Kova')}</th><th>{t('Without Kova')}</th><th>{t('Result')}</th><th></th></tr></thead>
+    {#each groups as g (g)}
       <tbody>
+        <tr class="group"><td colspan="5">{GROUP[g] ?? g}</td></tr>
         {#each sites.filter((s) => s.group === g) as s (s.url)}
           {@const r = results[s.url]}
           {@const v = verdict(r)}
@@ -199,9 +199,9 @@
           </tr>
         {/each}
       </tbody>
-    </table>
-  </div>
-{/each}
+    {/each}
+  </table>
+</div>
 
 {#snippet probe(p: Probe | null)}
   {#if !p}
@@ -228,7 +228,8 @@
   .note :global(.i) { width: 15px; height: 15px; color: var(--warn); }
   .summary { display: flex; gap: 20px; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
   .summary b { color: var(--fg); font-family: var(--f-mono); font-weight: 500; }
-  .group { margin: 16px 0 8px; }
+  .group td { padding: 16px 12px 8px; font-size: 12px; font-weight: 500; color: var(--faint); background: var(--panel); }
+  @media (hover: hover) { tbody tr.group:hover td { background: var(--panel); } }
   table { table-layout: fixed; }
   th:nth-child(1) { width: 24%; } th:nth-child(2), th:nth-child(3) { width: 28%; } th:nth-child(4) { width: 14%; } th:nth-child(5) { width: 6%; }
   td { white-space: normal; vertical-align: middle; }
