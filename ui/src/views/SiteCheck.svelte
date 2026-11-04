@@ -216,15 +216,15 @@
 {/snippet}
 
 <style>
-  .tests { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 18px; align-items: start; }
+  .tests { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; margin-bottom: 16px; align-items: start; }
   .aside-btn { margin-inline-start: auto; }
-  .small { font-size: 12.5px; margin: 0; }
+  .small { font-size: 12px; margin: 0; }
   .speeds { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0 0 6px; }
   .speeds dt { color: var(--muted); }
-  .speeds dd { margin: 0; font-weight: 600; }
+  .speeds dd { margin: 0; font-weight: 500; }
   .add { display: flex; gap: 8px; }
   .add .input { width: 200px; }
-  .note { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12.5px; margin: -6px 0 14px; }
+  .note { display: flex; gap: 8px; align-items: center; color: var(--muted); font-size: 12px; margin: -6px 0 14px; }
   .note :global(.i) { width: 15px; height: 15px; color: var(--warn); }
   .summary { display: flex; gap: 20px; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
   .summary b { color: var(--fg); font-family: var(--f-mono); font-weight: 500; }
@@ -233,7 +233,7 @@
   th:nth-child(1) { width: 24%; } th:nth-child(2), th:nth-child(3) { width: 28%; } th:nth-child(4) { width: 14%; } th:nth-child(5) { width: 6%; }
   td { white-space: normal; vertical-align: middle; }
   .name { font-weight: 500; }
-  .url { font-size: 11.5px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .url { font-size: 12px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .fail { color: var(--bad); font-size: 12px; line-height: 1.35; display: block; }
   .chip.ok { background: var(--ok-soft); border-color: transparent; color: var(--ok); }
   .ops { display: flex; gap: 2px; justify-content: flex-end; }

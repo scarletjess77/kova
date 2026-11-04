@@ -53,10 +53,10 @@
 </Modal>
 
 <style>
-  .warn { margin: 0 0 12px; font-size: 12.5px; color: var(--warn); }
+  .warn { margin: 0 0 12px; font-size: 12px; color: var(--warn); }
   .qr { width: 220px; height: 220px; margin: 0 auto; padding: 10px; border-radius: 10px; background: #fff; }
   .qr :global(svg) { width: 100%; height: 100%; display: block; }
-  .hint { font-size: 12.5px; color: var(--muted); text-align: center; margin: 10px 0; }
+  .hint { font-size: 12px; color: var(--muted); text-align: center; margin: 10px 0; }
   textarea { width: 100%; font-size: 12px; }
   .muted { color: var(--muted); }
 </style>

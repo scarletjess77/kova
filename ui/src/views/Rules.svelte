@@ -396,7 +396,7 @@
 <style>
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin: 8px 0 16px; }
   .preset { display: flex; gap: 12px; align-items: flex-start; }
-  .preset .t { font-weight: 600; font-size: 13.5px; }
+  .preset .t { font-weight: 500; font-size: 14px; }
   .preset .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .preset .switch { margin-inline-start: auto; margin-top: 2px; }
   .link { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
@@ -428,7 +428,7 @@
   .smart .card-h { gap: 8px; }
   .aside-sw { margin-inline-start: auto; }
   .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
-  .small-btn { height: 26px; padding: 0 9px; font-size: 12px; }
+  .small-btn { height: 26px; padding: 0 8px; font-size: 12px; }
   .gap { margin-top: 10px; }
-  .order b { color: var(--fg); font-weight: 600; }
+  .order b { color: var(--fg); font-weight: 500; }
 </style>

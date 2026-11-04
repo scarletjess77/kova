@@ -110,6 +110,6 @@
 
 <style>
   .host { font-weight: 500; }
-  .none { color: var(--muted); padding: 22px 12px; }
+  .none { color: var(--muted); padding: 24px 12px; }
   .twrap { max-height: calc(100vh - 190px); }
 </style>

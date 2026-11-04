@@ -34,15 +34,15 @@
       <button class="btn primary" onclick={copy}><Icon name={copied ? 'check' : 'copy'} />{copied ? t('Copied') : t('Copy address')}</button>
       <button class="btn" onclick={() => app.run(() => openUrl(TONKEEPER_URL))}><Icon name="external" />{t('Open in Tonkeeper')}</button>
     </div>
-    <p class="hint">{t('Or scan the code with any TON wallet. Thank you!')}</p>
+    <p class="hint">{t('Or scan the code with any TON wallet. Thank you')}</p>
   </div>
 </div>
 
 <style>
-  .donate { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; }
+  .donate { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
   .qr { width: 148px; height: 148px; flex: none; background: #fff; border-radius: 10px; padding: 6px; }
   .qr :global(svg) { width: 100%; height: 100%; display: block; }
   .text { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 8px; }
   .text p { margin: 0; color: var(--muted); font-size: 13px; }
-  .addr { font-size: 12.5px; word-break: break-all; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); }
+  .addr { font-size: 12px; word-break: break-all; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--sunk); }
 </style>

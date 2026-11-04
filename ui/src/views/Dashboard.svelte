@@ -264,7 +264,6 @@
       </div>
     </div>
     <TrafficChart down={app.down} up={app.up} />
-    <div class="traffic-foot"><span>{t('This session')} ↓ <b>{fmtBytes(app.downTotal)}</b></span><span>↑ <b>{fmtBytes(app.upTotal)}</b></span></div>
   </section>
   {/if}
 
@@ -293,9 +292,8 @@
   {/if}
   {#if !app.mobile || details}
   <section class="tiles">
+    <div class="card tile wide"><span class="eyebrow">{t('This session')}</span><span class="v pair"><span>↓ {fmtBytes(app.downTotal)}</span><span class="up">↑ {fmtBytes(app.upTotal)}</span></span><span class="d">{t('Downloaded')} · {t('Uploaded')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Connections')}</span><span class="v">{connCount}</span><span class="d">{t('open right now')}</span></div>
-    <div class="card tile"><span class="eyebrow">{t('Downloaded')}</span><span class="v">{fmtBytes(app.downTotal)}</span><span class="d">{t('this session')}</span></div>
-    <div class="card tile"><span class="eyebrow">{t('Uploaded')}</span><span class="v">{fmtBytes(app.upTotal)}</span><span class="d">{t('this session')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Core memory')}</span><span class="v">{app.memory ? fmtBytes(app.memory) : '—'}</span><span class="d">{s.running ? (s.core === 'xray' ? t('not reported by Xray') : 'Mihomo') : t('not running')}</span></div>
   </section>
   {/if}
@@ -311,16 +309,16 @@
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .speed { color: var(--fg); }
   .start { margin: 4px 0 12px; padding-inline-start: 20px; text-align: start; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
-  .start li::marker { color: var(--faint); font: 600 12px var(--f-mono); }
-  .start b { display: block; color: var(--fg); font-weight: 600; }
+  .start li::marker { color: var(--faint); font: 500 12px var(--f-mono); }
+  .start b { display: block; color: var(--fg); font-weight: 500; }
   .start .region { margin-top: 6px; }
   /* The side cards grow with the window only up to a width they can use. */
   .dash { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 39%, 420px); gap: 14px; }
-  .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+  .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 14px; }
   @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } }
-  @container (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @container (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tile.wide { grid-column: 1 / -1; } }
   .hero { display: flex; flex-direction: column; gap: 20px; padding: 20px; container: hero / inline-size; }
-  .hero-top { display: flex; gap: 22px; align-items: center; }
+  .hero-top { display: flex; gap: 24px; align-items: center; }
   .hero-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
   .power { width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line-2); background: var(--sunk); color: var(--muted); display: grid; place-items: center; flex: none; position: relative; transition: background .2s, color .2s, border-color .2s; }
   .power :global(.i) { width: 36px; height: 36px; stroke-width: 2; }
@@ -328,17 +326,17 @@
   @media (hover: hover) { .power:not(.on):hover:not(:disabled) { border-color: var(--accent); color: var(--fg); } }
   .power:disabled { cursor: default; }
   .power.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-  .power.on::before { content: ''; position: absolute; inset: -7px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: .3; }
-  .power.busy::before { content: ''; position: absolute; inset: -7px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: spin .8s linear infinite; }
-  .state { font: 700 26px/1.1 var(--f-display); letter-spacing: -.01em; }
+  .power.on::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; border: 1.5px solid var(--accent); opacity: .3; }
+  .power.busy::before { content: ''; position: absolute; inset: -8px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  .state { font: 500 26px/1.1 var(--f-display); }
   .state.off { color: var(--muted); }
-  .route { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 13.5px; }
+  .route { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 14px; }
   .route .sep { color: var(--faint); }
-  .route .end { font-weight: 600; }
-  .hero-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12.5px; }
+  .route .end { font-weight: 500; }
+  .hero-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
   .hero-meta .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .hero-controls .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 18px; border-top: 1px solid var(--line); }
+  .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 16px; border-top: 1px solid var(--line); }
   @container hero (max-width: 420px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
   /* The first-start guide is long: in a narrow desktop card the power button goes above it, so
      the steps get the full width instead of wrapping into a tall column. */
@@ -350,8 +348,8 @@
   .togs { display: flex; gap: 10px; flex-wrap: wrap; }
 
   /* Phone: the connection is the page. Big centred button, status beneath it. */
-  :global(.app.mobile) .hero { padding: 28px 18px 20px; }
-  :global(.app.mobile) .hero-top { flex-direction: column; align-items: center; text-align: center; gap: 18px; }
+  :global(.app.mobile) .hero { padding: 28px 16px 20px; }
+  :global(.app.mobile) .hero-top { flex-direction: column; align-items: center; text-align: center; gap: 16px; }
   :global(.app.mobile) .hero-text { align-items: center; width: 100%; }
   :global(.app.mobile) .power { width: 148px; height: 148px; }
   :global(.app.mobile) .power :global(.i) { width: 52px; height: 52px; }
@@ -369,20 +367,19 @@
   .ip { font: 500 22px var(--f-mono); letter-spacing: -.01em; }
   .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
   .foot { margin-top: auto; display: flex; gap: 8px; flex-wrap: wrap; }
-  .legend { display: flex; gap: 18px; flex-wrap: wrap; margin-inline-start: auto; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin-inline-start: auto; }
   .leg { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .leg i { width: 10px; height: 3px; border-radius: 2px; display: block; }
   .leg b { font: 500 14px var(--f-mono); color: var(--fg); }
-  .traffic-foot { display: flex; gap: 20px; flex-wrap: wrap; margin-top: 10px; color: var(--muted); font-size: 12.5px; }
-  .traffic-foot b { color: var(--fg); font-weight: 500; font-family: var(--f-mono); }
   .qs { display: flex; flex-direction: column; gap: 4px; }
   .qs button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: none; text-align: start; min-width: 0; }
   @media (hover: hover) { .qs button:hover { background: var(--sunk); } }
-  .qs button[aria-pressed='true'] { border-color: var(--accent); background: var(--accent-soft); }
+  .qs button[aria-pressed='true'] { border-color: var(--faint); background: var(--accent-soft); }
   .qs .nm { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .qs .pr { color: var(--muted); font-size: 12px; font-weight: 400; }
   .more { margin-top: 8px; }
   .tile { display: flex; flex-direction: column; gap: 4px; }
   .tile .v { font: 500 22px var(--f-mono); letter-spacing: -.02em; }
   .tile .d { font-size: 12px; color: var(--muted); }
+  .tile .pair { display: flex; gap: 24px; flex-wrap: wrap; }
 </style>
