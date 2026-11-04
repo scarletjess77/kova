@@ -192,6 +192,8 @@ pub struct Engine {
     quiet: std::sync::atomic::AtomicBool,
     /// Android: the phone is on mobile data rather than Wi-Fi (see `mobile_server`).
     on_mobile: std::sync::atomic::AtomicBool,
+    /// Numbers latency tests, so a newer one replaces an older one still running.
+    delay_run: std::sync::atomic::AtomicU64,
     /// Android: the DNS servers of the network the phone is on (see `set_network_dns`).
     network_dns: std::sync::RwLock<Vec<String>>,
     /// The kill switch is holding: the connection dropped and the system proxy stays on
@@ -328,6 +330,7 @@ impl Engine {
             node_failures: Default::default(),
             quiet: Default::default(),
             on_mobile: Default::default(),
+            delay_run: Default::default(),
             network_dns: Default::default(),
             holding: Default::default(),
             events,
@@ -1098,10 +1101,15 @@ impl Engine {
         opts.xray_metrics_port = free_port();
         let mut warning = None;
         if quiet {
+            // Only latency tests use it: servers without rules or routing data start fastest.
             opts.mixed_port = free_port();
             opts.tun.enabled = false;
-            opts.mode = Mode::Rule;
-            opts.without_geodata = !self.has_geodata();
+            opts.mode = Mode::Global;
+            opts.without_geodata = true;
+            opts.presets.clear();
+            opts.custom_rules.clear();
+            opts.apply_rules_to_clash_profiles = false;
+            opts.smart_routing = false;
         } else {
             port_available(opts.listen_addr(), opts.mixed_port)?;
             *self.tun_error.write().unwrap() = None;
@@ -1879,7 +1887,14 @@ impl Engine {
             }
         };
         let test_url = self.settings().core.test_url().to_string();
-        let results: Vec<(String, Option<u32>)> = futures_util::stream::iter(names)
+        // A test started later (pressing "Test latency" during the one after connecting)
+        // takes over: this one stops starting new checks.
+        let run = self.delay_run.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let current = || self.delay_run.load(std::sync::atomic::Ordering::SeqCst) == run;
+        // Dead servers each wait out the timeout, so many go at once.
+        let at_once = if cfg!(target_os = "android") { 32 } else { 64 };
+        let mut checks = futures_util::stream::iter(names)
+            .take_while(|_| std::future::ready(current()))
             .map(|n| {
                 let api = api.clone();
                 let test_url = &test_url;
@@ -1888,15 +1903,28 @@ impl Engine {
                     (n, d)
                 }
             })
-            .buffer_unordered(24)
-            .collect()
-            .await;
+            .buffer_unordered(at_once);
+        // Results go out as they come, a few times a second, so fast servers show at once.
+        let mut map: HashMap<String, Option<u32>> = HashMap::new();
+        let mut batch: HashMap<String, Option<u32>> = HashMap::new();
+        let mut sent = std::time::Instant::now();
+        while let Some((n, d)) = checks.next().await {
+            map.insert(n.clone(), d);
+            batch.insert(n, d);
+            if sent.elapsed() >= Duration::from_millis(250) {
+                self.delays.write().unwrap().extend(batch.clone());
+                self.emit(Event::Delays { delays: std::mem::take(&mut batch) });
+                sent = std::time::Instant::now();
+            }
+        }
+        drop(checks);
         if let Some(t) = tester {
             t.shutdown().await;
         }
-        let map: HashMap<String, Option<u32>> = results.into_iter().collect();
-        self.delays.write().unwrap().extend(map.clone());
-        self.emit(Event::Delays { delays: map.clone() });
+        if !batch.is_empty() {
+            self.delays.write().unwrap().extend(batch.clone());
+            self.emit(Event::Delays { delays: batch });
+        }
         Ok(map)
     }
 

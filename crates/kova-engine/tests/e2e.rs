@@ -1023,3 +1023,65 @@ async fn xray_shares_with_the_network_only_with_the_login() {
     engine.stop().await.unwrap();
     let _ = server.kill().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn latency_test_streams_results_past_dead_servers() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    // One server that answers, behind 120 that never do (TEST-NET addresses).
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let target = target_server().await;
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.core.test_url = format!("http://127.0.0.1:{target}/");
+    engine.update_settings(s).await.unwrap();
+
+    let mut links: Vec<String> = (1..=120).map(|i| format!("trojan://x@192.0.2.{}:443?sni=example.com#Dead {i:03}", i % 250 + 1)).collect();
+    links.insert(60, format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Alive"));
+    engine.add_profile(&links.join("\n"), Some("Latency".into())).await.unwrap();
+
+    let mut events = engine.subscribe();
+    let started = std::time::Instant::now();
+    let watcher = tokio::spawn(async move {
+        loop {
+            if let Ok(kova_engine::Event::Delays { delays }) = events.recv().await
+                && delays.get("Alive").copied().flatten().is_some()
+            {
+                return started.elapsed();
+            }
+        }
+    });
+    let delays = engine.test_delays(None).await.unwrap();
+    let total = started.elapsed();
+    let first = tokio::time::timeout(Duration::from_secs(1), watcher).await.expect("the live result was sent").unwrap();
+    eprintln!("live server's result after {first:?}; all {} servers after {total:?}", delays.len());
+    assert!(delays.get("Alive").copied().flatten().is_some(), "{delays:?}");
+    assert!(first < total, "the live result went out before the dead servers finished");
+    let _ = server.kill().await;
+}

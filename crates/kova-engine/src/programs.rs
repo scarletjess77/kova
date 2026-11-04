@@ -3,7 +3,7 @@
 //! own programs: system processes are left out, and so is Kova with its cores.
 
 /// Names Kova and its cores run under; they are routed by Kova already.
-const OWN: &[&str] = &["kova", "kova.exe", "kova-service.exe", "mihomo", "mihomo.exe", "xray", "xray.exe"];
+const OWN: &[&str] = &["kova", "kova.exe", "kova-service.exe", "mihomo", "mihomo.exe", "xray", "xray.exe", "shoes", "shoes.exe"];
 
 /// Unique program names, sorted case-insensitively.
 pub fn running() -> Vec<String> {

@@ -358,7 +358,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     }
 
     let main = main_group(&doc);
-    hide_countries(&mut doc, opts);
+    hide_countries(&mut doc, opts, &main);
     reality_mlkem(&mut doc);
     apply_anti_dpi(&mut doc, opts);
     let mut known = names_in(&doc);
@@ -433,7 +433,7 @@ fn reality_mlkem(doc: &mut Mapping) {
 /// list and its groups, and out of its server providers through their filter. A group
 /// left with none rejects rather than going around the proxy. When every server would go,
 /// none is hidden.
-fn hide_countries(doc: &mut Mapping, opts: &RuntimeOptions) {
+fn hide_countries(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) {
     if opts.hidden_countries.is_empty() {
         return;
     }
@@ -446,6 +446,25 @@ fn hide_countries(doc: &mut Mapping, opts: &RuntimeOptions) {
     if !hidden.is_empty() && (hidden.len() < names.len() || has_providers) {
         if let Some(Yaml::Sequence(p)) = doc.get_mut("proxies") {
             p.retain(|p| !p.get("name").and_then(|n| n.as_str()).is_some_and(|n| hidden.contains(n)));
+            // A server that connected through a hidden one connects directly instead.
+            for p in p.iter_mut() {
+                if let Yaml::Mapping(m) = p
+                    && m.get("dialer-proxy").and_then(Yaml::as_str).is_some_and(|d| hidden.contains(d))
+                {
+                    m.remove("dialer-proxy");
+                }
+            }
+        }
+        // Rules that sent traffic straight to a hidden server use the main group instead;
+        // Mihomo refuses a config whose rule names a server it doesn't have.
+        if let Some(Yaml::Sequence(rules)) = doc.get_mut("rules") {
+            for r in rules.iter_mut() {
+                let Some(s) = r.as_str() else { continue };
+                if s.split(',').skip(1).any(|part| hidden.contains(part.trim())) {
+                    let fixed: Vec<String> = s.split(',').enumerate().map(|(i, part)| if i > 0 && hidden.contains(part.trim()) { main.to_string() } else { part.to_string() }).collect();
+                    *r = Yaml::String(fixed.join(","));
+                }
+            }
         }
         if let Some(Yaml::Sequence(groups)) = doc.get_mut("proxy-groups") {
             for g in groups {
@@ -700,10 +719,12 @@ rules:
         let mut o = RuntimeOptions { hidden_countries: vec!["RU".into()], ..Default::default() };
         let raw = "proxies:\n  - {name: \"🇷🇺 Moscow\", type: trojan, server: a, port: 443, password: x}\n  - {name: RU-2, type: trojan, server: b, port: 443, password: x}\n  - {name: \"🇩🇪 Frankfurt\", type: trojan, server: c, port: 443, password: x}\n\
 proxy-providers:\n  sub: {type: http, url: \"https://sub.example.com/p\", path: ./p.yaml, exclude-filter: Expired}\n\
-proxy-groups:\n  - {name: Sel, type: select, proxies: [Auto, \"🇷🇺 Moscow\", \"🇩🇪 Frankfurt\"]}\n  - {name: Auto, type: url-test, proxies: [\"🇷🇺 Moscow\", RU-2]}\n  - {name: Mixed, type: select, proxies: [RU-2], use: [sub]}\nrules:\n  - MATCH,Sel\n";
+proxy-groups:\n  - {name: Sel, type: select, proxies: [Auto, \"🇷🇺 Moscow\", \"🇩🇪 Frankfurt\"]}\n  - {name: Auto, type: url-test, proxies: [\"🇷🇺 Moscow\", RU-2]}\n  - {name: Mixed, type: select, proxies: [RU-2], use: [sub]}\nrules:\n  - DOMAIN-SUFFIX,bank.example,RU-2\n  - MATCH,Sel\n";
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
         let names: Vec<&str> = doc["proxies"].as_sequence().unwrap().iter().filter_map(|p| p["name"].as_str()).collect();
         assert_eq!(names, ["🇩🇪 Frankfurt"]);
+        let rules: Vec<&str> = doc["rules"].as_sequence().unwrap().iter().filter_map(|r| r.as_str()).collect();
+        assert!(rules.contains(&"DOMAIN-SUFFIX,bank.example,Sel"), "a rule naming a hidden server uses the main group: {rules:?}");
         let group = |n: &str| -> Vec<String> {
             let g = doc["proxy-groups"].as_sequence().unwrap().iter().find(|g| g["name"].as_str() == Some(n)).unwrap();
             g["proxies"].as_sequence().unwrap().iter().map(|m| m.as_str().unwrap().to_string()).collect()
