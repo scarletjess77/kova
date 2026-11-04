@@ -131,7 +131,7 @@
   .grp[aria-current='true'] { border-color: var(--faint); background: var(--accent-soft); }
   .top { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .top b { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .top .chip { margin-inline-start: auto; height: 19px; font-size: 10.5px; }
+  .top .chip { margin-inline-start: auto; height: 20px; font-size: 11px; }
   .now { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .grp-note { font-size: 12px; color: var(--muted); margin: 0 0 12px; display: flex; gap: 8px; align-items: center; min-height: 22px; }
   .nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
