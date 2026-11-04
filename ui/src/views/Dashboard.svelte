@@ -311,7 +311,7 @@
   .start { margin: 4px 0 12px; padding-inline-start: 20px; text-align: start; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
   .start li::marker { color: var(--faint); font: 500 12px var(--f-mono); }
   .start b { display: block; color: var(--fg); font-weight: 500; }
-  .start .region { margin-top: 6px; }
+  .start .region { display: flex; width: fit-content; margin-top: 8px; }
   /* The side cards grow with the window only up to a width they can use. */
   .dash { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 39%, 420px); gap: 14px; }
   .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 14px; }
