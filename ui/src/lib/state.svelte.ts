@@ -36,6 +36,7 @@ class AppState {
   nodes = $state<Record<string, NodeView>>({});
   delays = $state<Record<string, number | null>>({});
   testing = $state<Set<string>>(new Set());
+  private delayRun = 0;
 
   /** A newer Kova release, once found. */
   update = $state.raw<UpdateInfo | null>(null);
@@ -242,9 +243,14 @@ class AppState {
         void api.getState().then((s) => { this.profiles = s.profiles; this.settings = s.settings; });
         void this.refreshProxies();
         break;
-      case 'delays':
+      case 'delays': {
+        // Results stream in while a test runs: each server stops showing "…" as it answers.
         this.delays = { ...this.delays, ...e.delays };
+        const still = new Set(this.testing);
+        Object.keys(e.delays).forEach((n) => still.delete(n));
+        this.testing = still;
         break;
+      }
       case 'learned':
         this.learnedVersion++;
         this.notify(e.route === 'proxy'
@@ -387,6 +393,7 @@ class AppState {
   }
 
   async testDelays(names?: string[], silent = false) {
+    const run = ++this.delayRun;
     const targets = names ?? Object.keys(this.proxies.proxies);
     this.testing = new Set([...this.testing, ...targets]);
     let res: Record<string, number | null> | undefined;
@@ -395,6 +402,8 @@ class AppState {
     } catch (e) {
       if (!silent) this.notify(errText(e));
     }
+    // A newer test replaced this one: it owns the "…" marks and says the result.
+    if (run !== this.delayRun) return;
     const still = new Set(this.testing);
     targets.forEach((n) => still.delete(n));
     this.testing = still;

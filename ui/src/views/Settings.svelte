@@ -58,7 +58,7 @@
     if (!id) return;
     api.profileNodes(id).then((n) => (profileCountries = n.map((x) => countryCode(x.name)).filter((c): c is string => !!c)), () => {});
   });
-  let countryList = $derived([...new Set([...profileCountries, ...Object.keys(app.proxies.proxies).map(countryCode).filter((c): c is string => !!c), ...(s?.core.hidden_countries ?? [])])].sort());
+  let countryList = $derived([...new Set([...profileCountries, ...(s?.core.hidden_countries ?? [])])].sort());
   const hideCountry = (c: string) => set((x) => {
     const h = x.core.hidden_countries;
     x.core.hidden_countries = h.includes(c) ? h.filter((v) => v !== c) : [...h, c];
