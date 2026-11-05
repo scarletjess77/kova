@@ -193,6 +193,13 @@ input, textarea, .selectable { user-select: text; }
 .page-head .sub { color: var(--muted); font-size: 13px; }
 .page-head .tools { margin-inline-start: auto; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+/* The user's look (lib/look.ts): classes on the root, over any theme. */
+:root.look-noborders .card, :root.look-noborders .twrap { border-color: transparent; }
+:root.look-glass .card, :root.look-glass .twrap { background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
+:root.look-compact .card { padding: 12px; }
+:root.look-compact .main { padding: 16px 16px 20px; }
+:root.look-compact .card-h { margin-bottom: 8px; }
+:root.look-compact .dash, :root.look-compact .tiles, :root.look-compact .settings-grid, :root.look-compact .col { gap: 10px; }
 .card-h { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
 .card-h h2 { font: 500 14px var(--f-ui); margin: 0; }
 .card-h .aside { margin-inline-start: auto; color: var(--muted); font-size: 12px; }

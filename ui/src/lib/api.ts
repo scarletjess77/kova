@@ -92,6 +92,8 @@ export interface Settings {
   combined_skip: string[];
   /** The interface's layout, one for phones and one for desktops. */
   layout: import('./layout').SavedLayouts | null;
+  /** The user's look over the theme. */
+  look: import('./look').Look | null;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';

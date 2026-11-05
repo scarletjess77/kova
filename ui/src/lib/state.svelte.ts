@@ -7,6 +7,7 @@ import { api, COMBINED, errText, type CoreStatus, type EngineEvent, type NodeVie
 import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
 import { preset, resolve, type Form, type Layout, type Preset } from './layout';
+import { applyLook, type Look } from './look';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
 export interface LogLine { id: number; time: string; source: string; level: string; message: string }
@@ -154,6 +155,26 @@ class AppState {
   /** The cores and their versions, kept between visits to Settings so the card doesn't
    * fill in (and push the cards below it) every time it opens. */
   cores = $state<CoreStatus[]>([]);
+
+  /** The text colour was changed so it stays readable on the user's card colour. */
+  lookAdjusted = $state(false);
+
+  /** Shows a change to the look at once without saving it (while a slider moves). */
+  previewLook(patch: (l: Look) => void) {
+    if (!this.settings) return;
+    const look: Look = JSON.parse(JSON.stringify(this.settings.look ?? {}));
+    patch(look);
+    this.settings = { ...this.settings, look };
+    this.applyTheme();
+  }
+
+  saveLook(patch: (l: Look) => void, ok?: string) {
+    return this.saveSettings((x) => {
+      const look: Look = { ...(x.look ?? {}) };
+      patch(look);
+      x.look = look;
+    }, ok);
+  }
 
   /** Arranging tabs and Dashboard cards. */
   editingLayout = $state(false);
@@ -371,6 +392,7 @@ class AppState {
     const theme = resolveTheme(this.settings?.theme);
     if (theme.id === 'dark') document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', theme.id);
+    this.lookAdjusted = applyLook(this.settings?.look).adjusted;
     i18n.lang = resolveLang(this.settings?.language, this.systemLang);
     document.documentElement.lang = i18n.lang;
     document.documentElement.dir = isRtl(i18n.lang) ? 'rtl' : 'ltr';

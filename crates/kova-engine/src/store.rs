@@ -186,6 +186,9 @@ pub struct Settings {
     /// The interface's layout for phones and for desktops (tabs and Dashboard cards: order
     /// and which show). Only the interface reads it; kept here so backups carry it.
     pub layout: serde_json::Value,
+    /// The user's look over the theme (colours, font, size, corners, borders, card
+    /// transparency, density). Only the interface reads it.
+    pub look: serde_json::Value,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -232,6 +235,7 @@ impl Default for Settings {
             kill_switch: false,
             combined_skip: Vec::new(),
             layout: serde_json::Value::Null,
+            look: serde_json::Value::Null,
         }
     }
 }

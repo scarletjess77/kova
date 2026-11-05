@@ -13,6 +13,7 @@
   import Icon from '../components/Icon.svelte';
   import ThemePicker from '../components/ThemePicker.svelte';
   import { PRESETS, presetOf, type Preset } from '../lib/layout';
+  import { DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, type FontId, type Look, type LookColors } from '../lib/look';
 
   let appVersion = $state('');
   // Members of the group traffic starts in ("Proxy", or an imported config's first
@@ -60,6 +61,30 @@
   const set = (f: (x: Settings) => void, ok?: string) => app.saveSettings(f, ok);
   let PRESET_NAME = $derived<Record<Preset, string>>({ standard: t('Standard'), simple: t('Simple'), everything: t('Everything') });
   let layoutPreset = $derived(presetOf(app.layout, app.form));
+
+  // The look over the theme. Colours the user didn't pick show the theme's own.
+  let look = $derived<Look>(app.settings?.look ?? {});
+  let COLOR_NAME = $derived<Record<keyof LookColors, string>>({ accent: t('Accent'), bg: t('Background'), panel: t('Cards'), fg: t('Text') });
+  const COLOR_KEYS: (keyof LookColors)[] = ['accent', 'bg', 'panel', 'fg'];
+  const COLOR_VAR: Record<keyof LookColors, string> = { accent: '--accent', bg: '--win', panel: '--panel', fg: '--fg' };
+  let FONT_NAME = $derived<Record<FontId, string>>({ onest: 'Onest', system: t('System font'), vazir: 'Vazirmatn', mono: 'JetBrains Mono', pixel: 'Pixelify Sans' });
+  /** The colour shown in a swatch: the user's, or the theme's. */
+  function swatch(k: keyof LookColors): string {
+    void app.settings?.theme;
+    const own = look.colors?.[k];
+    if (own) return own;
+    const probe = document.createElement('div');
+    probe.style.color = `var(${COLOR_VAR[k]})`;
+    document.body.appendChild(probe);
+    const rgb = getComputedStyle(probe).color.match(/\d+/g)?.slice(0, 3).map(Number) ?? [0, 0, 0];
+    probe.remove();
+    return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
+  }
+  const setColor = (k: keyof LookColors, v: string | undefined, save: boolean) => {
+    const f = (l: Look) => { const c = { ...(l.colors ?? {}) }; if (v) c[k] = v; else delete c[k]; l.colors = c; };
+    if (save) void app.saveLook(f); else app.previewLook(f);
+  };
+
 
   // Countries of the active profile's servers, all of them (hidden ones included, which
   // the running core no longer has), for hiding a country.
@@ -457,6 +482,51 @@
         {/if}
       </FoldCard>
 
+      <FoldCard id="look" title={t('Look')}>
+        {#snippet aside()}{#if !isEmpty(look)}<button class="btn ghost aside-btn" onclick={() => app.saveSettings((x) => (x.look = null), t('Look reset'))}><Icon name="refresh" />{t('Reset look')}</button>{/if}{/snippet}
+        <p class="hint">{t('Drawn over the theme above: pick only what you want to change. Changes show at once.')}</p>
+        <div class="form gap">
+          <div class="fld full"><span class="lbl">{t('Colours')}</span>
+            <div class="swatches">
+              {#each COLOR_KEYS as k (k)}
+                <div class="sw">
+                  <label class="sw-pick" style="--c:{swatch(k)}">
+                    <input type="color" value={swatch(k)} oninput={(e) => setColor(k, e.currentTarget.value, false)} onchange={(e) => setColor(k, e.currentTarget.value, true)} aria-label={COLOR_NAME[k]} />
+                  </label>
+                  <span class="sw-t">{COLOR_NAME[k]}<small>{look.colors?.[k] ? look.colors[k] : t('from the theme')}</small></span>
+                  {#if look.colors?.[k]}<button class="btn ghost sw-x" onclick={() => setColor(k, undefined, true)} aria-label={t('Use the theme colour')} title={t('Use the theme colour')}><Icon name="x" /></button>{/if}
+                </div>
+              {/each}
+            </div>
+            {#if app.lookAdjusted}<small class="warn-t">{t('The text colour was hard to read on these cards, so Kova uses black or white text instead.')}</small>{/if}
+          </div>
+          <div class="fld"><label for="lk-font">{t('Font')}</label>
+            <select id="lk-font" class="input" value={look.font ?? 'onest'} onchange={(e) => app.saveLook((l) => { const f = e.currentTarget.value as FontId; if (f === 'onest') delete l.font; else l.font = f; })}>
+              {#each Object.keys(FONTS) as f (f)}<option value={f}>{FONT_NAME[f as FontId]}</option>{/each}
+            </select></div>
+          <div class="fld"><span class="lbl">{t('Density')}</span>
+            <div class="seg" role="group" aria-label={t('Density')}>
+              <button aria-pressed={look.density !== 'compact'} onclick={() => app.saveLook((l) => delete l.density)}>{t('Comfortable')}</button>
+              <button aria-pressed={look.density === 'compact'} onclick={() => app.saveLook((l) => (l.density = 'compact'))}>{t('Compact')}</button>
+            </div></div>
+          <div class="fld full"><label for="lk-scale">{t('Size')} <span class="num val">{look.scale ?? 100}%</span></label>
+            <input id="lk-scale" type="range" min={LIMITS.scale[0]} max={LIMITS.scale[1]} step="5" value={look.scale ?? 100}
+              oninput={(e) => app.previewLook((l) => (l.scale = Number(e.currentTarget.value)))} onchange={(e) => app.saveLook((l) => { const v = Number(e.currentTarget.value); if (v === 100) delete l.scale; else l.scale = v; })} /></div>
+          <div class="fld full"><label for="lk-radius">{t('Corners')} <span class="num val">{look.radius ?? DEFAULT_RADIUS}px</span></label>
+            <input id="lk-radius" type="range" min={LIMITS.radius[0]} max={LIMITS.radius[1]} step="1" value={look.radius ?? DEFAULT_RADIUS}
+              oninput={(e) => app.previewLook((l) => (l.radius = Number(e.currentTarget.value)))} onchange={(e) => app.saveLook((l) => { const v = Number(e.currentTarget.value); if (v === DEFAULT_RADIUS) delete l.radius; else l.radius = v; })} /></div>
+          <div class="fld full"><label for="lk-glass">{t('Card transparency')} <span class="num val">{look.glass ?? 0}%</span></label>
+            <input id="lk-glass" type="range" min={LIMITS.glass[0]} max={LIMITS.glass[1]} step="5" value={look.glass ?? 0}
+              oninput={(e) => app.previewLook((l) => (l.glass = Number(e.currentTarget.value)))} onchange={(e) => app.saveLook((l) => { const v = Number(e.currentTarget.value); if (!v) delete l.glass; else l.glass = v; })} />
+            <small class="muted">{t('Shows what is behind the cards, blurred.')}</small></div>
+        </div>
+        <div class="rows">
+          <div class="row-sw"><div><div class="t">{t('Card outlines')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Card outlines')} aria-checked={look.borders !== false} onclick={() => app.saveLook((l) => { if (l.borders === false) delete l.borders; else l.borders = false; })}></button></div>
+        </div>
+      </FoldCard>
+
+
       <FoldCard id="updates" title={t('Updates')}>
         {#snippet aside()}<span class="aside">Kova {appVersion}</span>{/snippet}
         {#if app.update}
@@ -547,4 +617,14 @@
   .countries .chip { cursor: pointer; color: var(--fg); }
   .countries .chip.off { color: var(--faint); text-decoration: line-through; background: transparent; }
   .layout-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; }
+  .sw { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: var(--r); background: var(--sunk); min-width: 0; }
+  .sw-pick { position: relative; flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--c); box-shadow: inset 0 0 0 1px var(--line-2); cursor: pointer; overflow: hidden; }
+  .sw-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+  .sw-t { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; font-weight: 500; }
+  .sw-t small { font: 400 11px var(--f-mono); color: var(--faint); }
+  .sw-x { padding: 4px; }
+  .val { color: var(--muted); font-weight: 400; margin-inline-start: 6px; }
+  .warn-t { color: var(--warn); }
+  input[type='range'] { width: 100%; accent-color: var(--accent); }
 </style>
