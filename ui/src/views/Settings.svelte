@@ -29,17 +29,25 @@
   getVersion().then((v) => (appVersion = v), () => {});
 
   let s = $derived(app.settings);
-  let cores = $state<CoreStatus[]>([]);
+  let cores = $derived(app.cores);
   let checking = $state(false);
   let installing = $state<CoreKind | null>(null);
   const CORE_NAMES: Record<CoreKind, string> = { mihomo: 'Mihomo', xray: 'Xray', shoes: 'Shoes' };
 
   async function loadCores(latest: boolean) {
     checking = latest;
-    cores = (await app.run(() => api.coreStatus(latest))) ?? cores;
+    const got = await app.run(() => api.coreStatus(latest));
+    if (got) app.cores = got;
     checking = false;
   }
-  $effect(() => { void app.coresVersion; void loadCores(true); });
+  // The installed versions come at once from disk; the latest ones from GitHub after.
+  $effect(() => {
+    void app.coresVersion;
+    void (async () => {
+      if (!app.cores.length) await loadCores(false);
+      await loadCores(true);
+    })();
+  });
 
   const norm = (v: string | null) => (v ?? '').replace(/^v/, '');
   async function install(c: CoreKind) {
@@ -380,6 +388,12 @@
       </FoldCard>
       <FoldCard id="cores" title={t('Cores')}>
         {#snippet aside()}{#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}{/snippet}
+        {#if !cores.length}
+          <!-- Same height as the rows to come, so nothing below moves when they do. -->
+          {#each ['mihomo', 'xray'] as k (k)}
+            <div class="core"><span class="ico">{CORE_NAMES[k as CoreKind][0]}</span><span class="t">{CORE_NAMES[k as CoreKind]}</span><span class="chip">…</span><span class="d">&nbsp;</span></div>
+          {/each}
+        {/if}
         {#each cores as c (c.core)}
           {@const name = CORE_NAMES[c.core]}
           {@const update = c.latest && norm(c.latest) !== norm(c.installed)}

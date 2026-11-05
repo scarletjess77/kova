@@ -3,7 +3,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { friendly } from './errors';
 import { enableTvNavigation } from './tvnav';
-import { api, COMBINED, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo, type DeviceInfo } from './api';
+import { api, COMBINED, errText, type CoreStatus, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo, type DeviceInfo } from './api';
 import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
 import { preset, resolve, type Form, type Layout, type Preset } from './layout';
@@ -150,6 +150,10 @@ class AppState {
     this.navOpen = false;
     this.dropBack(this.closeNavStep);
   }
+
+  /** The cores and their versions, kept between visits to Settings so the card doesn't
+   * fill in (and push the cards below it) every time it opens. */
+  cores = $state<CoreStatus[]>([]);
 
   /** Arranging tabs and Dashboard cards. */
   editingLayout = $state(false);
