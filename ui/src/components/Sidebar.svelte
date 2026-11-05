@@ -4,11 +4,18 @@
   import { t, tn } from '../lib/i18n.svelte';
   import { app, type View } from '../lib/state.svelte';
   import Icon from './Icon.svelte';
+  import { move, type TabId } from '../lib/layout';
+  import { sortable } from '../lib/sortable';
 
-  let NAV = $derived<[View, string][]>([
-    ['dashboard', t('Dashboard')], ['proxies', t('Proxies')], ['profiles', t('Profiles')], ['connections', t('Connections')],
-    ['rules', t('Rules')], ['check', t('Site check')], ['logs', t('Logs')], ['settings', t('Settings')],
-  ]);
+  let LABEL = $derived<Record<View, string>>({
+    dashboard: t('Dashboard'), proxies: t('Proxies'), profiles: t('Profiles'), connections: t('Connections'),
+    rules: t('Rules'), check: t('Site check'), logs: t('Logs'), settings: t('Settings'),
+  });
+  // Dashboard first and Settings last always; the tabs between follow the user's layout.
+  let tabs = $derived(app.layout.tabs);
+  let shownTabs = $derived(app.editingLayout ? tabs : tabs.filter((x) => !x.hidden));
+  const moveTab = (from: number, to: number) => app.saveLayout({ ...app.layout, tabs: move(app.layout.tabs, from, to) });
+  const toggleTab = (id: TabId) => app.saveLayout({ ...app.layout, tabs: app.layout.tabs.map((x) => (x.id === id ? { id, ...(x.hidden ? {} : { hidden: true }) } : x)) });
 
   let nodeCount = $derived(app.activeProfile?.node_count);
   let usage = $derived(app.activeProfile?.usage);
@@ -20,15 +27,30 @@
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 {#if app.mobile && !app.tv && app.navOpen}<div class="scrim" onclick={() => app.closeNav()}></div>{/if}
 <aside class="side" class:open={app.navOpen}>
-  <nav class="nav">
-    {#each NAV as [id, label] (id)}
-      <button onclick={() => app.go(id)} aria-current={app.view === id ? 'page' : undefined}>
-        <Icon name={id === 'check' ? 'pulse' : id} />{label}
+  {#snippet tab(id: View)}
+    <button class="go" onclick={() => app.go(id)} aria-current={app.view === id ? 'page' : undefined}>
+      <Icon name={id === 'check' ? 'pulse' : id} />{LABEL[id]}
+      {#if !app.editingLayout}
         {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
         {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
         {#if id === 'rules' && app.suggestionCount}<span class="badge new" title={t('Suggestions waiting')}>{app.suggestionCount}</span>{/if}
-      </button>
-    {/each}
+      {/if}
+    </button>
+  {/snippet}
+  <nav class="nav" class:editing={app.editingLayout}>
+    {@render tab('dashboard')}
+    <div class="tabs" use:sortable={{ enabled: app.editingLayout, onmove: moveTab }}>
+      {#each shownTabs as x (x.id)}
+        <div class="tab" data-sort-id={x.id} class:off={x.hidden}>
+          {@render tab(x.id)}
+          {#if app.editingLayout}
+            <button class="eye" onclick={() => toggleTab(x.id)} aria-pressed={!x.hidden} aria-label={x.hidden ? t('Show {name}', { name: LABEL[x.id] }) : t('Hide {name}', { name: LABEL[x.id] })} title={x.hidden ? t('Show') : t('Hide')}><Icon name={x.hidden ? 'eye-off' : 'eye'} /></button>
+            <button class="handle" data-handle aria-label={t('Move {name}', { name: LABEL[x.id] })} title={t('Drag to move')}><Icon name="grip" /></button>
+          {/if}
+        </div>
+      {/each}
+    </div>
+    {@render tab('settings')}
   </nav>
   {#if app.update && !app.mobile}
     <button class="update" onclick={() => app.go('settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
@@ -50,6 +72,15 @@
 <style>
   .side { border-right: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; min-height: 0; overflow: auto; }
   .nav { display: flex; flex-direction: column; gap: 2px; }
+  .tabs { display: flex; flex-direction: column; gap: 2px; }
+  .tab { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
+  .tab .go { flex: 1; min-width: 0; }
+  .tab.off .go { opacity: .45; }
+  .nav .eye, .nav .handle { flex: none; padding: 6px; color: var(--faint); }
+  .nav .handle { cursor: grab; touch-action: none; }
+  .tab:global(.dragging) { opacity: .6; }
+  .tab:global(.drop-target) { box-shadow: inset 0 0 0 1.5px var(--accent); }
+  .nav.editing .tab { background: var(--sunk); }
   .nav button { display: flex; align-items: center; gap: 12px; padding: 8px 10px; border: 0; border-radius: 8px; background: none; color: var(--muted); font-weight: 500; text-align: start; white-space: nowrap; }
   @media (hover: hover) { .nav button:hover { background: var(--sunk); color: var(--fg); } }
   .nav button[aria-current='page'] { background: var(--accent-soft); color: var(--fg); }

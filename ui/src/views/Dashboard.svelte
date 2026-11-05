@@ -10,6 +10,8 @@
   import Latency from '../components/Latency.svelte';
   import TrafficChart from '../components/TrafficChart.svelte';
   import DiagnoseModal from '../components/DiagnoseModal.svelte';
+  import { FIXED_CARDS, move, type CardId } from '../lib/layout';
+  import { sortable } from '../lib/sortable';
 
   let s = $derived(app.status);
   let settings = $derived(app.settings);
@@ -116,6 +118,21 @@
   const setCore = (c: CorePreference) => profile && profile.core !== c &&
     app.run(() => api.editProfile(profile!.id, { core: c }), c === 'auto' ? t('Kova picks the core for each server') : t('Now running on {core}', { core: CORE_NAME[c] }));
   let details = $state(false);
+
+  // The user's layout. Cards below "More details" wait behind that button; while
+  // arranging, every card shows, hidden ones faded.
+  let CARD_NAME = $derived<Record<CardId, string>>({
+    connect: t('Connect and status'), exit: t('Exit point'), quality: t('Connection quality'), traffic: t('Traffic'),
+    quick: t('Quick switch'), tiles: t('Session numbers'), more: t('More details'),
+  });
+  /** How much of the row a card takes: the wide column, the narrow one, or all of it. */
+  const WIDTH: Record<CardId, string> = { connect: 'main', exit: 'side', quality: 'full', traffic: 'main', quick: 'side', tiles: 'full', more: 'full' };
+  let cards = $derived(app.layout.cards);
+  let fold = $derived(cards.findIndex((c) => c.id === 'more'));
+  let below = $derived(cards.slice(fold + 1).some((c) => !c.hidden));
+  let shown = $derived(app.editingLayout ? cards : cards.filter((c, i) => (c.id === 'more' ? below : !c.hidden && (i < fold || details))));
+  const moveCard = (from: number, to: number) => app.saveLayout({ ...app.layout, cards: move(app.layout.cards, from, to) });
+  const toggleCard = (id: CardId) => app.saveLayout({ ...app.layout, cards: app.layout.cards.map((c) => (c.id === id ? { id, ...(c.hidden ? {} : { hidden: true }) } : c)) });
   let diagnosing = $state(false);
 
   // Android may stop a background VPN to save battery; say it once, until allowed or put away.
@@ -147,6 +164,7 @@
   <div class="tools">
     {#if profile?.support_url}<button class="btn ghost" onclick={() => app.run(() => openUrl(profile!.support_url!))}><Icon name="external" />{t('Provider support')}</button>{/if}
     <button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button>
+    {#if !app.editingLayout}<button class="btn ghost" onclick={() => (app.editingLayout = true)}><Icon name="edit" />{t('Edit layout')}</button>{/if}
   </div>
 </div>
 {#if subWarning}<div class="sub-warn"><Icon name="alert" />{subWarning}</div>{/if}
@@ -158,7 +176,7 @@
 {#if profile?.announce}<div class="announce" role="note"><Icon name="globe" /><span><b>{t('From the provider')}:</b> <span class="selectable">{profile.announce}</span></span></div>{/if}
 {#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
 
-<div class="dash">
+{#snippet cardConnect()}
   <section class="card hero" class:guide={!profile}>
     <div class="hero-top">
       <button class="power" class:on={s.running} class:busy={s.busy || app.toggling} onclick={() => app.toggleConnection()} disabled={!profile || s.busy || app.toggling}
@@ -250,8 +268,8 @@
       </div>
     {/if}
   </section>
-
-  {#if !app.mobile || details}
+{/snippet}
+{#snippet cardExit()}
   <section class="card exit">
     <div class="card-h"><h2>{t('Exit point')}</h2><span class="aside">{s.running ? t('through the proxy') : t('without the proxy')}</span></div>
     <div>
@@ -270,7 +288,8 @@
       {#if exit}<button class="btn ghost" onclick={() => app.run(() => navigator.clipboard.writeText(exit!.ip), t('IP copied'))}><Icon name="copy" />{t('Copy IP')}</button>{/if}
     </div>
   </section>
-
+{/snippet}
+{#snippet cardQuality()}
   <section class="card quality">
     <div class="card-h"><h2>{t('Connection quality')}</h2><span class="aside">{s.running ? t('through the proxy') : t('without the proxy')}</span></div>
     {#if quality}
@@ -291,7 +310,8 @@
       <button class="btn" class:busy={qualityBusy} onclick={checkQuality} disabled={qualityBusy || s.busy}><Icon name="bolt" />{qualityBusy ? t('Checking…') : quality ? t('Check again') : t('Check quality')}</button>
     </div>
   </section>
-
+{/snippet}
+{#snippet cardTraffic()}
   <section class="card">
     <div class="card-h"><h2>{t('Traffic')}</h2>
       <div class="legend">
@@ -301,8 +321,8 @@
     </div>
     <TrafficChart down={app.down} up={app.up} />
   </section>
-  {/if}
-
+{/snippet}
+{#snippet cardQuick()}
   <section class="card">
     <div class="card-h"><h2>{t('Quick switch')}</h2>{#if mainGroup}<span class="aside">{t('{name} group', { name: mainGroup.name })}</span>{/if}</div>
     {#if quick.length && mainGroup}
@@ -321,18 +341,46 @@
       <p class="muted">{t('Nodes appear here once a profile is added.')}</p>
     {/if}
   </section>
-
-  {#if app.mobile}
-    <!-- On a phone the essentials come first; the rest is a tap away. -->
-    <button class="btn ghost details-btn" aria-expanded={details} onclick={() => (details = !details)}>{details ? t('Fewer details') : t('Exit point, traffic and more')}</button>
-  {/if}
-  {#if !app.mobile || details}
+{/snippet}
+{#snippet cardTiles()}
   <section class="tiles">
     <div class="card tile wide"><span class="eyebrow">{t('This session')}</span><span class="v pair"><span>↓ {fmtBytes(app.downTotal)}</span><span class="up">↑ {fmtBytes(app.upTotal)}</span></span><span class="d">{t('Downloaded')} · {t('Uploaded')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Connections')}</span><span class="v">{connCount}</span><span class="d">{t('open right now')}</span></div>
     <div class="card tile"><span class="eyebrow">{t('Core memory')}</span><span class="v">{app.memory ? fmtBytes(app.memory) : '—'}</span><span class="d">{s.running ? (s.core === 'xray' ? t('not reported by Xray') : 'Mihomo') : t('not running')}</span></div>
   </section>
-  {/if}
+{/snippet}
+
+<div class="dash" class:editing={app.editingLayout} use:sortable={{ enabled: app.editingLayout, onmove: moveCard }}>
+  {#each shown as c (c.id)}
+    {#if c.id === 'more'}
+      {#if app.editingLayout}
+        <div class="slot full fold" data-sort-id="more">
+          <button class="handle" data-handle aria-label={t('Move {name}', { name: CARD_NAME.more })} title={t('Drag to move')}><Icon name="grip" /></button>
+          <span><b>{CARD_NAME.more}</b> · {t('cards below this line wait behind a button')}</span>
+        </div>
+      {:else}
+        <button class="btn ghost details-btn" data-sort-id="more" aria-expanded={details} onclick={() => (details = !details)}>{details ? t('Fewer details') : t('Exit point, traffic and more')}</button>
+      {/if}
+    {:else}
+      <div class="slot {WIDTH[c.id]}" data-sort-id={c.id} class:off={c.hidden}>
+        {#if app.editingLayout}
+          <div class="edit-h">
+            <button class="handle" data-handle aria-label={t('Move {name}', { name: CARD_NAME[c.id] })} title={t('Drag to move')}><Icon name="grip" /></button>
+            <b>{CARD_NAME[c.id]}</b>
+            {#if !FIXED_CARDS.includes(c.id)}
+              <button class="eye" onclick={() => toggleCard(c.id)} aria-pressed={!c.hidden} aria-label={c.hidden ? t('Show {name}', { name: CARD_NAME[c.id] }) : t('Hide {name}', { name: CARD_NAME[c.id] })} title={c.hidden ? t('Show') : t('Hide')}><Icon name={c.hidden ? 'eye-off' : 'eye'} /></button>
+            {/if}
+          </div>
+        {/if}
+        {#if c.id === 'connect'}{@render cardConnect()}
+        {:else if c.id === 'exit'}{@render cardExit()}
+        {:else if c.id === 'quality'}{@render cardQuality()}
+        {:else if c.id === 'traffic'}{@render cardTraffic()}
+        {:else if c.id === 'quick'}{@render cardQuick()}
+        {:else if c.id === 'tiles'}{@render cardTiles()}{/if}
+      </div>
+    {/if}
+  {/each}
 </div>
 
 <style>
@@ -343,6 +391,20 @@
   .announce { display: flex; align-items: flex-start; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
   .announce :global(.i) { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--muted); }
   .details-btn { justify-self: center; grid-column: 1 / -1; }
+  .slot { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
+  .slot > :global(section) { flex: 1; }
+  .slot.full { grid-column: 1 / -1; }
+  .slot.side:has(> .exit) { align-self: start; }
+  .slot.off > :global(section) { opacity: .4; }
+  .edit-h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .edit-h b { font-weight: 500; flex: 1; min-width: 0; }
+  .dash .handle, .dash .eye { padding: 4px; border: 0; background: none; color: var(--faint); border-radius: 6px; }
+  .dash .handle { cursor: grab; touch-action: none; }
+  .dash.editing .slot { padding: 8px; border: 1px dashed var(--line-2); border-radius: calc(var(--r) + 4px); }
+  .dash :global(.dragging) { opacity: .6; }
+  .dash :global(.drop-target) { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .fold { flex-direction: row; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
+  .fold b { font-weight: 500; color: var(--fg); }
   .speed { color: var(--fg); }
   .start { margin: 4px 0 12px; padding-inline-start: 20px; text-align: start; align-self: stretch; display: flex; flex-direction: column; gap: 8px; font-size: 13px; color: var(--muted); }
   .start li::marker { color: var(--faint); font: 500 12px var(--f-mono); }

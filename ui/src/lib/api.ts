@@ -90,6 +90,8 @@ export interface Settings {
   kill_switch: boolean;
   /** Profiles left out of the combined list; new ones join it. */
   combined_skip: string[];
+  /** The interface's layout, one for phones and one for desktops. */
+  layout: import('./layout').SavedLayouts | null;
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';

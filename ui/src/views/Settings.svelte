@@ -12,6 +12,7 @@
   import FoldCard from '../components/FoldCard.svelte';
   import Icon from '../components/Icon.svelte';
   import ThemePicker from '../components/ThemePicker.svelte';
+  import { PRESETS, presetOf, type Preset } from '../lib/layout';
 
   let appVersion = $state('');
   // Members of the group traffic starts in ("Proxy", or an imported config's first
@@ -49,6 +50,8 @@
   }
 
   const set = (f: (x: Settings) => void, ok?: string) => app.saveSettings(f, ok);
+  let PRESET_NAME = $derived<Record<Preset, string>>({ standard: t('Standard'), simple: t('Simple'), everything: t('Everything') });
+  let layoutPreset = $derived(presetOf(app.layout, app.form));
 
   // Countries of the active profile's servers, all of them (hidden ones included, which
   // the running core no longer has), for hiding a country.
@@ -412,6 +415,14 @@
         <div class="form gap">
           <div class="fld full"><span class="lbl">{t('Theme')}</span>
             <ThemePicker /></div>
+          <div class="fld full"><span class="lbl">{t('Layout')}</span>
+            <div class="layout-row">
+              <div class="seg" role="group" aria-label={t('Layout preset')}>
+                {#each PRESETS as p (p)}<button aria-pressed={layoutPreset === p} onclick={() => app.applyPreset(p)}>{PRESET_NAME[p]}</button>{/each}
+              </div>
+              <button class="btn" onclick={() => { app.editingLayout = true; app.go('dashboard'); }}><Icon name="edit" />{t('Edit layout')}</button>
+            </div>
+            <small class="muted">{layoutPreset ? '' : t('Your own layout.') + ' '}{app.form === 'phone' ? t('Phones and computers each keep their own layout; this one is for the phone.') : t('Phones and computers each keep their own layout; this one is for this computer.')} {t('Hidden tabs still open from links to them, and Settings always stays.')}</small></div>
           <div class="fld full"><span class="lbl">{t('Language')}</span>
             <!-- Language names stay in their own language, so they can be found whatever is shown. -->
             <div class="seg" role="group" aria-label={t('Language')}>
@@ -521,4 +532,5 @@
   .countries { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .countries .chip { cursor: pointer; color: var(--fg); }
   .countries .chip.off { color: var(--faint); text-decoration: line-through; background: transparent; }
+  .layout-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 </style>

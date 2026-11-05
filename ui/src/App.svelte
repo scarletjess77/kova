@@ -4,6 +4,7 @@
   import { app } from './lib/state.svelte';
   import { resolveTheme } from './lib/themes';
   import ImportModal from './components/ImportModal.svelte';
+  import LayoutBar from './components/LayoutBar.svelte';
   import NightSky from './components/NightSky.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -40,6 +41,7 @@
     {#if failed}
       <div class="empty"><b>{t('Kova could not start')}</b><span class="selectable">{failed}</span></div>
     {:else if app.ready}
+      {#if app.editingLayout}<LayoutBar />{/if}
       {#if app.view === 'dashboard'}<Dashboard />
       {:else if app.view === 'proxies'}<Proxies />
       {:else if app.view === 'profiles'}<Profiles />

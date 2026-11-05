@@ -183,6 +183,9 @@ pub struct Settings {
     pub kill_switch: bool,
     /// Profiles left out of the combined list (see `engine::COMBINED`); new ones join it.
     pub combined_skip: Vec<String>,
+    /// The interface's layout for phones and for desktops (tabs and Dashboard cards: order
+    /// and which show). Only the interface reads it; kept here so backups carry it.
+    pub layout: serde_json::Value,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -228,6 +231,7 @@ impl Default for Settings {
             mobile_server: None,
             kill_switch: false,
             combined_skip: Vec::new(),
+            layout: serde_json::Value::Null,
         }
     }
 }

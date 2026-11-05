@@ -6,6 +6,7 @@ import { enableTvNavigation } from './tvnav';
 import { api, COMBINED, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo, type DeviceInfo } from './api';
 import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
+import { preset, resolve, type Form, type Layout, type Preset } from './layout';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
 export interface LogLine { id: number; time: string; source: string; level: string; message: string }
@@ -148,6 +149,27 @@ class AppState {
   closeNav() {
     this.navOpen = false;
     this.dropBack(this.closeNavStep);
+  }
+
+  /** Arranging tabs and Dashboard cards. */
+  editingLayout = $state(false);
+
+  /** Phones and desktops each keep their own layout. */
+  get form(): Form {
+    return this.mobile ? 'phone' : 'desktop';
+  }
+
+  get layout(): Layout {
+    return resolve(this.settings?.layout?.[this.form], this.form);
+  }
+
+  saveLayout(l: Layout) {
+    const form = this.form;
+    return this.saveSettings((x) => { x.layout = { ...(x.layout ?? {}), [form]: l }; });
+  }
+
+  applyPreset(p: Preset) {
+    return this.saveLayout(preset(p, this.form));
   }
 
   get activeProfile(): Profile | undefined {
