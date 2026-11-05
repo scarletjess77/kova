@@ -1085,3 +1085,59 @@ async fn latency_test_streams_results_past_dead_servers() {
     assert!(first < total, "the live result went out before the dead servers finished");
     let _ = server.kill().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn quality_check_goes_through_the_proxy() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let target = target_server().await;
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.core.test_url = format!("http://127.0.0.1:{target}/");
+    // Everything through the server, the local test address too.
+    s.core.mode = kova_core::options::Mode::Global;
+    engine.update_settings(s).await.unwrap();
+    engine.add_profile(&format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Only"), Some("Quality".into())).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+
+    let q = engine.check_quality().await.unwrap();
+    eprintln!("through the server: {q:?}");
+    assert!(q.proxied);
+    assert_eq!((q.sent, q.answered, q.loss), (10, 10, 0.0));
+    assert!(q.median.is_some() && q.jitter.is_some());
+
+    // With the server gone, the proxy port still answers, but only with errors: all lost.
+    let _ = server.kill().await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let gone = engine.check_quality().await.unwrap();
+    eprintln!("server gone: {gone:?}");
+    assert_eq!((gone.answered, gone.loss), (0, 100.0));
+    engine.stop().await.unwrap();
+}

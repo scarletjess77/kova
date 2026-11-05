@@ -2,7 +2,7 @@
   import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { api, errText, type CorePreference, type ExitInfo, type Mode, type Preset } from '../lib/api';
+  import { api, errText, type CorePreference, type ExitInfo, type Mode, type Preset, type Quality } from '../lib/api';
   import { countryCode, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -86,6 +86,21 @@
     void s.running;
     if (!s.busy) void checkExit(true);
   });
+
+  // Connection quality: ten probes, on request. A result belongs to the connection it
+  // was measured on, so connecting or disconnecting clears it.
+  let quality = $state<Quality | null>(null);
+  let qualityBusy = $state(false);
+  async function checkQuality() {
+    qualityBusy = true;
+    quality = (await app.run(() => api.checkQuality())) ?? quality;
+    qualityBusy = false;
+  }
+  $effect(() => {
+    void s.running;
+    quality = null;
+  });
+  const lossText = (q: Quality) => `${Math.round(q.loss)}%`;
 
   let connCount = $state(0);
   const poll = setInterval(async () => {
@@ -256,6 +271,27 @@
     </div>
   </section>
 
+  <section class="card quality">
+    <div class="card-h"><h2>{t('Connection quality')}</h2><span class="aside">{s.running ? t('through the proxy') : t('without the proxy')}</span></div>
+    {#if quality}
+      <div class="qgrid">
+        <div><span class="eyebrow">{t('Latency')}</span><span class="v">{quality.median != null ? t('{n} ms', { n: quality.median }) : '—'}</span>
+          <span class="d">{quality.min != null && quality.max != null ? t('{min} to {max} ms', { min: quality.min, max: quality.max }) : t('No answer')}</span></div>
+        <div><span class="eyebrow">{t('Jitter')}</span><span class="v" class:warn={(quality.jitter ?? 0) > 30}>{quality.jitter != null ? t('{n} ms', { n: quality.jitter }) : '—'}</span>
+          <span class="d">{t('change between requests')}</span></div>
+        <div><span class="eyebrow">{t('Loss')}</span><span class="v" class:warn={quality.loss > 0}>{lossText(quality)}</span>
+          <span class="d">{t('{n} of {total} answered', { n: quality.answered, total: quality.sent })}</span></div>
+        <div><span class="eyebrow">{t('Average')}</span><span class="v">{quality.avg != null ? t('{n} ms', { n: quality.avg }) : '—'}</span>
+          <span class="d">{t('mean of the answers')}</span></div>
+      </div>
+    {:else}
+      <p class="muted qhint">{t('Ten requests to the latency test address show how steady the connection is: the spread of latency, jitter and lost requests.')}</p>
+    {/if}
+    <div class="foot">
+      <button class="btn" class:busy={qualityBusy} onclick={checkQuality} disabled={qualityBusy || s.busy}><Icon name="bolt" />{qualityBusy ? t('Checking…') : quality ? t('Check again') : t('Check quality')}</button>
+    </div>
+  </section>
+
   <section class="card">
     <div class="card-h"><h2>{t('Traffic')}</h2>
       <div class="legend">
@@ -364,6 +400,15 @@
   .tog span { font-size: 13px; font-weight: 500; }
   .tog small { display: block; color: var(--faint); font-size: 11px; font-weight: 400; }
   .exit { display: flex; flex-direction: column; gap: 14px; align-self: start; }
+  .quality { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 12px; }
+  .quality .card-h { margin: 0; }
+  .qgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
+  @container (max-width: 700px) { .qgrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .qgrid > div { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .qgrid .v { font: 500 20px var(--f-mono); letter-spacing: -.02em; }
+  .qgrid .v.warn { color: var(--warn); }
+  .qgrid .d { font-size: 12px; color: var(--muted); }
+  .qhint { margin: 0; font-size: 13px; }
   .ip { font: 500 22px var(--f-mono); letter-spacing: -.01em; }
   .why { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
   .foot { display: flex; gap: 8px; flex-wrap: wrap; }

@@ -195,6 +195,7 @@ export const api = {
   getProxies: () => invoke<ProxySnapshot>('get_proxies'),
   selectProxy: (group: string, name: string) => invoke<void>('select_proxy', { group, name }),
   testDelays: (names?: string[]) => invoke<Record<string, number | null>>('test_delays', { names }),
+  checkQuality: () => invoke<Quality>('check_quality'),
   getConnections: () => invoke<ConnectionsSnapshot>('get_connections'),
   runningPrograms: () => invoke<string[]>('running_programs'),
   closeConnection: (id: string) => invoke<void>('close_connection', { id }),
@@ -245,4 +246,17 @@ export const api = {
 /** An error from the engine, in plain words in the interface's language. */
 export function errText(e: unknown): string {
   return friendly(typeof e === 'string' ? e : e instanceof Error ? e.message : String(e));
+}
+
+/** Ten probes to the latency test address. Times in ms; loss in percent. */
+export interface Quality {
+  sent: number;
+  answered: number;
+  min: number | null;
+  median: number | null;
+  avg: number | null;
+  max: number | null;
+  jitter: number | null;
+  loss: number;
+  proxied: boolean;
 }

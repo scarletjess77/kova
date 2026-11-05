@@ -1928,6 +1928,13 @@ impl Engine {
         Ok(map)
     }
 
+    /// Latency spread, jitter and loss of the connection now: ten probes to the latency
+    /// test address, through the proxy while connected and directly otherwise.
+    pub async fn check_quality(&self) -> Result<crate::quality::Quality> {
+        let url = self.settings().core.test_url().to_string();
+        crate::quality::probe(&url, self.proxy_url().as_deref(), 10, Duration::from_secs(5)).await
+    }
+
     /// Android: the screen went off or on.
     pub fn set_quiet(&self, quiet: bool) {
         self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);

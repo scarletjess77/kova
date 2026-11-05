@@ -279,6 +279,11 @@ async fn select_proxy(app: AppHandle, engine: Eng<'_>, group: String, name: Stri
 }
 
 #[tauri::command]
+async fn check_quality(engine: Eng<'_>) -> R<kova_engine::quality::Quality> {
+    engine.check_quality().await
+}
+
+#[tauri::command]
 async fn test_delays(engine: Eng<'_>, names: Option<Vec<String>>) -> R<HashMap<String, Option<u32>>> {
     engine.test_delays(names).await
 }
@@ -891,6 +896,7 @@ pub fn run() {
             get_proxies,
             select_proxy,
             test_delays,
+            check_quality,
             get_connections,
             close_connection,
             close_all_connections,
