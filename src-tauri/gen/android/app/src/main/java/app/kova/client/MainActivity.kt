@@ -19,11 +19,23 @@ class MainActivity : TauriActivity() {
     private const val HANDLED = "app.kova.client.HANDLED"
     /** A window was made in this process before. */
     private var opened = false
+    /** Kova's windows that exist now. */
+    @Volatile
+    private var live = 0
+
+    /**
+     * Whether Kova has a window. While it has none (closed from the recent apps, Kova
+     * running on for the VPN), nothing may call into the page's plugins: they need one.
+     * The Rust side asks this directly.
+     */
+    @JvmStatic
+    fun isOpen(): Boolean = live > 0
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    live++
     // Android draws apps under the status and navigation bars; keep the page clear of
     // them (and of a camera cutout or the keyboard), with the app's background behind.
     val root = findViewById<View>(android.R.id.content)
@@ -38,6 +50,11 @@ class MainActivity : TauriActivity() {
     if (opened) Actions.send(Actions.WINDOW, keep = true)
     opened = true
     connectIfAsked(intent)
+  }
+
+  override fun onDestroy() {
+    live--
+    super.onDestroy()
   }
 
   override fun onNewIntent(intent: Intent) {

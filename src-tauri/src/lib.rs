@@ -697,6 +697,11 @@ fn forward_events(app: AppHandle, engine: Arc<Engine>) {
 /// traffic: as a system notification, so it shows even with Kova in the background.
 fn warn_subscriptions(app: &AppHandle, engine: &Arc<Engine>) {
     use tauri_plugin_notification::NotificationExt;
+    // Notifications go through Kova's window on Android; without one they wait.
+    #[cfg(target_os = "android")]
+    if !android::window_open() {
+        return;
+    }
     let l = i18n::lang(&engine.settings());
     let now = kova_engine::store::now();
     for p in engine.profiles() {

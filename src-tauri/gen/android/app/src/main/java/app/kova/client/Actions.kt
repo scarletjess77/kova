@@ -45,6 +45,12 @@ object Actions {
      */
     @Synchronized
     fun send(action: String, keep: Boolean): Boolean {
+        // Connecting needs Kova's window (it asks Android for the VPN through it). Without
+        // one the request waits, and the caller opens the window.
+        if (action == CONNECT && !MainActivity.isOpen()) {
+            if (keep) queued = action
+            return false
+        }
         val w = waiting
         if (w != null) {
             waiting = null
