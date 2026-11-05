@@ -126,7 +126,7 @@
     quick: t('Quick switch'), tiles: t('Session numbers'), more: t('More details'),
   });
   /** How much of the row a card takes: the wide column, the narrow one, or all of it. */
-  const WIDTH: Record<CardId, string> = { connect: 'main', exit: 'side', quality: 'full', traffic: 'main', quick: 'side', tiles: 'full', more: 'full' };
+  const WIDTH: Record<CardId, string> = { connect: 'w-main', exit: 'w-side', quality: 'w-full', traffic: 'w-main', quick: 'w-side', tiles: 'w-full', more: 'w-full' };
   let cards = $derived(app.layout.cards);
   let fold = $derived(cards.findIndex((c) => c.id === 'more'));
   let below = $derived(cards.slice(fold + 1).some((c) => !c.hidden));
@@ -354,7 +354,7 @@
   {#each shown as c (c.id)}
     {#if c.id === 'more'}
       {#if app.editingLayout}
-        <div class="slot full fold" data-sort-id="more">
+        <div class="slot w-full fold" data-sort-id="more">
           <button class="handle" data-handle aria-label={t('Move {name}', { name: CARD_NAME.more })} title={t('Drag to move')}><Icon name="grip" /></button>
           <span><b>{CARD_NAME.more}</b> · {t('cards below this line wait behind a button')}</span>
         </div>
@@ -393,8 +393,9 @@
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .slot { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
   .slot > :global(section) { flex: 1; }
-  .slot.full { grid-column: 1 / -1; }
-  .slot.side:has(> .exit) { align-self: start; }
+  .slot.w-full { grid-column: 1 / -1; }
+  /* The exit card keeps its own height beside the taller connect card. */
+  .slot:has(> .exit) { align-self: start; }
   .slot.off > :global(section) { opacity: .4; }
   .edit-h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
   .edit-h b { font-weight: 500; flex: 1; min-width: 0; }
@@ -461,7 +462,7 @@
   .tog :global(.i) { color: var(--muted); }
   .tog span { font-size: 13px; font-weight: 500; }
   .tog small { display: block; color: var(--faint); font-size: 11px; font-weight: 400; }
-  .exit { display: flex; flex-direction: column; gap: 14px; align-self: start; }
+  .exit { display: flex; flex-direction: column; gap: 14px; }
   .quality { grid-column: 1 / -1; display: flex; flex-direction: column; gap: 12px; }
   .quality .card-h { margin: 0; }
   .qgrid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; }
