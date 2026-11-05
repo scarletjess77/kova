@@ -16,7 +16,10 @@
 
   let groupName = $state<string | null>(null);
   let q = $state('');
-  let sort = $state<'latency' | 'name' | 'profile'>('profile');
+  type Sort = 'latency' | 'name' | 'profile';
+  // The chosen order is kept between visits and restarts.
+  let sort = $state<Sort>((() => { try { const v = localStorage.getItem('kova.proxySort'); return v === 'latency' || v === 'name' ? v : 'profile'; } catch { return 'profile'; } })());
+  $effect(() => { try { localStorage.setItem('kova.proxySort', sort); } catch { /* back to the default next time */ } });
 
   let groups = $derived(app.proxies.groups.filter((g) => g.name !== 'GLOBAL' || app.settings?.core.mode === 'global'));
   let group = $derived(groups.find((g) => g.name === groupName) ?? groups[0]);
