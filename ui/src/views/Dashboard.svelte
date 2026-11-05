@@ -125,12 +125,30 @@
     connect: t('Connect and status'), exit: t('Exit point'), quality: t('Connection quality'), traffic: t('Traffic'),
     quick: t('Quick switch'), tiles: t('Session numbers'), more: t('More details'),
   });
-  /** How much of the row a card takes: the wide column, the narrow one, or all of it. */
-  const WIDTH: Record<CardId, string> = { connect: 'w-main', exit: 'w-side', quality: 'w-full', traffic: 'w-main', quick: 'w-side', tiles: 'w-full', more: 'w-full' };
+  /** Each card's own width, wherever it goes: wide, narrow, or the whole row. */
+  const KIND: Record<CardId, 'wide' | 'narrow' | 'full'> = { connect: 'wide', exit: 'narrow', quality: 'full', traffic: 'wide', quick: 'narrow', tiles: 'full', more: 'full' };
   let cards = $derived(app.layout.cards);
   let fold = $derived(cards.findIndex((c) => c.id === 'more'));
   let below = $derived(cards.slice(fold + 1).some((c) => !c.hidden));
   let shown = $derived(app.editingLayout ? cards : cards.filter((c, i) => (c.id === 'more' ? below : !c.hidden && (i < fold || details))));
+  // Rows: a wide and a narrow card side by side share one, in the user's order; a half
+  // card with no partner next to it takes the whole row, so no row has a gap.
+  let place = $derived.by(() => {
+    const out: Partial<Record<CardId, string>> = {};
+    for (let i = 0; i < shown.length; ) {
+      const a = shown[i], b = shown[i + 1];
+      const ka = KIND[a.id], kb = b ? KIND[b.id] : 'full';
+      if (ka !== 'full' && kb !== 'full' && ka !== kb) {
+        out[a.id] = ka === 'wide' ? 'l-wide' : 'l-narrow';
+        out[b.id] = kb === 'wide' ? 'r-wide' : 'r-narrow';
+        i += 2;
+      } else {
+        out[a.id] = 'all';
+        i += 1;
+      }
+    }
+    return out;
+  });
   const moveCard = (from: number, to: number) => app.saveLayout({ ...app.layout, cards: move(app.layout.cards, from, to) });
   const toggleCard = (id: CardId) => app.saveLayout({ ...app.layout, cards: app.layout.cards.map((c) => (c.id === id ? { id, ...(c.hidden ? {} : { hidden: true }) } : c)) });
   let diagnosing = $state(false);
@@ -354,7 +372,7 @@
   {#each shown as c (c.id)}
     {#if c.id === 'more'}
       {#if app.editingLayout}
-        <div class="slot w-full fold" data-sort-id="more">
+        <div class="slot all fold" data-sort-id="more">
           <button class="handle" data-handle aria-label={t('Move {name}', { name: CARD_NAME.more })} title={t('Drag to move')}><Icon name="grip" /></button>
           <span><b>{CARD_NAME.more}</b> · {t('cards below this line wait behind a button')}</span>
         </div>
@@ -362,7 +380,7 @@
         <button class="btn ghost details-btn" data-sort-id="more" aria-expanded={details} onclick={() => (details = !details)}>{details ? t('Fewer details') : t('Exit point, traffic and more')}</button>
       {/if}
     {:else}
-      <div class="slot {WIDTH[c.id]}" data-sort-id={c.id} class:off={c.hidden}>
+      <div class="slot {place[c.id]}" data-sort-id={c.id} class:off={c.hidden}>
         {#if app.editingLayout}
           <div class="edit-h">
             <button class="handle" data-handle aria-label={t('Move {name}', { name: CARD_NAME[c.id] })} title={t('Drag to move')}><Icon name="grip" /></button>
@@ -393,7 +411,13 @@
   .details-btn { justify-self: center; grid-column: 1 / -1; }
   .slot { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
   .slot > :global(section) { flex: 1; }
-  .slot.w-full { grid-column: 1 / -1; }
+  /* Three columns, narrow · middle · narrow: a wide card spans two of them, so it is the
+     same width whether it stands left or right of its narrow partner. */
+  .slot.all { grid-column: 1 / -1; }
+  .slot.l-wide { grid-column: 1 / span 2; }
+  .slot.r-narrow { grid-column: 3; }
+  .slot.l-narrow { grid-column: 1; }
+  .slot.r-wide { grid-column: 2 / span 2; }
   /* The exit card keeps its own height beside the taller connect card. */
   .slot:has(> .exit) { align-self: start; }
   .slot.off > :global(section) { opacity: .4; }
@@ -412,9 +436,9 @@
   .start b { display: block; color: var(--fg); font-weight: 500; }
   .start .region { display: flex; width: fit-content; margin-top: 8px; }
   /* The side cards grow with the window only up to a width they can use. */
-  .dash { display: grid; grid-template-columns: minmax(0, 1fr) clamp(280px, 39%, 420px); gap: 14px; }
+  .dash { display: grid; grid-template-columns: clamp(280px, 39%, 420px) minmax(0, 1fr) clamp(280px, 39%, 420px); gap: 14px; }
   .tiles { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 2fr) repeat(2, minmax(0, 1fr)); gap: 14px; }
-  @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } }
+  @container (max-width: 860px) { .dash { grid-template-columns: minmax(0, 1fr); } .dash > .slot.slot { grid-column: 1 / -1; } }
   @container (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .tile.wide { grid-column: 1 / -1; } }
   .hero { display: flex; flex-direction: column; gap: 20px; padding: 20px; container: hero / inline-size; }
   .hero-top { display: flex; gap: 24px; align-items: center; }
