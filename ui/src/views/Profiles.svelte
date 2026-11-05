@@ -7,12 +7,24 @@
   import EditorModal from '../components/EditorModal.svelte';
   import ShareModal from '../components/ShareModal.svelte';
   import Icon from '../components/Icon.svelte';
+  import { tick } from 'svelte';
 
   let selectedId = $state<string | null>(null);
   let editing = $state<Profile | null>(null);
   let sharing = $state<Profile | null>(null);
   let confirmDelete = $state(false);
   let updating = $state<Set<string>>(new Set());
+  let list = $state<HTMLElement>();
+  let detail = $state<HTMLElement>();
+
+  /** Shows a profile's details; where they sit under the list (phones), scrolls to them. */
+  async function pick(id: string) {
+    selectedId = id;
+    await tick();
+    if (detail && list && detail.offsetTop > list.offsetTop + list.offsetHeight - 1) detail.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  const use = (p: Profile) => app.run(() => api.setActiveProfile(p.id), t('Now using {name}', { name: p.name }));
 
   let sel = $derived(app.profiles.find((p) => p.id === (selectedId ?? app.settings?.active_profile)) ?? app.profiles[0]);
   $effect(() => { void sel?.id; confirmDelete = false; });
@@ -67,14 +79,15 @@
   </div>
 {:else}
   <div class="pf">
-    <div class="plist">
+    <div class="plist" bind:this={list}>
       {#each app.profiles as p (p.id)}
         {@const used = p.usage ? p.usage.upload + p.usage.download : 0}
         {@const pct = p.usage?.total ? Math.min(100, (used / p.usage.total) * 100) : 0}
         {@const left = p.usage?.expire ? daysUntil(p.usage.expire) : null}
         {@const active = p.id === app.settings?.active_profile}
-        <button class="prof" aria-current={p.id === sel?.id} onclick={() => (selectedId = p.id)}>
-          <span class="radio" class:on={active}></span>
+        <div class="prof" aria-current={p.id === sel?.id}>
+          <button class="pick-use" role="radio" aria-checked={active} aria-label={t('Use this profile')} title={t('Use this profile')} onclick={() => !active && use(p)}><span class="radio" class:on={active}></span></button>
+          <button class="pick" onclick={() => pick(p.id)}>
           <span class="t">
             <b>{p.name}</b>
             {#if active}<span class="chip acc">{t('In use')}</span>{/if}
@@ -88,14 +101,18 @@
               <span class="s"><span class="num">{t('{used} GB of {total} GB', { used: gb(used), total: gb(p.usage.total) })}</span>{#if p.usage.expire}<span>{t('until {date}', { date: fmtDate(p.usage.expire) })}</span>{/if}</span>
             </span>
           {/if}
-        </button>
+          </button>
+        </div>
       {/each}
     </div>
 
     {#if sel}
       {#key sel.id}
-        <section class="card detail">
+        <section class="card detail" bind:this={detail}>
           <div class="card-h"><h2>{sel.name}</h2><span class="aside">{sel.source.kind === 'remote' ? t('Subscription') : t('Local profile')}</span></div>
+          {#if sel.id !== app.settings?.active_profile}
+            <button class="btn primary use" onclick={() => use(sel!)}><Icon name="check" />{t('Use this profile')}</button>
+          {/if}
           <div class="form">
             <div class="fld full"><label for="pf-name">{t('Name')}</label>
               <input id="pf-name" class="input" value={sel.name} onchange={(e) => edit({ name: e.currentTarget.value })} /></div>
@@ -137,9 +154,6 @@
               <ul>{#each sel.warnings.slice(0, 20) as w, i (i)}<li class="mono">{w}</li>{/each}</ul></details>
           {/if}
           <div class="actions">
-            {#if sel.id !== app.settings?.active_profile}
-              <button class="btn primary" onclick={() => app.run(() => api.setActiveProfile(sel!.id), t('Now using {name}', { name: sel!.name }))}><Icon name="check" />{t('Use this profile')}</button>
-            {/if}
             {#if sel.source.kind === 'remote'}
               <button class="btn" class:busy={updating.has(sel.id)} onclick={() => update(sel!.id)} disabled={updating.has(sel.id)}><Icon name="refresh" />{t('Update now')}</button>
               <button class="btn" onclick={() => sel?.source.kind === 'remote' && app.run(() => navigator.clipboard.writeText(sel.source.kind === 'remote' ? sel.source.url : ''), t('Subscription URL copied'))}><Icon name="copy" />{t('Copy URL')}</button>
@@ -166,7 +180,11 @@
   .pf { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
   @container (max-width: 820px) { .pf { grid-template-columns: minmax(0, 1fr); } }
   .plist { display: flex; flex-direction: column; gap: 10px; }
-  .prof { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; padding: 14px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; }
+  .prof { display: grid; grid-template-columns: auto minmax(0, 1fr); border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+  .pick-use { display: flex; align-items: flex-start; padding: 14px 12px 14px 14px; background: none; border: 0; cursor: pointer; }
+  .pick-use:hover .radio:not(.on) { border-color: var(--muted); }
+  .pick { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; padding: 14px 14px 14px 0; background: none; border: 0; color: inherit; font: inherit; text-align: start; cursor: pointer; min-width: 0; }
+  .use { align-self: flex-start; }
   .prof:hover { border-color: var(--line-2); }
   .prof[aria-current='true'] { border-color: var(--faint); background: var(--accent-soft); }
   .radio { width: 16px; height: 16px; border-radius: 50%; border: 1.5px solid var(--line-2); margin-top: 2px; display: grid; place-items: center; }
@@ -174,8 +192,8 @@
   .radio.on::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
   .t { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
   .t b { font-weight: 500; }
-  .m { grid-column: 2; display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
-  .u { grid-column: 2; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+  .m { display: flex; gap: 6px 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); }
+  .u { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
   .s { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .detail { display: flex; flex-direction: column; gap: 14px; }
   .detail .card-h { margin: 0; }
