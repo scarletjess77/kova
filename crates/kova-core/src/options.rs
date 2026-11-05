@@ -425,6 +425,9 @@ pub struct RuntimeOptions {
     pub test_url: String,
     /// Countries (codes such as "RU") whose servers are left out, told by their names.
     pub hidden_countries: Vec<String>,
+    /// Protocols whose servers are left out, named as Kova shows them ("VLESS", "VMess",
+    /// "Shadowsocks", ...; see `Node::protocol_label`).
+    pub hidden_protocols: Vec<String>,
 }
 
 /// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
@@ -478,6 +481,7 @@ impl Default for RuntimeOptions {
             cert_pins: Default::default(),
             test_url: String::new(),
             hidden_countries: Vec::new(),
+            hidden_protocols: Vec::new(),
         }
     }
 }
@@ -505,6 +509,16 @@ impl RuntimeOptions {
     /// Whether a server called `name` is in a country the user hid.
     pub fn hides(&self, name: &str) -> bool {
         !self.hidden_countries.is_empty() && country_of(name).is_some_and(|c| self.hidden_countries.iter().any(|h| h.eq_ignore_ascii_case(&c)))
+    }
+
+    /// Whether servers of the protocol Kova shows as `label` ("VLESS") are hidden.
+    pub fn hides_protocol(&self, label: &str) -> bool {
+        self.hidden_protocols.iter().any(|h| h.eq_ignore_ascii_case(label))
+    }
+
+    /// Whether the user hid this server, by its country or by its protocol.
+    pub fn hides_node(&self, n: &crate::model::Node) -> bool {
+        self.hides(&n.name) || self.hides_protocol(&n.protocol_label())
     }
 
     /// Custom rules, then presets, then LAN, then the catch-all.

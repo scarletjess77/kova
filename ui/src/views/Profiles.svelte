@@ -1,6 +1,6 @@
 <script lang="ts">
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { api, type CorePreference, type Profile } from '../lib/api';
+  import { api, COMBINED, type CorePreference, type Profile } from '../lib/api';
   import { daysUntil, fmtAgo, fmtDate } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -25,6 +25,17 @@
   }
 
   const use = (p: Profile) => app.run(() => api.setActiveProfile(p.id), t('Now using {name}', { name: p.name }));
+
+  // The combined list: every profile's servers in one list, all but the ones unticked.
+  let combinedSel = $derived((selectedId ?? app.settings?.active_profile) === COMBINED);
+  let combinedActive = $derived(app.settings?.active_profile === COMBINED);
+  const useCombined = () => app.run(() => api.setActiveProfile(COMBINED), t('Now using all profiles together'));
+  function toggleMember(id: string) {
+    const skip = app.settings?.combined_skip ?? [];
+    const next = skip.includes(id) ? skip.filter((x) => x !== id) : [...skip, id];
+    if (app.profiles.every((p) => next.includes(p.id))) { app.notify(t('Keep at least one profile in the list')); return; }
+    void app.saveSettings((x) => (x.combined_skip = next));
+  }
 
   let sel = $derived(app.profiles.find((p) => p.id === (selectedId ?? app.settings?.active_profile)) ?? app.profiles[0]);
   $effect(() => { void sel?.id; confirmDelete = false; });
@@ -80,6 +91,15 @@
 {:else}
   <div class="pf">
     <div class="plist" bind:this={list}>
+      {#if app.profiles.length > 1}
+        <div class="prof all" aria-current={combinedSel}>
+          <button class="pick-use" role="radio" aria-checked={combinedActive} aria-label={t('Use all profiles together')} title={t('Use all profiles together')} onclick={() => !combinedActive && useCombined()}><span class="radio" class:on={combinedActive}></span></button>
+          <button class="pick" onclick={() => pick(COMBINED)}>
+            <span class="t"><b>{t('All profiles')}</b>{#if combinedActive}<span class="chip acc">{t('In use')}</span>{/if}</span>
+            <span class="m"><span>{t('Servers of several profiles in one list')}</span><span>{tn(app.combinedMembers.length, '{n} profile', '{n} profiles')}</span><span>{tn(app.combinedProfile.node_count, '{n} node', '{n} nodes')}</span></span>
+          </button>
+        </div>
+      {/if}
       {#each app.profiles as p (p.id)}
         {@const used = p.usage ? p.usage.upload + p.usage.download : 0}
         {@const pct = p.usage?.total ? Math.min(100, (used / p.usage.total) * 100) : 0}
@@ -106,7 +126,21 @@
       {/each}
     </div>
 
-    {#if sel}
+    {#if combinedSel && app.profiles.length > 1}
+      <section class="card detail" bind:this={detail}>
+        <div class="card-h"><h2>{t('All profiles')}</h2><span class="aside">{t('Combined list')}</span></div>
+        {#if !combinedActive}
+          <button class="btn primary use" onclick={useCombined}><Icon name="check" />{t('Use all profiles together')}</button>
+        {/if}
+        <p class="muted small combined-d">{t('The servers of the profiles ticked here, in one list with the groups and rules of Kova. Each profile still works on its own too. Clash profiles give only their servers; when two servers share a name, the profile name is added to the second.')}</p>
+        <div class="members" role="group" aria-label={t('Profiles in the list')}>
+          {#each app.profiles as p (p.id)}
+            {@const on = !(app.settings?.combined_skip ?? []).includes(p.id)}
+            <label class="member"><input type="checkbox" checked={on} onchange={() => toggleMember(p.id)} /><span class="nm">{p.name}</span><span class="muted">{tn(p.node_count, '{n} node', '{n} nodes')}</span></label>
+          {/each}
+        </div>
+      </section>
+    {:else if sel}
       {#key sel.id}
         <section class="card detail" bind:this={detail}>
           <div class="card-h"><h2>{sel.name}</h2><span class="aside">{sel.source.kind === 'remote' ? t('Subscription') : t('Local profile')}</span></div>
@@ -196,6 +230,12 @@
   .u { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
   .s { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .detail { display: flex; flex-direction: column; gap: 14px; }
+  .combined-d { margin: 0; }
+  .members { display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: var(--r); }
+  .member { display: flex; align-items: center; gap: 12px; padding: 10px 12px; font-size: 13px; cursor: pointer; }
+  .member + .member { border-top: 1px solid var(--line); }
+  .member .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .member .muted { font-size: 12px; }
   .detail .card-h { margin: 0; }
   .small { font-size: 12px; }
   .ua { width: 220px; font-size: 12px; }

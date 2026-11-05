@@ -358,7 +358,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
     }
 
     let main = main_group(&doc);
-    hide_countries(&mut doc, opts, &main);
+    hide_servers(&mut doc, opts, &main);
     reality_mlkem(&mut doc);
     apply_anti_dpi(&mut doc, opts);
     let mut known = names_in(&doc);
@@ -429,19 +429,48 @@ fn reality_mlkem(doc: &mut Mapping) {
     }
 }
 
-/// Leave the servers in the countries the user hid out of an imported profile: out of its
-/// list and its groups, and out of its server providers through their filter. A group
-/// left with none rejects rather than going around the proxy. When every server would go,
-/// none is hidden.
-fn hide_countries(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) {
-    if opts.hidden_countries.is_empty() {
+/// The protocol name Kova shows for a Clash proxy `type`, as `Node::protocol_label` does.
+pub fn clash_type_label(kind: &str) -> String {
+    match kind.to_ascii_lowercase().as_str() {
+        "vless" => "VLESS".into(),
+        "vmess" => "VMess".into(),
+        "trojan" => "Trojan".into(),
+        "ss" => "Shadowsocks".into(),
+        "hysteria2" | "hy2" => "Hysteria2".into(),
+        "tuic" => "TUIC".into(),
+        "wireguard" => "WireGuard".into(),
+        "anytls" => "AnyTLS".into(),
+        "socks5" => "SOCKS5".into(),
+        "http" => "HTTP".into(),
+        other => other.to_uppercase(),
+    }
+}
+
+/// The Clash proxy `type` of a protocol Kova shows as `label`, for `exclude-type`.
+fn clash_type_of(label: &str) -> String {
+    match label.to_ascii_lowercase().as_str() {
+        "shadowsocks" => "ss".into(),
+        other => other.into(),
+    }
+}
+
+/// Leave the servers the user hid (by country or by protocol) out of an imported profile:
+/// out of its list and its groups, and out of its server providers through their filters.
+/// A group left with none rejects rather than going around the proxy. When every server
+/// would go, none is hidden.
+fn hide_servers(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) {
+    if opts.hidden_countries.is_empty() && opts.hidden_protocols.is_empty() {
         return;
     }
-    let names: Vec<String> = match doc.get("proxies") {
-        Some(Yaml::Sequence(p)) => p.iter().filter_map(|p| p.get("name").and_then(|n| n.as_str()).map(String::from)).collect(),
+    let listed: Vec<(String, String)> = match doc.get("proxies") {
+        Some(Yaml::Sequence(p)) => p
+            .iter()
+            .filter_map(|p| Some((p.get("name")?.as_str()?.to_string(), p.get("type").and_then(Yaml::as_str).unwrap_or_default().to_string())))
+            .collect(),
         _ => Vec::new(),
     };
-    let hidden: HashSet<&str> = names.iter().filter(|n| opts.hides(n)).map(String::as_str).collect();
+    let names: Vec<&str> = listed.iter().map(|(n, _)| n.as_str()).collect();
+    let hidden: HashSet<&str> = listed.iter().filter(|(n, kind)| opts.hides(n) || opts.hides_protocol(&clash_type_label(kind))).map(|(n, _)| n.as_str()).collect();
     let has_providers = matches!(doc.get("proxy-providers"), Some(Yaml::Mapping(m)) if !m.is_empty());
     if !hidden.is_empty() && (hidden.len() < names.len() || has_providers) {
         if let Some(Yaml::Sequence(p)) = doc.get_mut("proxies") {
@@ -480,17 +509,24 @@ fn hide_countries(doc: &mut Mapping, opts: &RuntimeOptions, main: &str) {
         }
     }
     let filter = country_filter(&opts.hidden_countries);
-    if filter.is_empty() {
-        return;
-    }
+    let types: Vec<String> = opts.hidden_protocols.iter().map(|l| clash_type_of(l)).collect();
     if let Some(Yaml::Mapping(providers)) = doc.get_mut("proxy-providers") {
         for (_, p) in providers.iter_mut() {
             let Yaml::Mapping(p) = p else { continue };
-            let joined = match p.get("exclude-filter").and_then(Yaml::as_str) {
-                Some(old) if !old.is_empty() => format!("{old}`{filter}"),
-                _ => filter.clone(),
-            };
-            p.insert(Yaml::String("exclude-filter".into()), Yaml::String(joined));
+            if !filter.is_empty() {
+                let joined = match p.get("exclude-filter").and_then(Yaml::as_str) {
+                    Some(old) if !old.is_empty() => format!("{old}`{filter}"),
+                    _ => filter.clone(),
+                };
+                p.insert(Yaml::String("exclude-filter".into()), Yaml::String(joined));
+            }
+            if !types.is_empty() {
+                let joined = match p.get("exclude-type").and_then(Yaml::as_str) {
+                    Some(old) if !old.is_empty() => format!("{old}|{}", types.join("|")),
+                    _ => types.join("|"),
+                };
+                p.insert(Yaml::String("exclude-type".into()), Yaml::String(joined));
+            }
         }
     }
 }
@@ -741,6 +777,23 @@ proxy-groups:\n  - {name: Sel, type: select, proxies: [Auto, \"🇷🇺 Moscow\"
         let only = "proxies:\n  - {name: RU-1, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [RU-1]}\nrules:\n  - MATCH,Sel\n";
         let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(only, &o).unwrap()).unwrap();
         assert_eq!(doc["proxies"].as_sequence().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn hidden_protocols_leave_the_profile() {
+        let o = RuntimeOptions { hidden_protocols: vec!["Shadowsocks".into(), "VMess".into()], ..Default::default() };
+        let raw = "proxies:\n  - {name: A, type: vless, server: a, port: 443, uuid: 11111111-1111-1111-1111-111111111111}\n  - {name: B, type: ss, server: b, port: 443, cipher: aes-128-gcm, password: x}\n  - {name: C, type: vmess, server: c, port: 443, uuid: 11111111-1111-1111-1111-111111111111, alterId: 0, cipher: auto}\n\
+proxy-providers:\n  sub: {type: http, url: \"https://sub.example.com/p\", path: ./p.yaml, exclude-type: http}\n  other: {type: http, url: \"https://sub.example.com/q\", path: ./q.yaml}\n\
+proxy-groups:\n  - {name: Sel, type: select, proxies: [A, B, C]}\nrules:\n  - DOMAIN-SUFFIX,bank.example,B\n  - MATCH,Sel\n";
+        let doc: Mapping = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let names: Vec<&str> = doc["proxies"].as_sequence().unwrap().iter().filter_map(|p| p["name"].as_str()).collect();
+        assert_eq!(names, ["A"]);
+        let rules: Vec<&str> = doc["rules"].as_sequence().unwrap().iter().filter_map(|r| r.as_str()).collect();
+        assert!(rules.contains(&"DOMAIN-SUFFIX,bank.example,Sel"), "{rules:?}");
+        assert_eq!(doc["proxy-providers"]["sub"]["exclude-type"].as_str(), Some("http|ss|vmess"));
+        assert_eq!(doc["proxy-providers"]["other"]["exclude-type"].as_str(), Some("ss|vmess"));
+        assert!(doc["proxy-providers"]["other"].get("exclude-filter").is_none(), "no country hidden, no name filter");
+        assert_eq!(clash_type_label("hy2"), "Hysteria2");
     }
 
     #[test]

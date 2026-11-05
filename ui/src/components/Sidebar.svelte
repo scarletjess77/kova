@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { COMBINED } from '../lib/api';
   import { daysUntil } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app, type View } from '../lib/state.svelte';
@@ -40,7 +41,7 @@
         <div class="bar" class:warn={pct > 85}><i style="width:{pct}%"></i></div>
         <div class="s"><span class="num">{gb(used)} / {gb(usage.total)} GB</span>{#if usage.expire}<span>{tn(daysUntil(usage.expire), '{n} day left', '{n} days left')}</span>{/if}</div>
       {:else}
-        <div class="s"><span>{app.activeProfile.source.kind === 'remote' ? t('Subscription') : t('Local')}</span><span>{tn(app.activeProfile.node_count, '{n} node', '{n} nodes')}</span></div>
+        <div class="s"><span>{app.activeProfile.id === COMBINED ? tn(app.combinedMembers.length, '{n} profile', '{n} profiles') : app.activeProfile.source.kind === 'remote' ? t('Subscription') : t('Local')}</span><span>{tn(app.activeProfile.node_count, '{n} node', '{n} nodes')}</span></div>
       {/if}
     </div>
   {/if}

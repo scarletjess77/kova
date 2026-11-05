@@ -53,10 +53,21 @@
   // Countries of the active profile's servers, all of them (hidden ones included, which
   // the running core no longer has), for hiding a country.
   let profileCountries = $state<string[]>([]);
+  let profileProtocols = $state<string[]>([]);
   $effect(() => {
     const id = app.settings?.active_profile;
+    void app.settings?.combined_skip;
     if (!id) return;
-    api.profileNodes(id).then((n) => (profileCountries = n.map((x) => countryCode(x.name)).filter((c): c is string => !!c)), () => {});
+    api.profileNodes(id).then((n) => {
+      profileCountries = n.map((x) => countryCode(x.name)).filter((c): c is string => !!c);
+      profileProtocols = n.map((x) => x.protocol);
+    }, () => {});
+  });
+  // Protocols of the active profile's servers, hidden ones included, for hiding a protocol.
+  let protocolList = $derived([...new Set([...profileProtocols, ...(s?.core.hidden_protocols ?? [])])].sort());
+  const hideProtocol = (p: string) => set((x) => {
+    const h = x.core.hidden_protocols;
+    x.core.hidden_protocols = h.includes(p) ? h.filter((v) => v !== p) : [...h, p];
   });
   let countryList = $derived([...new Set([...profileCountries, ...(s?.core.hidden_countries ?? [])])].sort());
   const hideCountry = (c: string) => set((x) => {
@@ -210,6 +221,17 @@
             </div>
           {:else}
             <div class="d">{t('No server names in this profile show a country.')}</div>
+          {/if}
+        </div>
+        <div class="rows">
+          <div class="t">{t('Hide protocols')}</div>
+          <div class="d">{t('Servers of these protocols are left out. To keep only VLESS, hide the rest.')}</div>
+          {#if protocolList.length}
+            <div class="countries" role="group" aria-label={t('Hide protocols')}>
+              {#each protocolList as p (p)}
+                <button class="chip" class:off={s.core.hidden_protocols.includes(p)} aria-pressed={s.core.hidden_protocols.includes(p)} onclick={() => hideProtocol(p)}>{p}</button>
+              {/each}
+            </div>
           {/if}
         </div>
       </FoldCard>

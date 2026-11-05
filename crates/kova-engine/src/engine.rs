@@ -86,6 +86,10 @@ impl NodeView {
     }
 }
 
+/// The profile id that stands for every profile's servers in one list (all but those in
+/// `Settings::combined_skip`). Each profile still works on its own too.
+pub const COMBINED: &str = "combined";
+
 /// Editable profile fields; `None` leaves a field as it is.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct ProfilePatch {
@@ -419,8 +423,9 @@ impl Engine {
             self.set_status(|s| s.mixed_port = new.core.mixed_port);
             return Ok(());
         }
-        let mut core_changed = old.core != new.core;
-        if core_changed && (RuntimeOptions { mode: new.core.mode, ..old.core.clone() }) == new.core {
+        let combined_changed = new.active_profile.as_deref() == Some(COMBINED) && old.combined_skip != new.combined_skip;
+        let mut core_changed = old.core != new.core || combined_changed;
+        if core_changed && !combined_changed && (RuntimeOptions { mode: new.core.mode, ..old.core.clone() }) == new.core {
             // Only the routing mode changed: Mihomo can switch live.
             let api = self.run.lock().await.as_ref().and_then(|r| r.api.clone());
             // The Android build of Mihomo refuses config changes over its API; then the
@@ -648,7 +653,7 @@ impl Engine {
     }
 
     pub async fn set_active_profile(&self, id: &str) -> Result<()> {
-        if self.profiles.read().unwrap().get(id).is_none() {
+        if id != COMBINED && self.profiles.read().unwrap().get(id).is_none() {
             return Err(Error::Other("profile not found".into()));
         }
         let mut s = self.settings();
@@ -780,7 +785,8 @@ impl Engine {
             s.launch_at_login = here.launch_at_login;
             s.start_minimized = here.start_minimized;
             s.vpn_apps = here.vpn_apps.clone();
-            let active = s.active_profile.take().and_then(|id| ids.get(&id).cloned());
+            let active = s.active_profile.take().and_then(|id| if id == COMBINED { Some(id) } else { ids.get(&id).cloned() });
+            s.combined_skip = s.combined_skip.iter().filter_map(|id| ids.get(id).cloned()).collect();
             let selections: HashMap<String, String> = std::mem::take(&mut s.selections)
                 .into_iter()
                 .filter_map(|(key, member)| {
@@ -828,26 +834,94 @@ impl Engine {
     }
 
     async fn reload_if_active(&self, id: &str) -> Result<()> {
-        if self.settings().active_profile.as_deref() == Some(id) && self.status().running {
+        let s = self.settings();
+        let in_use = match s.active_profile.as_deref() {
+            Some(COMBINED) => !s.combined_skip.iter().any(|x| x == id),
+            active => active == Some(id),
+        };
+        if in_use && self.status().running {
             self.restart().await?;
         }
         Ok(())
     }
 
     pub fn profile_nodes(&self, id: &str) -> Result<Vec<NodeView>> {
+        if id == COMBINED {
+            return Ok(self.combined_nodes()?.iter().map(NodeView::of).collect());
+        }
         let body = self.profile_content(id)?;
         Ok(subscription::parse(&body)?.nodes.iter().map(NodeView::of).collect())
     }
 
+    /// The profiles in the combined list, in the order of the profile list.
+    fn combined_members(&self) -> Vec<Profile> {
+        let skip = self.settings().combined_skip;
+        self.profiles().into_iter().filter(|p| !skip.contains(&p.id)).collect()
+    }
+
+    /// Every combined profile's servers in one list. Clash profiles give their servers
+    /// only: their groups and rules belong to that profile alone. A name already taken by
+    /// another profile's server gets its own profile's name added.
+    fn combined_nodes(&self) -> Result<Vec<Node>> {
+        let mut out: Vec<Node> = Vec::new();
+        let mut taken = std::collections::HashSet::new();
+        for p in self.combined_members() {
+            let Ok(body) = self.profile_content(&p.id) else { continue };
+            let Ok(parsed) = subscription::parse(&body) else { continue };
+            for mut n in parsed.nodes {
+                if taken.contains(&n.name) {
+                    let base = format!("{} · {}", n.name, p.name);
+                    let mut name = base.clone();
+                    let mut i = 2;
+                    while taken.contains(&name) {
+                        name = format!("{base} {i}");
+                        i += 1;
+                    }
+                    n.name = name;
+                }
+                taken.insert(n.name.clone());
+                out.push(n);
+            }
+        }
+        if out.is_empty() {
+            return Err(Error::Other("The combined profiles have no servers. Add profiles to the list or choose one profile".into()));
+        }
+        Ok(out)
+    }
+
+    /// The combined list as a profile: share-link style, so Kova makes its groups.
+    fn combined_profile(&self, nodes: usize) -> Profile {
+        Profile {
+            id: COMBINED.into(),
+            name: "All profiles".into(),
+            source: crate::store::Source::Local,
+            format: Format::Links,
+            core: CorePreference::Auto,
+            node_count: nodes,
+            usage: None,
+            updated_at: 0,
+            warnings: Vec::new(),
+            support_url: None,
+            announce: None,
+        }
+    }
+
     fn active(&self) -> Result<(Profile, String, Vec<Node>)> {
         let id = self.settings().active_profile.ok_or_else(|| Error::Other("Add a profile first".into()))?;
-        let p = self.profiles.read().unwrap().get(&id).cloned().ok_or_else(|| Error::Other("The active profile was removed. Choose another one".into()))?;
-        let body = self.profile_content(&id)?;
-        let mut nodes = subscription::parse(&body)?.nodes;
-        // Servers in the countries the user hid are left out, unless that would leave none.
+        let (p, body, mut nodes) = if id == COMBINED {
+            let nodes = self.combined_nodes()?;
+            (self.combined_profile(nodes.len()), String::new(), nodes)
+        } else {
+            let p = self.profiles.read().unwrap().get(&id).cloned().ok_or_else(|| Error::Other("The active profile was removed. Choose another one".into()))?;
+            let body = self.profile_content(&id)?;
+            let nodes = subscription::parse(&body)?.nodes;
+            (p, body, nodes)
+        };
+        // Servers the user hid (by country or protocol) are left out, unless that would
+        // leave none.
         let opts = self.settings().core;
-        if nodes.iter().any(|n| !opts.hides(&n.name)) {
-            nodes.retain(|n| !opts.hides(&n.name));
+        if nodes.iter().any(|n| !opts.hides_node(n)) {
+            nodes.retain(|n| !opts.hides_node(n));
         }
         Ok((p, body, nodes))
     }

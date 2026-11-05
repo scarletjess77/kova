@@ -51,6 +51,8 @@ export interface RuntimeOptions {
   test_url: string;
   /** Country codes whose servers are left out, told by their names. */
   hidden_countries: string[];
+  /** Protocols whose servers are left out, as Kova names them ("VLESS"). */
+  hidden_protocols: string[];
 }
 
 export type Route = 'proxy' | 'direct';
@@ -86,6 +88,8 @@ export interface Settings {
   mobile_server: string | null;
   /** Beta, desktop: keep apps offline when the connection drops, and reconnect. */
   kill_switch: boolean;
+  /** Profiles left out of the combined list; new ones join it. */
+  combined_skip: string[];
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
@@ -115,6 +119,9 @@ export interface UserInfo { upload: number; download: number; total: number; exp
 
 /** A header a profile sends with every update. */
 export interface Header { name: string; value: string }
+
+/** The profile id that stands for every profile's servers in one list. */
+export const COMBINED = 'combined';
 
 export type Source =
   | { kind: 'remote'; url: string; user_agent: string | null; update_hours: number; via_proxy: boolean; headers?: Header[] }

@@ -181,6 +181,8 @@ pub struct Settings {
     /// at Kova so apps go offline instead of around it, and reconnect. Only Disconnect or
     /// a restored connection lifts it.
     pub kill_switch: bool,
+    /// Profiles left out of the combined list (see `engine::COMBINED`); new ones join it.
+    pub combined_skip: Vec<String>,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -225,6 +227,7 @@ impl Default for Settings {
             device_id: String::new(),
             mobile_server: None,
             kill_switch: false,
+            combined_skip: Vec::new(),
         }
     }
 }

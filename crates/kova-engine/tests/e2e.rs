@@ -1181,3 +1181,83 @@ async fn quality_check_goes_through_the_proxy() {
         engine.stop().await.unwrap();
     }
 }
+
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "downloads cores and runs real processes"]
+async fn combined_profiles_and_protocol_filter() {
+    let cores_cache = ensure_cores().await;
+    let root = tempfile::tempdir().unwrap();
+    let engine = Engine::new(root.path()).unwrap();
+    for entry in std::fs::read_dir(&cores_cache).unwrap() {
+        let e = entry.unwrap();
+        if e.path().is_file() {
+            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+        }
+    }
+    let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
+    let ws_port = free_port();
+    let server_dir = tempfile::tempdir().unwrap();
+    let server_cfg = server_dir.path().join("server.json");
+    std::fs::write(
+        &server_cfg,
+        serde_json::json!({
+            "log": { "loglevel": "warning" },
+            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+    tokio::time::sleep(Duration::from_millis(600)).await;
+    let target = target_server().await;
+    let mut s = engine.settings();
+    s.system_proxy = false;
+    s.core.mixed_port = free_port();
+    s.core.presets.clear();
+    s.core.mode = kova_core::options::Mode::Global;
+    engine.update_settings(s).await.unwrap();
+
+    let live = |name: &str| format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#{name}");
+    let a = engine.add_profile(&live("Same"), Some("Provider A".into())).await.unwrap();
+    let b = engine.add_profile(&format!("{}\ntrojan://x@192.0.2.1:443?sni=example.com#Same\n{}", live("Other"), "ss://YWVzLTEyOC1nY206eA@192.0.2.2:8388#Shadow"), Some("Provider B".into())).await.unwrap();
+    let c = engine.add_profile(&live("Left out"), Some("Provider C".into())).await.unwrap();
+
+    // Combined: A and B, not C. The second "Same" gets its profile's name.
+    let mut s = engine.settings();
+    s.combined_skip = vec![c.id.clone()];
+    engine.update_settings(s).await.unwrap();
+    engine.set_active_profile(kova_engine::engine::COMBINED).await.unwrap();
+    let mut names: Vec<String> = engine.profile_nodes(kova_engine::engine::COMBINED).unwrap().into_iter().map(|n| n.name).collect();
+    names.sort();
+    assert_eq!(names, ["Other", "Same", "Same · Provider B", "Shadow"]);
+
+    // Hiding Trojan and Shadowsocks leaves the two VLESS servers in the running core.
+    let mut s = engine.settings();
+    s.core.hidden_protocols = vec!["Trojan".into(), "Shadowsocks".into()];
+    engine.update_settings(s).await.unwrap();
+    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    let snap = engine.proxies().await.unwrap();
+    let mut running: Vec<&str> = snap.proxies.iter().filter(|(_, p)| ["Vless", "Trojan", "Shadowsocks"].contains(&p.kind.as_str())).map(|(n, _)| n.as_str()).collect();
+    running.sort();
+    assert_eq!(running, ["Other", "Same"], "{snap:?}");
+
+    // Both combined servers carry traffic.
+    let main = snap.groups.iter().find(|g| g.name == PROXY).map(|g| g.name.clone()).unwrap();
+    for name in ["Same", "Other"] {
+        engine.select(&main, name).await.unwrap();
+        let c = reqwest::Client::builder().proxy(reqwest::Proxy::all(format!("http://127.0.0.1:{}", engine.status().mixed_port)).unwrap()).timeout(Duration::from_secs(10)).build().unwrap();
+        let body = c.get(format!("http://127.0.0.1:{target}/")).send().await.unwrap().text().await.unwrap();
+        assert_eq!(body, "hello from target", "through {name}");
+    }
+
+    // Updating a combined profile's content restarts the combined list with it.
+    engine.save_profile_content(&a.id, &live("Renamed")).await.unwrap();
+    let mut names: Vec<String> = engine.profile_nodes(kova_engine::engine::COMBINED).unwrap().into_iter().map(|n| n.name).collect();
+    names.sort();
+    assert_eq!(names, ["Other", "Renamed", "Same", "Shadow"]);
+    let _ = b;
+    engine.stop().await.unwrap();
+    let _ = server.kill().await;
+}

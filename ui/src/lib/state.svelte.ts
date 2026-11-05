@@ -3,7 +3,7 @@
 import { listen } from '@tauri-apps/api/event';
 import { friendly } from './errors';
 import { enableTvNavigation } from './tvnav';
-import { api, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo, type DeviceInfo } from './api';
+import { api, COMBINED, errText, type EngineEvent, type NodeView, type Profile, type ProxySnapshot, type Settings, type Status, type UpdateInfo, type DeviceInfo } from './api';
 import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
 
@@ -151,7 +151,24 @@ class AppState {
   }
 
   get activeProfile(): Profile | undefined {
-    return this.profiles.find((p) => p.id === this.settings?.active_profile);
+    const id = this.settings?.active_profile;
+    if (id === COMBINED) return this.combinedProfile;
+    return this.profiles.find((p) => p.id === id);
+  }
+
+  /** The profiles in the combined list. */
+  get combinedMembers(): Profile[] {
+    const skip = this.settings?.combined_skip ?? [];
+    return this.profiles.filter((p) => !skip.includes(p.id));
+  }
+
+  /** The combined list, shaped like a profile for the places that show the active one. */
+  get combinedProfile(): Profile {
+    const members = this.combinedMembers;
+    return {
+      id: COMBINED, name: t('All profiles'), source: { kind: 'local' }, format: 'links', core: 'auto',
+      node_count: members.reduce((n, p) => n + p.node_count, 0), usage: null, updated_at: 0, warnings: [], support_url: null, announce: null,
+    };
   }
 
   private async openImportLink() {
