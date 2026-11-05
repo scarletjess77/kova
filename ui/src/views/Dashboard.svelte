@@ -281,11 +281,11 @@
           <span class="d">{t('change between requests')}</span></div>
         <div><span class="eyebrow">{t('Loss')}</span><span class="v" class:warn={quality.loss > 0}>{lossText(quality)}</span>
           <span class="d">{t('{n} of {total} answered', { n: quality.answered, total: quality.sent })}</span></div>
-        <div><span class="eyebrow">{t('Average')}</span><span class="v">{quality.avg != null ? t('{n} ms', { n: quality.avg }) : '—'}</span>
-          <span class="d">{t('mean of the answers')}</span></div>
+        <div><span class="eyebrow">{t('Connecting')}</span><span class="v">{quality.connect != null ? t('{n} ms', { n: quality.connect }) : '—'}</span>
+          <span class="d">{t('first request, with the setup')}</span></div>
       </div>
     {:else}
-      <p class="muted qhint">{t('Ten requests to the latency test address show how steady the connection is: the spread of latency, jitter and lost requests.')}</p>
+      <p class="muted qhint">{t('One connection to the latency test address, then ten requests over it: each is a single round trip, like ping. Shows the latency, its spread, jitter and lost requests.')}</p>
     {/if}
     <div class="foot">
       <button class="btn" class:busy={qualityBusy} onclick={checkQuality} disabled={qualityBusy || s.busy}><Icon name="bolt" />{qualityBusy ? t('Checking…') : quality ? t('Check again') : t('Check quality')}</button>

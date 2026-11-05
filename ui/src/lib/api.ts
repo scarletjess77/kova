@@ -248,8 +248,10 @@ export function errText(e: unknown): string {
   return friendly(typeof e === 'string' ? e : e instanceof Error ? e.message : String(e));
 }
 
-/** Ten probes to the latency test address. Times in ms; loss in percent. */
+/** One connection to the latency test address, then ten requests over it. Times in ms; loss in percent. */
 export interface Quality {
+  /** The first request, which also sets up the connection. */
+  connect: number | null;
   sent: number;
   answered: number;
   min: number | null;

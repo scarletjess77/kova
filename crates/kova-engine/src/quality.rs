@@ -1,5 +1,9 @@
 //! Connection quality: latency spread, jitter and loss from a series of probes, measured
 //! through Kova's own proxy port while connected and directly otherwise.
+//!
+//! The first request opens the connection (through the server when connected) and is
+//! timed on its own. The rest go over that same connection, so each one is a single
+//! round trip, the closest thing to ping that works through a proxy.
 
 use std::time::{Duration, Instant};
 
@@ -10,6 +14,8 @@ use crate::Error;
 /// What a series of probes found. Times are in milliseconds.
 #[derive(Debug, Clone, Default, PartialEq, Serialize)]
 pub struct Quality {
+    /// The first request, which also sets up the connection.
+    pub connect: Option<u32>,
     /// Probes sent and probes answered.
     pub sent: u32,
     pub answered: u32,
@@ -47,12 +53,13 @@ pub fn summarize(samples: &[Option<u32>]) -> Quality {
         max: sorted.last().copied(),
         jitter,
         loss: if samples.is_empty() { 0.0 } else { (samples.len() - got.len()) as f32 * 100.0 / samples.len() as f32 },
+        connect: None,
         proxied: false,
     }
 }
 
 fn client(proxy: Option<&str>, timeout: Duration) -> Result<reqwest::Client, Error> {
-    let b = crate::fetch::builder().timeout(timeout).pool_max_idle_per_host(0);
+    let b = crate::fetch::builder().timeout(timeout).pool_idle_timeout(Duration::from_secs(30));
     let b = match proxy {
         Some(p) => b.proxy(reqwest::Proxy::all(p)?),
         None => b.no_proxy(),
@@ -60,27 +67,156 @@ fn client(proxy: Option<&str>, timeout: Duration) -> Result<reqwest::Client, Err
     Ok(b.build()?)
 }
 
-/// `count` requests to `url`, one after another, each on a new connection like a
-/// latency test. A request that fails or takes over `timeout` counts as lost; when the
-/// first three are all lost, it stops there.
-pub async fn probe(url: &str, proxy: Option<&str>, count: u32, timeout: Duration) -> Result<Quality, Error> {
-    let c = client(proxy, timeout)?;
-    let mut samples = Vec::with_capacity(count as usize);
-    for i in 0..count {
-        if i > 0 {
-            tokio::time::sleep(Duration::from_millis(200)).await;
+const fn ms(d: Duration) -> u32 {
+    let m = d.as_millis();
+    if m > u32::MAX as u128 { u32::MAX } else { m as u32 }
+}
+
+/// One kept-open connection for plain `http://` addresses: a CONNECT tunnel through the
+/// proxy port (an HTTP proxy would otherwise open a new connection to the server for
+/// every request), or a direct TCP connection.
+struct Plain {
+    host: String,
+    port: u16,
+    path: String,
+    proxy: Option<(String, Option<String>)>,
+    stream: Option<tokio::io::BufReader<tokio::net::TcpStream>>,
+}
+
+impl Plain {
+    fn new(url: &reqwest::Url, proxy: Option<&str>) -> Option<Self> {
+        let proxy = match proxy {
+            Some(p) => {
+                let p = reqwest::Url::parse(p).ok()?;
+                let auth = (!p.username().is_empty()).then(|| {
+                    use base64::Engine as _;
+                    base64::engine::general_purpose::STANDARD.encode(format!("{}:{}", p.username(), p.password().unwrap_or_default()))
+                });
+                Some((format!("{}:{}", p.host_str()?, p.port_or_known_default()?), auth))
+            }
+            None => None,
+        };
+        let path = match url.query() {
+            Some(q) => format!("{}?{q}", url.path()),
+            None => url.path().to_string(),
+        };
+        Some(Self { host: url.host_str()?.to_string(), port: url.port_or_known_default()?, path, proxy, stream: None })
+    }
+
+    async fn open(&self) -> std::io::Result<tokio::io::BufReader<tokio::net::TcpStream>> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+        let target = format!("{}:{}", self.host, self.port);
+        let Some((addr, auth)) = &self.proxy else {
+            return Ok(tokio::io::BufReader::new(tokio::net::TcpStream::connect(&target).await?));
+        };
+        let mut s = tokio::io::BufReader::new(tokio::net::TcpStream::connect(addr).await?);
+        let auth = auth.as_ref().map(|a| format!("Proxy-Authorization: Basic {a}\r\n")).unwrap_or_default();
+        s.get_mut().write_all(format!("CONNECT {target} HTTP/1.1\r\nHost: {target}\r\n{auth}\r\n").as_bytes()).await?;
+        let mut line = String::new();
+        s.read_line(&mut line).await?;
+        if !line.split_whitespace().nth(1).is_some_and(|c| c.starts_with('2')) {
+            return Err(std::io::Error::other(format!("proxy refused: {}", line.trim())));
         }
+        loop {
+            line.clear();
+            if s.read_line(&mut line).await? == 0 || line == "\r\n" || line == "\n" {
+                break;
+            }
+        }
+        Ok(s)
+    }
+
+    /// One request; reconnects first when the last answer closed the connection.
+    async fn request(&mut self) -> std::io::Result<()> {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt};
+        if self.stream.is_none() {
+            self.stream = Some(self.open().await?);
+        }
+        let s = self.stream.as_mut().expect("opened above");
+        let req = format!("GET {} HTTP/1.1\r\nHost: {}\r\nUser-Agent: Kova\r\nAccept: */*\r\n\r\n", self.path, self.host);
+        let res: std::io::Result<bool> = async {
+            s.get_mut().write_all(req.as_bytes()).await?;
+            let mut line = String::new();
+            if s.read_line(&mut line).await? == 0 {
+                return Err(std::io::ErrorKind::UnexpectedEof.into());
+            }
+            let status: u16 = line.split_whitespace().nth(1).and_then(|c| c.parse().ok()).ok_or(std::io::ErrorKind::InvalidData)?;
+            let (mut length, mut keep) = (None::<u64>, true);
+            loop {
+                line.clear();
+                if s.read_line(&mut line).await? == 0 || line == "\r\n" || line == "\n" {
+                    break;
+                }
+                let l = line.to_ascii_lowercase();
+                if let Some(v) = l.strip_prefix("content-length:") {
+                    length = v.trim().parse().ok();
+                } else if l.starts_with("connection:") && l.contains("close") {
+                    keep = false;
+                }
+            }
+            match (status, length) {
+                (204 | 304, _) | (_, Some(0)) => {}
+                (_, Some(n)) => {
+                    let mut body = (&mut *s).take(n);
+                    tokio::io::copy(&mut body, &mut tokio::io::sink()).await?;
+                }
+                // No length: the body runs to the end of the connection, so it can't be reused.
+                (_, None) => keep = false,
+            }
+            Ok(keep)
+        }
+        .await;
+        match res {
+            Ok(true) => Ok(()),
+            Ok(false) => {
+                self.stream = None;
+                Ok(())
+            }
+            Err(e) => {
+                self.stream = None;
+                Err(e)
+            }
+        }
+    }
+}
+
+/// The first request to `url` sets up the connection and is timed on its own; then
+/// `count` more go one after another over that same connection. A request that fails or
+/// takes over `timeout` counts as lost (the next one reconnects); when the setup and the
+/// first two all fail, it stops there.
+pub async fn probe(url: &str, proxy: Option<&str>, count: u32, timeout: Duration) -> Result<Quality, Error> {
+    let parsed = reqwest::Url::parse(url).map_err(|e| Error::Other(format!("test address: {e}")))?;
+    let mut plain = if parsed.scheme() == "http" { Plain::new(&parsed, proxy) } else { None };
+    let c = client(proxy, timeout)?;
+    let mut once = async || -> Option<u32> {
         let start = Instant::now();
-        // Kova's own port answers 502 to 504 when the server can't be reached: lost too.
-        let ok = c.get(url).send().await.is_ok_and(|r| proxy.is_none() || !matches!(r.status().as_u16(), 502..=504));
-        samples.push(ok.then(|| start.elapsed().as_millis().min(u128::from(u32::MAX)) as u32));
-        // Three lost in a row from the start: the connection is down, not unsteady, and
-        // waiting out the rest would only take long.
-        if samples.len() == 3 && samples.iter().all(Option::is_none) {
+        let ok = match plain.as_mut() {
+            Some(p) => tokio::time::timeout(timeout, p.request()).await.is_ok_and(|r| r.is_ok()),
+            // Kova's own port answers 502 to 504 when the server can't be reached: lost too.
+            None => match c.get(url).send().await {
+                Ok(r) => {
+                    let bad = proxy.is_some() && matches!(r.status().as_u16(), 502..=504);
+                    r.bytes().await.is_ok() && !bad
+                }
+                Err(_) => false,
+            },
+        };
+        if !ok && let Some(p) = plain.as_mut() {
+            p.stream = None;
+        }
+        ok.then(|| ms(start.elapsed()))
+    };
+    let connect = once().await;
+    let mut samples = Vec::with_capacity(count as usize);
+    for _ in 0..count {
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        samples.push(once().await);
+        // Setup and two more lost: the connection is down, not unsteady.
+        if connect.is_none() && samples.len() == 2 && samples.iter().all(Option::is_none) {
             break;
         }
     }
-    Ok(Quality { proxied: proxy.is_some(), ..summarize(&samples) })
+    Ok(Quality { connect, proxied: proxy.is_some(), ..summarize(&samples) })
 }
 
 #[cfg(test)]
@@ -97,34 +233,50 @@ mod tests {
         assert_eq!(q.loss, 40.0);
     }
 
-    /// A server that answers 204 to every request, like the usual latency test address.
-    async fn answering() -> String {
+    /// A server that answers 204 to every request on a kept-open connection, like the
+    /// usual latency test address, and counts the connections made to it.
+    async fn answering() -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::{AtomicUsize, Ordering};
         let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = l.local_addr().unwrap();
+        let conns = std::sync::Arc::new(AtomicUsize::new(0));
+        let counted = conns.clone();
         tokio::spawn(async move {
-            while let Ok((mut c, _)) = l.accept().await {
+            while let Ok((c, _)) = l.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
                 tokio::spawn(async move {
-                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-                    let mut buf = [0u8; 1024];
-                    let _ = c.read(&mut buf).await;
-                    let _ = c.write_all(b"HTTP/1.1 204 No Content
-Connection: close
-
-").await;
+                    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+                    let mut c = tokio::io::BufReader::new(c);
+                    let mut line = String::new();
+                    loop {
+                        line.clear();
+                        match c.read_line(&mut line).await {
+                            Ok(0) | Err(_) => return,
+                            Ok(_) if line == "\r\n" => {
+                                if c.get_mut().write_all(b"HTTP/1.1 204 No Content\r\n\r\n").await.is_err() {
+                                    return;
+                                }
+                            }
+                            Ok(_) => {}
+                        }
+                    }
                 });
             }
         });
-        format!("http://{addr}/generate_204")
+        (format!("http://{addr}/generate_204"), conns)
     }
 
     #[tokio::test]
     async fn probes_a_live_and_a_dead_address() {
-        let q = probe(&answering().await, None, 3, Duration::from_secs(2)).await.unwrap();
+        let (url, conns) = answering().await;
+        let q = probe(&url, None, 3, Duration::from_secs(2)).await.unwrap();
+        // The setup and all three requests used one connection.
+        assert_eq!(conns.load(std::sync::atomic::Ordering::SeqCst), 1);
         assert_eq!((q.sent, q.answered, q.loss, q.proxied), (3, 3, 0.0, false));
-        assert!(q.jitter.is_some());
+        assert!(q.connect.is_some() && q.jitter.is_some());
         // Nothing listens on port 9 (discard) here: every request is lost.
-        let dead = probe("http://127.0.0.1:9/", None, 2, Duration::from_secs(1)).await.unwrap();
-        assert_eq!((dead.answered, dead.loss), (0, 100.0));
+        let dead = probe("http://127.0.0.1:9/", None, 5, Duration::from_secs(1)).await.unwrap();
+        assert_eq!((dead.connect, dead.sent, dead.answered, dead.loss), (None, 2, 0, 100.0));
     }
 
     #[test]

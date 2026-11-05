@@ -1086,58 +1086,98 @@ async fn latency_test_streams_results_past_dead_servers() {
     let _ = server.kill().await;
 }
 
+/// Answers 204 on kept-open connections; reports the most requests one connection carried.
+async fn keepalive_target() -> (u16, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    let conns = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = conns.clone();
+    tokio::spawn(async move {
+        while let Ok((c, _)) = l.accept().await {
+            let counted = counted.clone();
+            tokio::spawn(async move {
+                use tokio::io::AsyncBufReadExt;
+                let mut served = 0;
+                let mut c = tokio::io::BufReader::new(c);
+                let mut line = String::new();
+                loop {
+                    line.clear();
+                    match c.read_line(&mut line).await {
+                        Ok(0) | Err(_) => return,
+                        Ok(_) if line == "\r\n" => {
+                            if c.get_mut().write_all(b"HTTP/1.1 204 No Content\r\n\r\n").await.is_err() {
+                                return;
+                            }
+                            served += 1;
+                            counted.fetch_max(served, std::sync::atomic::Ordering::SeqCst);
+                        }
+                        Ok(_) => {}
+                    }
+                }
+            });
+        }
+    });
+    (port, conns)
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "downloads cores and runs real processes"]
 async fn quality_check_goes_through_the_proxy() {
     let cores_cache = ensure_cores().await;
-    let root = tempfile::tempdir().unwrap();
-    let engine = Engine::new(root.path()).unwrap();
-    for entry in std::fs::read_dir(&cores_cache).unwrap() {
-        let e = entry.unwrap();
-        if e.path().is_file() {
-            std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
-        }
-    }
     let uuid = "b831381d-6324-4d53-ad4f-8cda48b30811";
-    let ws_port = free_port();
-    let server_dir = tempfile::tempdir().unwrap();
-    let server_cfg = server_dir.path().join("server.json");
-    std::fs::write(
-        &server_cfg,
-        serde_json::json!({
-            "log": { "loglevel": "warning" },
-            "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
-                           "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
-            "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
-        })
-        .to_string(),
-    )
-    .unwrap();
-    let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    let target = target_server().await;
-    let mut s = engine.settings();
-    s.system_proxy = false;
-    s.core.mixed_port = free_port();
-    s.core.presets.clear();
-    s.core.test_url = format!("http://127.0.0.1:{target}/");
-    // Everything through the server, the local test address too.
-    s.core.mode = kova_core::options::Mode::Global;
-    engine.update_settings(s).await.unwrap();
-    engine.add_profile(&format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Only"), Some("Quality".into())).await.unwrap();
-    engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
+    for core in [kova_core::CorePreference::Mihomo, kova_core::CorePreference::Xray] {
+        let root = tempfile::tempdir().unwrap();
+        let engine = Engine::new(root.path()).unwrap();
+        for entry in std::fs::read_dir(&cores_cache).unwrap() {
+            let e = entry.unwrap();
+            if e.path().is_file() {
+                std::fs::copy(e.path(), engine.paths.cores_dir().join(e.file_name())).unwrap();
+            }
+        }
+        let ws_port = free_port();
+        let server_dir = tempfile::tempdir().unwrap();
+        let server_cfg = server_dir.path().join("server.json");
+        std::fs::write(
+            &server_cfg,
+            serde_json::json!({
+                "log": { "loglevel": "warning" },
+                "inbounds": [{ "listen": "127.0.0.1", "port": ws_port, "protocol": "vless", "settings": { "clients": [{ "id": uuid }], "decryption": "none" },
+                               "streamSettings": { "network": "ws", "wsSettings": { "path": "/ws" } } }],
+                "outbounds": [{ "protocol": "freedom", "settings": { "finalRules": [{ "action": "allow" }] } }]
+            })
+            .to_string(),
+        )
+        .unwrap();
+        let mut server = tokio::process::Command::new(cores::binary_path(&cores_cache, CoreKind::Xray)).args(["run", "-c", server_cfg.to_str().unwrap()]).kill_on_drop(true).spawn().unwrap();
+        tokio::time::sleep(Duration::from_millis(600)).await;
+        let (target, reached) = keepalive_target().await;
+        let mut s = engine.settings();
+        s.system_proxy = false;
+        s.core.mixed_port = free_port();
+        s.core.presets.clear();
+        s.core.test_url = format!("http://127.0.0.1:{target}/generate_204");
+        // Everything through the server, the local test address too.
+        s.core.mode = kova_core::options::Mode::Global;
+        engine.update_settings(s).await.unwrap();
+        let profile = engine.add_profile(&format!("vless://{uuid}@127.0.0.1:{ws_port}?encryption=none&security=none&type=ws&path=%2Fws#Only"), Some("Quality".into())).await.unwrap();
+        engine.edit_profile(&profile.id, kova_engine::engine::ProfilePatch { core: Some(core), ..Default::default() }).await.unwrap();
+        engine.start().await.unwrap_or_else(|e| panic!("start failed: {e}"));
 
-    let q = engine.check_quality().await.unwrap();
-    eprintln!("through the server: {q:?}");
-    assert!(q.proxied);
-    assert_eq!((q.sent, q.answered, q.loss), (10, 10, 0.0));
-    assert!(q.median.is_some() && q.jitter.is_some());
+        let q = engine.check_quality().await.unwrap();
+        eprintln!("{core:?} through the server: {q:?}");
+        assert!(q.proxied);
+        assert_eq!((q.sent, q.answered, q.loss), (10, 10, 0.0));
+        assert!(q.connect.is_some() && q.median.is_some() && q.jitter.is_some());
+        // The setup and all ten requests went over one tunnel to the target.
+        // (The core's own health checks open connections of their own.)
+        assert_eq!(reached.load(std::sync::atomic::Ordering::SeqCst), 11, "{core:?}");
 
-    // With the server gone, the proxy port still answers, but only with errors: all lost.
-    let _ = server.kill().await;
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let gone = engine.check_quality().await.unwrap();
-    eprintln!("server gone: {gone:?}");
-    assert_eq!((gone.answered, gone.loss), (0, 100.0));
-    engine.stop().await.unwrap();
+        // With the server gone, the proxy port still answers, but only with errors: all lost.
+        let _ = server.kill().await;
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let gone = engine.check_quality().await.unwrap();
+        eprintln!("{core:?} server gone: {gone:?}");
+        assert_eq!((gone.answered, gone.loss), (0, 100.0));
+        engine.stop().await.unwrap();
+    }
 }
