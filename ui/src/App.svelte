@@ -6,6 +6,7 @@
   import ImportModal from './components/ImportModal.svelte';
   import LayoutBar from './components/LayoutBar.svelte';
   import Backdrop from './components/Backdrop.svelte';
+  import CssTrial from './components/CssTrial.svelte';
   import NightSky from './components/NightSky.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -25,6 +26,12 @@
 
   // Ctrl+V anywhere outside a text field imports from the clipboard.
   function onKey(e: KeyboardEvent) {
+    // Ctrl+Shift+0: custom CSS off (or on again), whatever it did to the window.
+    if (e.ctrlKey && e.shiftKey && e.code === 'Digit0') {
+      e.preventDefault();
+      app.toggleCssOff();
+      return;
+    }
     const t = e.target as HTMLElement;
     if (e.ctrlKey && e.key.toLowerCase() === 'v' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(t.tagName)) {
       app.importOpen = true;
@@ -59,6 +66,7 @@
 
 {#if app.importOpen}<ImportModal onclose={() => (app.importOpen = false)} />{/if}
 {#if app.toast}<div class="toast" role="status">{app.toast}</div>{/if}
+<CssTrial />
 
 <style>
   .toast { position: fixed; left: 50%; bottom: 44px; transform: translateX(-50%); background: var(--fg); color: var(--win); padding: 8px 14px; border-radius: 9px; font-size: 13px; box-shadow: var(--shadow); z-index: 30; max-width: min(640px, calc(100% - 32px)); }

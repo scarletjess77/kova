@@ -14,6 +14,19 @@ export type CardId = (typeof CARDS)[number];
 
 export const FIXED_CARDS: readonly CardId[] = ['connect', 'more'];
 
+/** Status bar items (desktop), left to right; they hide but keep their places. */
+export const STATUS = ['state', 'port', 'capture', 'mode', 'down', 'up'] as const;
+export type StatusId = (typeof STATUS)[number];
+
+/** How the Proxies list shows its servers. */
+export interface ProxyView {
+  compact?: boolean;
+  protocol?: boolean;
+  transport?: boolean;
+  cores?: boolean;
+}
+export const PROXY_VIEW: Required<ProxyView> = { compact: false, protocol: true, transport: true, cores: true };
+
 export interface Item<T extends string = string> {
   id: T;
   hidden?: boolean;
@@ -22,6 +35,8 @@ export interface Item<T extends string = string> {
 export interface Layout {
   tabs: Item<TabId>[];
   cards: Item<CardId>[];
+  status?: Item<StatusId>[];
+  proxies?: ProxyView;
 }
 
 export type Form = 'desktop' | 'phone';
@@ -39,6 +54,10 @@ const items = <T extends string>(order: readonly T[], hidden: readonly T[] = [])
 
 /** A preset's layout for phones or desktops. */
 export function preset(name: Preset, form: Form): Layout {
+  return { status: items(STATUS, name === 'simple' ? ['port', 'mode'] : []), proxies: { ...PROXY_VIEW, ...(name === 'simple' ? { cores: false } : {}) }, ...presetBody(name, form) };
+}
+
+function presetBody(name: Preset, form: Form): Layout {
   const phone = form === 'phone';
   switch (name) {
     case 'simple':
@@ -90,15 +109,22 @@ function merge<T extends string>(saved: Item<T>[] | undefined, def: Item<T>[], f
 /** The layout to use: the saved one, completed from the standard one. */
 export function resolve(saved: Layout | undefined, form: Form): Layout {
   const def = preset('standard', form);
-  return { tabs: merge(saved?.tabs, def.tabs), cards: merge(saved?.cards, def.cards, FIXED_CARDS) };
+  // Status items keep their own places: only which show is the user's.
+  const hiddenStatus = new Set((saved?.status ?? []).filter((x) => x.hidden).map((x) => x.id));
+  return {
+    tabs: merge(saved?.tabs, def.tabs),
+    cards: merge(saved?.cards, def.cards, FIXED_CARDS),
+    status: items(STATUS, [...hiddenStatus]),
+    proxies: { ...PROXY_VIEW, ...(saved?.proxies ?? {}) },
+  };
 }
 
 /** Which preset `layout` is exactly, if any. */
 export function presetOf(layout: Layout, form: Form): Preset | null {
-  const same = (a: Item[], b: Item[]) => a.length === b.length && a.every((x, i) => x.id === b[i].id && !!x.hidden === !!b[i].hidden);
+  const same = (a: Item[] = [], b: Item[] = []) => a.length === b.length && a.every((x, i) => x.id === b[i].id && !!x.hidden === !!b[i].hidden);
   return PRESETS.find((p) => {
     const l = preset(p, form);
-    return same(layout.tabs, l.tabs) && same(layout.cards, l.cards);
+    return same(layout.tabs, l.tabs) && same(layout.cards, l.cards) && same(layout.status, l.status) && JSON.stringify(layout.proxies) === JSON.stringify(l.proxies);
   }) ?? null;
 }
 

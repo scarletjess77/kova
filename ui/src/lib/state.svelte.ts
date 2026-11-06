@@ -180,6 +180,42 @@ class AppState {
     return p[`tab-${this.view}` as keyof typeof p] ?? p[this.mobile ? 'app-phone' : 'app'];
   }
 
+  /** Custom CSS switched off until Kova restarts (Ctrl+Shift+0). */
+  cssOff = $state(false);
+  /** New custom CSS on trial: undone unless kept before the countdown ends. */
+  cssTrial = $state<{ previous: string | null; left: number } | null>(null);
+  private cssTimer: ReturnType<typeof setInterval> | undefined;
+
+  tryCss(css: string) {
+    const previous = this.cssTrial ? this.cssTrial.previous : (this.settings?.look?.css ?? null);
+    void this.saveLook((l) => { if (css.trim()) l.css = css; else delete l.css; });
+    this.cssTrial = { previous, left: 15 };
+    clearInterval(this.cssTimer);
+    this.cssTimer = setInterval(() => {
+      if (!this.cssTrial) return clearInterval(this.cssTimer);
+      if (this.cssTrial.left <= 1) this.undoCss();
+      else this.cssTrial = { ...this.cssTrial, left: this.cssTrial.left - 1 };
+    }, 1000);
+  }
+
+  keepCss() {
+    clearInterval(this.cssTimer);
+    this.cssTrial = null;
+  }
+
+  undoCss() {
+    clearInterval(this.cssTimer);
+    const previous = this.cssTrial?.previous ?? null;
+    this.cssTrial = null;
+    void this.saveLook((l) => { if (previous) l.css = previous; else delete l.css; }, t('Custom CSS undone'));
+  }
+
+  toggleCssOff() {
+    this.cssOff = !this.cssOff;
+    this.applyTheme();
+    this.notify(this.cssOff ? t('Custom CSS off until Kova restarts') : t('Custom CSS on'));
+  }
+
   /** The text colour was changed so it stays readable on the user's card colour. */
   lookAdjusted = $state(false);
 
@@ -417,6 +453,15 @@ class AppState {
     if (theme.id === 'dark') document.documentElement.removeAttribute('data-theme');
     else document.documentElement.setAttribute('data-theme', theme.id);
     this.lookAdjusted = applyLook(this.settings?.look).adjusted;
+    // The user's CSS goes last in the page, so it wins over Kova's own.
+    let style = document.getElementById('kova-user-css');
+    if (!style) {
+      style = document.createElement('style');
+      style.id = 'kova-user-css';
+    }
+    const css = this.cssOff ? '' : (this.settings?.look?.css ?? '');
+    if (style.textContent !== css) style.textContent = css;
+    document.head.appendChild(style);
     i18n.lang = resolveLang(this.settings?.language, this.systemLang);
     document.documentElement.lang = i18n.lang;
     document.documentElement.dir = isRtl(i18n.lang) ? 'rtl' : 'ltr';

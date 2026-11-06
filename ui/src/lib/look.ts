@@ -29,7 +29,12 @@ export interface Look {
   density?: Density;
   /** Pictures by slot (see lib/pictures.ts). */
   pictures?: Partial<Record<SlotId, Picture>>;
+  /** The user's own CSS, last in the page so it wins. */
+  css?: string;
 }
+
+/** Custom CSS beyond this is refused: it is for a look, not a program. */
+export const CSS_LIMIT = 50_000;
 
 export const FONTS: Record<FontId, string> = {
   onest: "'Onest Variable', 'Vazirmatn Variable', 'Segoe UI', system-ui, sans-serif",
@@ -47,7 +52,7 @@ export function isEmpty(look: Look | null | undefined): boolean {
   if (!look) return true;
   const c = look.colors ?? {};
   return !c.accent && !c.bg && !c.panel && !c.fg && !look.font && !look.scale && look.radius == null && look.borders !== false && !look.glass && look.density !== 'compact'
-    && !Object.keys(look.pictures ?? {}).length;
+    && !Object.keys(look.pictures ?? {}).length && !look.css?.trim();
 }
 
 // ---- colour arithmetic, for the readability check ----

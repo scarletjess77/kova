@@ -13,7 +13,7 @@
   import Icon from '../components/Icon.svelte';
   import ThemePicker from '../components/ThemePicker.svelte';
   import { PRESETS, presetOf, type Preset } from '../lib/layout';
-  import { DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, type FontId, type Look, type LookColors } from '../lib/look';
+  import { CSS_LIMIT, DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, type FontId, type Look, type LookColors } from '../lib/look';
   import { DEFAULT_DIM, TAB_VIEWS, isBackdrop, keepPicture, pictureStyle, removePicture, saveChosenFile, slotSize, templatePng, type Fit, type Picture, type Pos, type SlotId } from '../lib/pictures';
   import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 
@@ -82,6 +82,14 @@
     probe.remove();
     return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
   }
+  // Custom CSS: written here, tried with a countdown, kept on request.
+  let cssDraft = $state(app.settings?.look?.css ?? '');
+  let cssOpen = $state(!!app.settings?.look?.css);
+  function applyCss() {
+    if (cssDraft.length > CSS_LIMIT) { app.notify(t('Custom CSS is limited to {n} characters', { n: CSS_LIMIT })); return; }
+    app.tryCss(cssDraft);
+  }
+
   // Pictures: one place chosen at a time.
   const VIEW_NAME: Record<string, () => string> = {
     dashboard: () => t('Dashboard'), proxies: () => t('Proxies'), profiles: () => t('Profiles'), connections: () => t('Connections'),
@@ -608,6 +616,16 @@
             </div>
           {/if}
         </div>
+        <details class="adv" bind:open={cssOpen}>
+          <summary>{t('Custom CSS')} <span class="muted">· {t('advanced')}</span></summary>
+          <p class="hint">{t('Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+0 also turns it off until Kova restarts.')}</p>
+          <textarea class="input mono css" rows="8" spellcheck="false" bind:value={cssDraft} placeholder=".card {'{'} border-radius: 18px; {'}'}"></textarea>
+          <div class="actions">
+            <button class="btn primary" onclick={applyCss} disabled={cssDraft === (look.css ?? '')}>{t('Apply')}</button>
+            {#if look.css}<button class="btn ghost danger" onclick={() => { cssDraft = ''; app.tryCss(''); }}>{t('Remove')}</button>{/if}
+            {#if app.cssOff}<span class="chip warn">{t('Off until Kova restarts')}</span>{/if}
+          </div>
+        </details>
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Card outlines')}</div></div>
             <button class="switch" role="switch" aria-label={t('Card outlines')} aria-checked={look.borders !== false} onclick={() => app.saveLook((l) => { if (l.borders === false) delete l.borders; else l.borders = false; })}></button></div>
@@ -721,4 +739,8 @@
   .pic-prev { width: 100%; max-height: 220px; border-radius: var(--r); border: 1px dashed var(--line-2); background-color: var(--sunk); display: grid; place-items: center; color: var(--faint); font-size: 12px; overflow: hidden; }
   .pic-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .pic-side .actions { display: flex; gap: 8px; flex-wrap: wrap; }
+  .adv { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }
+  .adv summary { cursor: pointer; font-weight: 500; font-size: 13px; }
+  .adv .css { width: 100%; min-height: 140px; resize: vertical; font-size: 12px; line-height: 1.5; user-select: text; }
+  .adv .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 </style>

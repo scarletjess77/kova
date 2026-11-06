@@ -14,6 +14,11 @@
     LoadBalance: t('Spreads connections across members.'),
   });
 
+  // How servers show, kept with the layout for this device.
+  let view = $derived(app.layout.proxies!);
+  let viewOpen = $state(false);
+  const setView = (k: 'compact' | 'protocol' | 'transport' | 'cores') => app.saveLayout({ ...app.layout, proxies: { ...view, [k]: !view[k] } });
+
   let groupName = $state<string | null>(null);
   let q = $state('');
   type Sort = 'latency' | 'name' | 'profile';
@@ -69,6 +74,19 @@
       <option value="latency">{t('Sort by latency')}</option>
       <option value="name">{t('Sort by name')}</option>
     </select>
+    <div class="view-menu">
+      <button class="btn" aria-expanded={viewOpen} onclick={() => (viewOpen = !viewOpen)}><Icon name="settings" />{t('View')}</button>
+      {#if viewOpen}
+        <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
+        <div class="view-scrim" onclick={() => (viewOpen = false)}></div>
+        <div class="view-pop" role="group" aria-label={t('View')}>
+          <label class="vrow"><input type="checkbox" checked={view.compact} onchange={() => setView('compact')} />{t('Compact rows')}</label>
+          <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.protocol} disabled={view.compact} onchange={() => setView('protocol')} />{t('Protocol')}</label>
+          <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.transport} disabled={view.compact} onchange={() => setView('transport')} />{t('Transport and security')}</label>
+          <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.cores} disabled={view.compact} onchange={() => setView('cores')} />{t('Which cores run it')}</label>
+        </div>
+      {/if}
+    </div>
     <button class="btn primary" onclick={testGroup} disabled={!group || app.testing.size > 0}><Icon name="bolt" />{t('Test latency')}</button>
   </div>
 </div>
@@ -94,7 +112,7 @@
       {#if group}
         <p class="grp-note">{NOTE[group.type] ?? ''}{#if group.type !== 'Selector'} <span class="chip">{t('Automatic')}</span>{/if}</p>
         {#if members.length}
-          <div class="nodes">
+          <div class="nodes" class:compact={view.compact}>
             {#each members as name (name)}
               {@const info = app.nodes[name]}
               {@const sub = isGroup(name)}
@@ -107,9 +125,13 @@
                 {#if sub}
                   <span class="r2"><span class="chip mono">{t('group')}</span><span class="tr">{t('now {name}', { name: displayName(app.resolve(name)) })}</span></span>
                 {:else if info}
-                  <span class="r2"><span class="chip">{info.protocol}</span><span class="tr">{info.transport}</span></span>
-                  <span class="r3"><span class="dot" class:y={info.mihomo}></span>Mihomo <span class="dot" class:y={info.xray}></span>Xray
-                    {#if app.status.bridged.includes(name)}<span class="via">· {t('via Xray bridge')}</span>{/if}</span>
+                  {#if !view.compact && (view.protocol || view.transport)}
+                    <span class="r2">{#if view.protocol}<span class="chip">{info.protocol}</span>{/if}{#if view.transport}<span class="tr">{info.transport}</span>{/if}</span>
+                  {/if}
+                  {#if !view.compact && view.cores}
+                    <span class="r3"><span class="dot" class:y={info.mihomo}></span>Mihomo <span class="dot" class:y={info.xray}></span>Xray
+                      {#if app.status.bridged.includes(name)}<span class="via">· {t('via Xray bridge')}</span>{/if}</span>
+                  {/if}
                 {:else}
                   <span class="r2"><span class="tr">{app.proxies.proxies[name]?.type ?? ''}</span></span>
                 {/if}
@@ -150,4 +172,13 @@
   .dot.y { background: var(--fg); }
   .via { color: var(--muted); }
   .is-group .cc { background: var(--accent); color: var(--accent-fg); }
+  .nodes.compact { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
+  .nodes.compact .node { padding: 8px 10px; gap: 4px; }
+  .nodes.compact .r2 { display: none; }
+  .view-menu { position: relative; }
+  .view-scrim { position: fixed; inset: 0; z-index: 19; }
+  .view-pop { position: absolute; inset-inline-end: 0; top: calc(100% + 6px); z-index: 20; min-width: 240px; display: flex; flex-direction: column; padding: 6px; border: 1px solid var(--line-2); border-radius: var(--r); background: var(--panel); box-shadow: var(--shadow); }
+  .vrow { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; cursor: pointer; }
+  @media (hover: hover) { .vrow:hover { background: var(--sunk); } }
+  .vrow.dim { opacity: .5; }
 </style>
