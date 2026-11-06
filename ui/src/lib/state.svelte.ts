@@ -8,6 +8,7 @@ import { i18n, isRtl, resolveLang, t, tn } from './i18n.svelte';
 import { resolveTheme } from './themes';
 import { preset, resolve, type Form, type Layout, type Preset } from './layout';
 import { applyLook, type Look } from './look';
+import { loadPicture, type Picture } from './pictures';
 
 export type View = 'dashboard' | 'proxies' | 'profiles' | 'connections' | 'rules' | 'check' | 'logs' | 'settings';
 export interface LogLine { id: number; time: string; source: string; level: string; message: string }
@@ -155,6 +156,29 @@ class AppState {
   /** The cores and their versions, kept between visits to Settings so the card doesn't
    * fill in (and push the cards below it) every time it opens. */
   cores = $state<CoreStatus[]>([]);
+
+  /** Blob URLs of the look's kept pictures, by file name. */
+  pictureUrls = $state<Record<string, string>>({});
+  private loadingPictures = new Set<string>();
+
+  /** A kept picture's URL; starts loading it the first time and gives undefined till then. */
+  pictureUrl(file: string | undefined): string | undefined {
+    if (!file) return undefined;
+    const url = this.pictureUrls[file];
+    if (url || this.loadingPictures.has(file)) return url;
+    this.loadingPictures.add(file);
+    loadPicture(file).then(
+      (u) => { this.pictureUrls = { ...this.pictureUrls, [file]: u }; },
+      () => { /* gone from the folder: nothing to show */ },
+    );
+    return undefined;
+  }
+
+  /** The picture behind the window now: the open tab's own, or the one behind every tab. */
+  get backdrop(): Picture | undefined {
+    const p = this.settings?.look?.pictures ?? {};
+    return p[`tab-${this.view}` as keyof typeof p] ?? p[this.mobile ? 'app-phone' : 'app'];
+  }
 
   /** The text colour was changed so it stays readable on the user's card colour. */
   lookAdjusted = $state(false);

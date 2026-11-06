@@ -14,6 +14,8 @@
   import ThemePicker from '../components/ThemePicker.svelte';
   import { PRESETS, presetOf, type Preset } from '../lib/layout';
   import { DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, type FontId, type Look, type LookColors } from '../lib/look';
+  import { DEFAULT_DIM, TAB_VIEWS, isBackdrop, keepPicture, pictureStyle, removePicture, saveChosenFile, slotSize, templatePng, type Fit, type Picture, type Pos, type SlotId } from '../lib/pictures';
+  import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 
   let appVersion = $state('');
   // Members of the group traffic starts in ("Proxy", or an imported config's first
@@ -80,6 +82,50 @@
     probe.remove();
     return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
   }
+  // Pictures: one place chosen at a time.
+  const VIEW_NAME: Record<string, () => string> = {
+    dashboard: () => t('Dashboard'), proxies: () => t('Proxies'), profiles: () => t('Profiles'), connections: () => t('Connections'),
+    rules: () => t('Rules'), check: () => t('Site check'), logs: () => t('Logs'), settings: () => t('Settings'),
+  };
+  let SLOTS = $derived<[SlotId, string][]>([
+    [app.mobile ? 'app-phone' : 'app', t('Behind every tab')],
+    ...(app.mobile ? [] : [['sidebar', t('Sidebar')] as [SlotId, string]]),
+    ['banner', t('Connect card')],
+    ...TAB_VIEWS.map((v) => [`tab-${v}`, t('Behind {tab}', { tab: VIEW_NAME[v]() })] as [SlotId, string]),
+  ]);
+  let slot = $state<SlotId>('app');
+  $effect(() => { if (!SLOTS.some(([id]) => id === slot)) slot = SLOTS[0][0]; });
+  let slotName = $derived(SLOTS.find(([id]) => id === slot)?.[1] ?? '');
+  let pic = $derived<Picture | undefined>(look.pictures?.[slot]);
+  let size = $derived(slotSize(slot));
+  let picUrl = $derived(app.pictureUrl(pic?.file));
+  let picking = $state(false);
+  let picInput = $state<HTMLInputElement>();
+  const setPic = (patch: (p: Picture) => void, save = true) => {
+    const f = (l: Look) => { const all = { ...(l.pictures ?? {}) }; const p = { ...all[slot]! }; patch(p); all[slot] = p; l.pictures = all; };
+    if (save) void app.saveLook(f); else app.previewLook(f);
+  };
+  async function choosePicture(file: File | undefined) {
+    if (!file) return;
+    picking = true;
+    const name = await app.run(() => keepPicture(slot, file));
+    picking = false;
+    if (picInput) picInput.value = '';
+    if (name) void app.saveLook((l) => { l.pictures = { ...(l.pictures ?? {}), [slot]: { ...(l.pictures?.[slot] ?? {}), file: name } }; });
+  }
+  async function dropPicture() {
+    await app.run(() => removePicture(slot));
+    void app.saveLook((l) => { const all = { ...(l.pictures ?? {}) }; delete all[slot]; l.pictures = all; });
+  }
+  async function saveTemplate() {
+    const [w, h] = slotSize(slot);
+    const path = await saveDialog({ defaultPath: `kova-${slot}-${w}x${h}.png`, filters: [{ name: 'PNG', extensions: ['png'] }] });
+    if (!path) return;
+    const labels = { title: t('Title bar'), sidebar: t('Sidebar'), cards: t('Cards cover most of this; the picture shows around and between them'), top: t('Top bar'), tabs: t('Tabs'), profile: t('Profile card'), power: t('Power button'), status: t('Status'), controls: t('Mode and capture') };
+    const bytes = await templatePng(slot, slotName, labels);
+    await app.run(() => saveChosenFile(path, bytes), t('Template saved'));
+  }
+
   const setColor = (k: keyof LookColors, v: string | undefined, save: boolean) => {
     const f = (l: Look) => { const c = { ...(l.colors ?? {}) }; if (v) c[k] = v; else delete c[k]; l.colors = c; };
     if (save) void app.saveLook(f); else app.previewLook(f);
@@ -520,6 +566,48 @@
               oninput={(e) => app.previewLook((l) => (l.glass = Number(e.currentTarget.value)))} onchange={(e) => app.saveLook((l) => { const v = Number(e.currentTarget.value); if (!v) delete l.glass; else l.glass = v; })} />
             <small class="muted">{t('Shows what is behind the cards, blurred.')}</small></div>
         </div>
+
+        <div class="pics">
+          <div class="fld full"><label for="lk-slot">{t('Pictures')}</label>
+            <select id="lk-slot" class="input" bind:value={slot}>
+              {#each SLOTS as [id, name] (id)}<option value={id}>{name}{look.pictures?.[id] ? ' ✓' : ''}</option>{/each}
+            </select></div>
+          <div class="pic-row">
+            <div class="pic-prev" style="aspect-ratio: {size[0]} / {size[1]}; {pic && picUrl ? pictureStyle(pic, picUrl) : ''}">{#if !pic}<span>{t('No picture')}</span>{/if}</div>
+            <div class="pic-side">
+              <span class="d">{t('Best at {w} × {h}. PNG, JPG, WebP or animated GIF, up to 10 MB; Kova keeps its own copy.', { w: size[0], h: size[1] })}</span>
+              <div class="actions">
+                <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden bind:this={picInput} onchange={(e) => choosePicture(e.currentTarget.files?.[0])} />
+                <button class="btn primary" class:busy={picking} disabled={picking} onclick={() => picInput?.click()}><Icon name="plus" />{pic ? t('Change picture') : t('Choose picture')}</button>
+                {#if !app.mobile}<button class="btn" onclick={saveTemplate}><Icon name="down" />{t('Save template')}</button>{/if}
+                {#if pic}<button class="btn ghost danger" onclick={dropPicture}><Icon name="trash" />{t('Remove')}</button>{/if}
+              </div>
+            </div>
+          </div>
+          {#if pic}
+            <div class="form gap">
+              <div class="fld"><span class="lbl">{t('Fit')}</span>
+                <div class="seg" role="group" aria-label={t('Fit')}>
+                  {#each [['cover', t('Fill')], ['contain', t('Whole picture')], ['tile', t('Tile')]] as [v, l] (v)}
+                    <button aria-pressed={(pic.fit ?? 'cover') === v} onclick={() => setPic((p) => (p.fit = v as Fit))}>{l}</button>
+                  {/each}
+                </div></div>
+              <div class="fld"><label for="lk-pos">{t('Position')}</label>
+                <select id="lk-pos" class="input" value={pic.pos ?? 'center'} onchange={(e) => setPic((p) => (p.pos = e.currentTarget.value as Pos))}>
+                  <option value="center">{t('Centre')}</option><option value="top">{t('Top')}</option><option value="bottom">{t('Bottom')}</option><option value="left">{t('Left')}</option><option value="right">{t('Right')}</option>
+                </select></div>
+              <div class="fld full"><label for="lk-dim">{t('Dim')} <span class="num val">{pic.dim ?? DEFAULT_DIM}%</span></label>
+                <input id="lk-dim" type="range" min="0" max="90" step="5" value={pic.dim ?? DEFAULT_DIM}
+                  oninput={(e) => setPic((p) => (p.dim = Number(e.currentTarget.value)), false)} onchange={(e) => setPic((p) => (p.dim = Number(e.currentTarget.value)))} />
+                <small class="muted">{t('Covers the picture with the window colour, so text stays readable.')}</small></div>
+              {#if isBackdrop(slot)}
+                <div class="fld full"><label for="lk-blur">{t('Blur')} <span class="num val">{pic.blur ?? 0}px</span></label>
+                  <input id="lk-blur" type="range" min="0" max="20" step="1" value={pic.blur ?? 0}
+                    oninput={(e) => setPic((p) => (p.blur = Number(e.currentTarget.value)), false)} onchange={(e) => setPic((p) => (p.blur = Number(e.currentTarget.value)))} /></div>
+              {/if}
+            </div>
+          {/if}
+        </div>
         <div class="rows">
           <div class="row-sw"><div><div class="t">{t('Card outlines')}</div></div>
             <button class="switch" role="switch" aria-label={t('Card outlines')} aria-checked={look.borders !== false} onclick={() => app.saveLook((l) => { if (l.borders === false) delete l.borders; else l.borders = false; })}></button></div>
@@ -627,4 +715,10 @@
   .val { color: var(--muted); font-weight: 400; margin-inline-start: 6px; }
   .warn-t { color: var(--warn); }
   input[type='range'] { width: 100%; accent-color: var(--accent); }
+  .pics { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
+  .pic-row { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 16px; align-items: start; }
+  @container (max-width: 560px) { .pic-row { grid-template-columns: minmax(0, 1fr); } }
+  .pic-prev { width: 100%; max-height: 220px; border-radius: var(--r); border: 1px dashed var(--line-2); background-color: var(--sunk); display: grid; place-items: center; color: var(--faint); font-size: 12px; overflow: hidden; }
+  .pic-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+  .pic-side .actions { display: flex; gap: 8px; flex-wrap: wrap; }
 </style>

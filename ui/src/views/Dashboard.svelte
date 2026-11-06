@@ -12,6 +12,7 @@
   import DiagnoseModal from '../components/DiagnoseModal.svelte';
   import { FIXED_CARDS, move, type CardId } from '../lib/layout';
   import { sortable } from '../lib/sortable';
+  import { pictureStyle } from '../lib/pictures';
 
   let s = $derived(app.status);
   let settings = $derived(app.settings);
@@ -118,6 +119,8 @@
   const setCore = (c: CorePreference) => profile && profile.core !== c &&
     app.run(() => api.editProfile(profile!.id, { core: c }), c === 'auto' ? t('Kova picks the core for each server') : t('Now running on {core}', { core: CORE_NAME[c] }));
   let details = $state(false);
+  let bannerPic = $derived(app.settings?.look?.pictures?.banner);
+  let bannerUrl = $derived(app.pictureUrl(bannerPic?.file));
 
   // The user's layout. Cards below "More details" wait behind that button; while
   // arranging, every card shows, hidden ones faded.
@@ -195,7 +198,7 @@
 {#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
 
 {#snippet cardConnect()}
-  <section class="card hero" class:guide={!profile}>
+  <section class="card hero" class:guide={!profile} style={bannerPic && bannerUrl ? pictureStyle(bannerPic, bannerUrl) : undefined}>
     <div class="hero-top">
       <button class="power" class:on={s.running} class:busy={s.busy || app.toggling} onclick={() => app.toggleConnection()} disabled={!profile || s.busy || app.toggling}
         aria-pressed={s.running} aria-label={s.running ? t('Disconnect') : t('Connect')}><Icon name="power" /></button>

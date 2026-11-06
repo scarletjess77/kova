@@ -197,6 +197,9 @@ input, textarea, .selectable { user-select: text; }
 :root.look-noborders .card, :root.look-noborders .twrap { border-color: transparent; }
 :root.look-glass .card, :root.look-glass .twrap { background: var(--glass-bg); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); }
 :root.look-compact .card { padding: 12px; }
+/* A picture behind the window: the window itself turns see-through, the bars stay readable. */
+:root.look-has-bg .app { background: transparent; position: relative; z-index: 1; }
+:root.look-has-bg .titlebar { background: color-mix(in srgb, var(--win) 72%, transparent); }
 :root.look-compact .main { padding: 16px 16px 20px; }
 :root.look-compact .card-h { margin-bottom: 8px; }
 :root.look-compact .dash, :root.look-compact .tiles, :root.look-compact .settings-grid, :root.look-compact .col { gap: 10px; }

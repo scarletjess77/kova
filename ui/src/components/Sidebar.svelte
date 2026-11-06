@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte';
   import { move, type TabId } from '../lib/layout';
   import { sortable } from '../lib/sortable';
+  import { pictureStyle } from '../lib/pictures';
 
   let LABEL = $derived<Record<View, string>>({
     dashboard: t('Dashboard'), proxies: t('Proxies'), profiles: t('Profiles'), connections: t('Connections'),
@@ -17,6 +18,8 @@
   const moveTab = (from: number, to: number) => app.saveLayout({ ...app.layout, tabs: move(app.layout.tabs, from, to) });
   const toggleTab = (id: TabId) => app.saveLayout({ ...app.layout, tabs: app.layout.tabs.map((x) => (x.id === id ? { id, ...(x.hidden ? {} : { hidden: true }) } : x)) });
 
+  let sidePic = $derived(app.settings?.look?.pictures?.sidebar);
+  let sideUrl = $derived(app.pictureUrl(sidePic?.file));
   let nodeCount = $derived(app.activeProfile?.node_count);
   let usage = $derived(app.activeProfile?.usage);
   let used = $derived(usage ? usage.upload + usage.download : 0);
@@ -26,7 +29,7 @@
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
 {#if app.mobile && !app.tv && app.navOpen}<div class="scrim" onclick={() => app.closeNav()}></div>{/if}
-<aside class="side" class:open={app.navOpen}>
+<aside class="side" class:open={app.navOpen} style={sidePic && sideUrl ? pictureStyle(sidePic, sideUrl) : undefined}>
   {#snippet tab(id: View)}
     <button class="go" onclick={() => app.go(id)} aria-current={app.view === id ? 'page' : undefined}>
       <Icon name={id === 'check' ? 'pulse' : id} />{LABEL[id]}

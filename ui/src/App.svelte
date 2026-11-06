@@ -5,6 +5,7 @@
   import { resolveTheme } from './lib/themes';
   import ImportModal from './components/ImportModal.svelte';
   import LayoutBar from './components/LayoutBar.svelte';
+  import Backdrop from './components/Backdrop.svelte';
   import NightSky from './components/NightSky.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import StatusBar from './components/StatusBar.svelte';
@@ -34,6 +35,7 @@
 <svelte:window onkeydown={onKey} />
 
 {#if night}<NightSky />{/if}
+<Backdrop />
 <div class="app" class:mobile={app.mobile} class:tv={app.tv}>
   <Titlebar />
   <Sidebar />

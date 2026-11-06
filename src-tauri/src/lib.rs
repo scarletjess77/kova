@@ -553,6 +553,127 @@ async fn open_autostart(app: AppHandle) -> R<()> {
     }
 }
 
+// ---------------------------------------------------------------- look pictures
+
+/// Pictures for the look live here, one per slot: `<slot>-<hash>.<ext>`.
+fn look_dir(engine: &Engine) -> std::path::PathBuf {
+    engine.paths.root.join("look")
+}
+
+/// A slot name: letters, digits and dashes only, so it can't leave the folder.
+fn valid_slot(slot: &str) -> bool {
+    !slot.is_empty() && slot.len() <= 40 && slot.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+}
+
+/// The picture formats a webview shows, told by their first bytes.
+fn picture_ext(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+        Some("png")
+    } else if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Some("jpg")
+    } else if bytes.starts_with(b"GIF8") {
+        Some("gif")
+    } else if bytes.len() > 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+        Some("webp")
+    } else {
+        None
+    }
+}
+
+fn remove_slot_pictures(dir: &std::path::Path, slot: &str) {
+    let prefix = format!("{slot}-");
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for e in entries.flatten() {
+            if e.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
+/// Keeps a picture for a look slot (the raw bytes, the slot in the `slot` header) in
+/// Kova's own folder, so it stays when the original goes. Returns its file name.
+#[tauri::command]
+fn look_picture_save(engine: Eng<'_>, request: tauri::ipc::Request<'_>) -> R<String> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(Error::Other("No picture was sent".into()));
+    };
+    let slot = request.headers().get("slot").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    if !valid_slot(slot) {
+        return Err(Error::Other("Unknown place for a picture".into()));
+    }
+    if bytes.len() > 10 * 1024 * 1024 {
+        return Err(Error::Other("That picture is larger than 10 MB".into()));
+    }
+    let ext = picture_ext(bytes).ok_or_else(|| Error::Other("Use a PNG, JPG, WebP or GIF picture".into()))?;
+    let dir = look_dir(&engine);
+    std::fs::create_dir_all(&dir)?;
+    remove_slot_pictures(&dir, slot);
+    // A new name for a new picture, so the interface never shows an old copy.
+    let hash = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        bytes.hash(&mut h);
+        h.finish()
+    };
+    let name = format!("{slot}-{:012x}.{ext}", hash & 0xFFFF_FFFF_FFFF);
+    std::fs::write(dir.join(&name), bytes)?;
+    Ok(name)
+}
+
+/// A kept picture's bytes, by the name `look_picture_save` gave it.
+#[tauri::command]
+fn look_picture(engine: Eng<'_>, name: String) -> R<tauri::ipc::Response> {
+    let ok = name.split_once('.').is_some_and(|(stem, ext)| valid_slot(stem) && ["png", "jpg", "gif", "webp"].contains(&ext));
+    if !ok {
+        return Err(Error::Other("Unknown picture".into()));
+    }
+    Ok(tauri::ipc::Response::new(std::fs::read(look_dir(&engine).join(name))?))
+}
+
+#[tauri::command]
+fn look_picture_remove(engine: Eng<'_>, slot: String) -> R<()> {
+    if valid_slot(&slot) {
+        remove_slot_pictures(&look_dir(&engine), &slot);
+    }
+    Ok(())
+}
+
+/// Writes a file the user chose a place for in the save dialog (a picture template): the
+/// raw bytes, the path percent-encoded in the `path` header.
+#[tauri::command]
+fn save_chosen_file(request: tauri::ipc::Request<'_>) -> R<()> {
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err(Error::Other("Nothing to save".into()));
+    };
+    let path = request.headers().get("path").and_then(|v| v.to_str().ok()).unwrap_or_default();
+    let path = percent_decode(path);
+    if path.is_empty() || bytes.len() > 20 * 1024 * 1024 {
+        return Err(Error::Other("Nothing to save".into()));
+    }
+    std::fs::write(path, bytes)?;
+    Ok(())
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(v);
+            i += 3;
+            continue;
+        }
+        out.push(b[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 /// Read a user-chosen config file for import (size-capped).
 #[tauri::command]
 fn read_text_file(path: String) -> R<String> {
@@ -897,6 +1018,10 @@ pub fn run() {
             select_proxy,
             test_delays,
             check_quality,
+            look_picture_save,
+            look_picture,
+            look_picture_remove,
+            save_chosen_file,
             get_connections,
             close_connection,
             close_all_connections,
@@ -965,4 +1090,31 @@ pub fn run() {
             }
         }
     });
+}
+
+#[cfg(test)]
+mod look_picture_tests {
+    use super::{percent_decode, picture_ext, valid_slot};
+
+    #[test]
+    fn pictures_are_told_by_their_first_bytes() {
+        assert_eq!(picture_ext(b"\x89PNG\r\n\x1a\nrest"), Some("png"));
+        assert_eq!(picture_ext(&[0xFF, 0xD8, 0xFF, 0xE0]), Some("jpg"));
+        assert_eq!(picture_ext(b"GIF89a..."), Some("gif"));
+        assert_eq!(picture_ext(b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
+        assert_eq!(picture_ext(b"<svg xmlns="), None, "SVG can carry scripts: not taken");
+        assert_eq!(picture_ext(b"MZ\x90\0"), None);
+    }
+
+    #[test]
+    fn slot_names_stay_inside_the_folder() {
+        assert!(valid_slot("app") && valid_slot("tab-proxies") && valid_slot("app-phone"));
+        assert!(!valid_slot("") && !valid_slot("../x") && !valid_slot("a/b") && !valid_slot("App") && !valid_slot("a.b"));
+    }
+
+    #[test]
+    fn paths_come_back_from_percent_encoding() {
+        assert_eq!(percent_decode("C%3A%5CUsers%5C%D0%AF%5Ct.png"), r"C:\Users\Я\t.png");
+        assert_eq!(percent_decode("100%"), "100%");
+    }
 }

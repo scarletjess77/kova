@@ -3,6 +3,8 @@
 // theme; the shades between them (lines, faded text, the soft accent) are worked out
 // from the four the user sees. Saved in Kova's settings.
 
+import type { Picture, SlotId } from './pictures';
+
 export interface LookColors {
   accent?: string;
   bg?: string;
@@ -25,6 +27,8 @@ export interface Look {
   /** How much the background shows through cards, 0 to 60 percent. */
   glass?: number;
   density?: Density;
+  /** Pictures by slot (see lib/pictures.ts). */
+  pictures?: Partial<Record<SlotId, Picture>>;
 }
 
 export const FONTS: Record<FontId, string> = {
@@ -42,7 +46,8 @@ export const DEFAULT_RADIUS = 10;
 export function isEmpty(look: Look | null | undefined): boolean {
   if (!look) return true;
   const c = look.colors ?? {};
-  return !c.accent && !c.bg && !c.panel && !c.fg && !look.font && !look.scale && look.radius == null && look.borders !== false && !look.glass && look.density !== 'compact';
+  return !c.accent && !c.bg && !c.panel && !c.fg && !look.font && !look.scale && look.radius == null && look.borders !== false && !look.glass && look.density !== 'compact'
+    && !Object.keys(look.pictures ?? {}).length;
 }
 
 // ---- colour arithmetic, for the readability check ----
