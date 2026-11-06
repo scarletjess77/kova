@@ -180,7 +180,7 @@ class AppState {
     return p[`tab-${this.view}` as keyof typeof p] ?? p[this.mobile ? 'app-phone' : 'app'];
   }
 
-  /** Custom CSS switched off until Kova restarts (Ctrl+Shift+0). */
+  /** Custom CSS switched off until Kova restarts (Ctrl+Shift+K). */
   cssOff = $state(false);
   /** New custom CSS on trial: undone unless kept before the countdown ends. */
   cssTrial = $state<{ previous: string | null; left: number } | null>(null);

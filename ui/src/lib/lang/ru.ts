@@ -917,7 +917,7 @@ export const ru: Dict = {
   'Top bar': 'Верхняя панель',
   'Top': 'Сверху',
   'Whole picture': 'Целиком',
-  'Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+0 also turns it off until Kova restarts.': 'Любой CSS, применяется последним и поэтому главнее. После «Применить» появится панель с вопросом, оставить ли его; без ответа он отменится через 15 секунд, так что сломанный стиль не заблокирует окно. На компьютере Ctrl+Shift+0 также отключает его до перезапуска Kova.',
+  'Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+K also turns it off until Kova restarts.': 'Любой CSS, применяется последним и поэтому главнее. После «Применить» появится панель с вопросом, оставить ли его; без ответа он отменится через 15 секунд, так что сломанный стиль не заблокирует окно. На компьютере Ctrl+Shift+K также отключает его до перезапуска Kova.',
   'Apply': 'Применить',
   'Capture': 'Перехват',
   'Compact rows': 'Компактные строки',

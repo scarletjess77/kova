@@ -618,7 +618,7 @@
         </div>
         <details class="adv" bind:open={cssOpen}>
           <summary>{t('Custom CSS')} <span class="muted">· {t('advanced')}</span></summary>
-          <p class="hint">{t('Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+0 also turns it off until Kova restarts.')}</p>
+          <p class="hint">{t('Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+K also turns it off until Kova restarts.')}</p>
           <textarea class="input mono css" rows="8" spellcheck="false" bind:value={cssDraft} placeholder=".card {'{'} border-radius: 18px; {'}'}"></textarea>
           <div class="actions">
             <button class="btn primary" onclick={applyCss} disabled={cssDraft === (look.css ?? '')}>{t('Apply')}</button>

@@ -43,6 +43,8 @@
   .num { font-size: 12px; }
   .led { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); display: inline-block; margin-inline-end: 6px; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
-  .eye { display: inline-grid; place-items: center; padding: 2px; border: 0; background: none; color: var(--faint); }
-  .eye :global(.i) { width: 13px; height: 13px; }
+  /* A comfortable target in a 28px bar: the whole right end of the item. */
+  .eye { display: inline-grid; place-items: center; min-width: 26px; height: 22px; margin-inline-start: 2px; padding: 0 6px; border: 0; border-radius: 5px; background: var(--sunk); color: var(--muted); cursor: pointer; }
+  @media (hover: hover) { .eye:hover { color: var(--fg); } }
+  .eye :global(.i) { width: 14px; height: 14px; }
 </style>

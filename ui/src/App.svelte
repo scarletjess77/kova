@@ -26,8 +26,9 @@
 
   // Ctrl+V anywhere outside a text field imports from the clipboard.
   function onKey(e: KeyboardEvent) {
-    // Ctrl+Shift+0: custom CSS off (or on again), whatever it did to the window.
-    if (e.ctrlKey && e.shiftKey && e.code === 'Digit0') {
+    // Ctrl+Shift+K: custom CSS off (or on again), whatever it did to the window. By the
+    // key's place, so it works in any keyboard layout; Windows keeps Ctrl+Shift+0 for itself.
+    if (e.ctrlKey && e.shiftKey && e.code === 'KeyK') {
       e.preventDefault();
       app.toggleCssOff();
       return;

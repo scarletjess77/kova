@@ -866,7 +866,7 @@ export const zh: Dict = {
   'Top bar': '顶部栏',
   'Top': '顶部',
   'Whole picture': '完整显示',
-  'Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+0 also turns it off until Kova restarts.': '任意 CSS，最后应用，因此优先生效。点击“应用”后会出现一个询问是否保留的提示条，15 秒内未确认则自动撤销，因此错误的样式不会锁死窗口。在电脑上，Ctrl+Shift+0 也可关闭它，直到 Kova 重启。',
+  'Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+K also turns it off until Kova restarts.': '任意 CSS，最后应用，因此优先生效。点击“应用”后会出现一个询问是否保留的提示条，15 秒内未确认则自动撤销，因此错误的样式不会锁死窗口。在电脑上，Ctrl+Shift+K 也可关闭它，直到 Kova 重启。',
   'Apply': '应用',
   'Capture': '捕获',
   'Compact rows': '紧凑行',

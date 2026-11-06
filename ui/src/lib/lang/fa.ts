@@ -867,7 +867,7 @@ export const fa: Dict = {
   'Top bar': 'نوار بالا',
   'Top': 'بالا',
   'Whole picture': 'کل تصویر',
-  'Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+0 also turns it off until Kova restarts.': 'هر CSS دلخواه، در آخر اعمال می‌شود تا اولویت داشته باشد. پس از «اعمال»، نواری می‌پرسد آن را نگه دارید یا نه و اگر پاسخی ندهید پس از ۱۵ ثانیه لغو می‌شود، پس یک سبک خراب پنجره را قفل نمی‌کند. در رایانه، Ctrl+Shift+0 هم آن را تا راه‌اندازی دوبارهٔ Kova خاموش می‌کند.',
+  'Any CSS, applied last so it wins. After Apply, a bar asks to keep it and undoes it after 15 seconds otherwise, so a broken style can’t lock the window. On a computer, Ctrl+Shift+K also turns it off until Kova restarts.': 'هر CSS دلخواه، در آخر اعمال می‌شود تا اولویت داشته باشد. پس از «اعمال»، نواری می‌پرسد آن را نگه دارید یا نه و اگر پاسخی ندهید پس از ۱۵ ثانیه لغو می‌شود، پس یک سبک خراب پنجره را قفل نمی‌کند. در رایانه، Ctrl+Shift+K هم آن را تا راه‌اندازی دوبارهٔ Kova خاموش می‌کند.',
   'Apply': 'اعمال',
   'Capture': 'ضبط ترافیک',
   'Compact rows': 'ردیف‌های فشرده',
