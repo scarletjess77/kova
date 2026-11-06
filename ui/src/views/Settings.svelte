@@ -84,6 +84,11 @@
     return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
   }
   let themeFile = $state<'export' | 'import' | null>(null);
+  /** Back to the plain theme; the kept pictures leave Kova's folder too. */
+  async function resetLook() {
+    for (const slot of Object.keys(look.pictures ?? {}) as SlotId[]) await removePicture(slot).catch(() => {});
+    void app.saveSettings((x) => (x.look = null), t('Look reset'));
+  }
 
   // Custom CSS: written here, tried with a countdown, kept on request.
   let cssDraft = $state(app.settings?.look?.css ?? '');
@@ -544,7 +549,7 @@
           <div class="look-tools">
             <button class="btn ghost aside-btn" onclick={() => (themeFile = 'import')}><Icon name="file" />{t('Import')}</button>
             <button class="btn ghost aside-btn" onclick={() => (themeFile = 'export')}><Icon name="down" />{t('Export')}</button>
-            {#if !isEmpty(look)}<button class="btn ghost aside-btn" onclick={() => app.saveSettings((x) => (x.look = null), t('Look reset'))}><Icon name="refresh" />{t('Reset look')}</button>{/if}
+            {#if !isEmpty(look)}<button class="btn ghost aside-btn" onclick={resetLook}><Icon name="refresh" />{t('Reset look')}</button>{/if}
           </div>
         {/snippet}
         {#if themeFile}<ThemeFileModal mode={themeFile} onclose={() => (themeFile = null)} />{/if}

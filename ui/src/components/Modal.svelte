@@ -12,12 +12,19 @@
   const back = () => onclose();
   onMount(() => app.pushBack(back));
   onDestroy(() => app.dropBack(back));
+
+  // Straight under <body>: a card with see-through blur (the look's card transparency)
+  // would otherwise be the box the dialog centres in, not the window.
+  function portal(node: HTMLElement) {
+    document.body.appendChild(node);
+    return { destroy: () => node.remove() };
+  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === 'Escape' && onclose()} />
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-<div class="scrim" onclick={(e) => e.target === e.currentTarget && onclose()}>
+<div class="scrim" use:portal onclick={(e) => e.target === e.currentTarget && onclose()}>
   <div class="modal" class:wide role="dialog" aria-modal="true" aria-label={title}>
     <header>
       <h3>{title}</h3>
