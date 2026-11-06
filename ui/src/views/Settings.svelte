@@ -12,6 +12,7 @@
   import FoldCard from '../components/FoldCard.svelte';
   import Icon from '../components/Icon.svelte';
   import ThemePicker from '../components/ThemePicker.svelte';
+  import ThemeFileModal from '../components/ThemeFileModal.svelte';
   import { PRESETS, presetOf, type Preset } from '../lib/layout';
   import { CSS_LIMIT, DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, type FontId, type Look, type LookColors } from '../lib/look';
   import { DEFAULT_DIM, TAB_VIEWS, isBackdrop, keepPicture, pictureStyle, removePicture, saveChosenFile, slotSize, templatePng, type Fit, type Picture, type Pos, type SlotId } from '../lib/pictures';
@@ -82,6 +83,8 @@
     probe.remove();
     return '#' + rgb.map((v) => v.toString(16).padStart(2, '0')).join('');
   }
+  let themeFile = $state<'export' | 'import' | null>(null);
+
   // Custom CSS: written here, tried with a countdown, kept on request.
   let cssDraft = $state(app.settings?.look?.css ?? '');
   let cssOpen = $state(!!app.settings?.look?.css);
@@ -537,7 +540,14 @@
       </FoldCard>
 
       <FoldCard id="look" title={t('Look')}>
-        {#snippet aside()}{#if !isEmpty(look)}<button class="btn ghost aside-btn" onclick={() => app.saveSettings((x) => (x.look = null), t('Look reset'))}><Icon name="refresh" />{t('Reset look')}</button>{/if}{/snippet}
+        {#snippet aside()}
+          <div class="look-tools">
+            <button class="btn ghost aside-btn" onclick={() => (themeFile = 'import')}><Icon name="file" />{t('Import')}</button>
+            <button class="btn ghost aside-btn" onclick={() => (themeFile = 'export')}><Icon name="down" />{t('Export')}</button>
+            {#if !isEmpty(look)}<button class="btn ghost aside-btn" onclick={() => app.saveSettings((x) => (x.look = null), t('Look reset'))}><Icon name="refresh" />{t('Reset look')}</button>{/if}
+          </div>
+        {/snippet}
+        {#if themeFile}<ThemeFileModal mode={themeFile} onclose={() => (themeFile = null)} />{/if}
         <p class="hint">{t('Drawn over the theme above: pick only what you want to change. Changes show at once.')}</p>
         <div class="form gap">
           <div class="fld full"><span class="lbl">{t('Colours')}</span>
@@ -743,4 +753,5 @@
   .adv summary { cursor: pointer; font-weight: 500; font-size: 13px; }
   .adv .css { width: 100%; min-height: 140px; resize: vertical; font-size: 12px; line-height: 1.5; user-select: text; }
   .adv .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .look-tools { display: flex; gap: 4px; flex-wrap: wrap; margin-inline-start: auto; }
 </style>

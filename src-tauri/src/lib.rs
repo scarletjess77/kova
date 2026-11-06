@@ -655,6 +655,24 @@ fn save_chosen_file(request: tauri::ipc::Request<'_>) -> R<()> {
     Ok(())
 }
 
+/// Saves a text file such as a theme: to `path` on the desktop (the window's save dialog
+/// picked it), through Android's own picker there. False if the picker was cancelled.
+#[tauri::command]
+async fn save_text_document(app: AppHandle, path: Option<String>, name: String, text: String) -> R<bool> {
+    #[cfg(target_os = "android")]
+    {
+        let _ = path;
+        android::save_document(&app, &name, &text).await
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, name);
+        let path = path.ok_or_else(|| Error::Other("Choose where to save it".into()))?;
+        kova_engine::store::write_atomic(std::path::Path::new(&path), text.as_bytes())?;
+        Ok(true)
+    }
+}
+
 fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -1022,6 +1040,7 @@ pub fn run() {
             look_picture,
             look_picture_remove,
             save_chosen_file,
+            save_text_document,
             get_connections,
             close_connection,
             close_all_connections,
