@@ -32,9 +32,22 @@ struct Release {
     body: Option<String>,
 }
 
-/// The newest published release with an asset `wanted` accepts. GitHub's "latest" link
-/// skips pre-releases, so releases are listed and compared here; `beta` lets them count.
-async fn newest_release(beta: bool, wanted: impl Fn(&str) -> bool) -> R<Option<Release>> {
+/// The newest published release (with `beta`, pre-releases too) that has the file
+/// `asset(version)`. Asks GitHub's API first, which also gives the file's checksum and the
+/// notes; when the API refuses (it allows 60 requests an hour per address, and everyone on
+/// a VPN server shares its address), the public releases feed and the file's own address,
+/// which have no such limit, answer instead.
+async fn newest_release(beta: bool, asset: impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
+    match from_api(beta, &asset).await {
+        Ok(found) => Ok(found),
+        Err(e) => {
+            tracing::info!("GitHub's API didn't answer ({e}); looking at the releases feed");
+            from_feed(beta, &asset).await
+        }
+    }
+}
+
+async fn from_api(beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
     let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
     let url = format!("https://api.github.com/repos/{RELEASES}/releases?per_page=30");
     let list: Vec<serde_json::Value> = c.get(url).header("Accept", "application/vnd.github+json").send().await?.error_for_status()?.json().await?;
@@ -43,16 +56,48 @@ async fn newest_release(beta: bool, wanted: impl Fn(&str) -> bool) -> R<Option<R
         .filter(|r| r["draft"].as_bool() != Some(true) && (beta || r["prerelease"].as_bool() != Some(true)))
         .filter_map(|r| {
             let version = semver::Version::parse(r["tag_name"].as_str()?.trim_start_matches('v')).ok()?;
-            let asset = r["assets"].as_array()?.iter().find(|a| a["name"].as_str().is_some_and(&wanted))?;
+            let name = asset(&version);
+            let a = r["assets"].as_array()?.iter().find(|a| a["name"].as_str() == Some(name.as_str()))?;
             Some(Release {
-                version,
-                asset: asset["browser_download_url"].as_str()?.to_string(),
-                digest: asset["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).map(str::to_string),
+                asset: a["browser_download_url"].as_str()?.to_string(),
+                digest: a["digest"].as_str().and_then(|d| d.strip_prefix("sha256:")).map(str::to_string),
                 date: r["published_at"].as_str().map(str::to_string),
                 body: r["body"].as_str().map(str::to_string),
+                version,
             })
         })
         .max_by(|a, b| a.version.cmp(&b.version)))
+}
+
+/// Versions named in the releases feed, newest first; with `beta`, pre-release ones too.
+fn feed_versions(feed: &str, beta: bool) -> Vec<semver::Version> {
+    let mut versions: Vec<semver::Version> = feed
+        .split("/releases/tag/v")
+        .skip(1)
+        .filter_map(|rest| {
+            let tag: String = rest.chars().take_while(|c| !matches!(c, '"' | '\'' | '<' | ' ')).collect();
+            semver::Version::parse(&tag).ok()
+        })
+        .filter(|v| beta || v.pre.is_empty())
+        .collect();
+    versions.sort();
+    versions.dedup();
+    versions.reverse();
+    versions
+}
+
+async fn from_feed(beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
+    let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
+    let feed = c.get(format!("https://github.com/{RELEASES}/releases.atom")).send().await?.error_for_status()?.text().await?;
+    // The feed lists tags, including those of releases still being prepared, whose files
+    // aren't public yet: the newest version whose file can be fetched is the one.
+    for version in feed_versions(&feed, beta).into_iter().take(6) {
+        let url = format!("https://github.com/{RELEASES}/releases/download/v{version}/{}", asset(&version));
+        if c.head(&url).send().await.is_ok_and(|r| r.status().is_success()) {
+            return Ok(Some(Release { version, asset: url, digest: None, date: None, body: None }));
+        }
+    }
+    Ok(None)
 }
 
 // ---------------------------------------------------------------------------- desktop
@@ -75,7 +120,7 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
     use tauri_plugin_updater::UpdaterExt;
     let mut builder = app.updater_builder();
     if engine.settings().beta_updates
-        && let Some(r) = newest_release(true, |name| name == "latest.json").await? {
+        && let Some(r) = newest_release(true, |_| "latest.json".to_string()).await? {
             let url = tauri::Url::parse(&r.asset).map_err(|e| Error::Other(e.to_string()))?;
             builder = builder.endpoints(vec![url]).map_err(update_error)?;
         }
@@ -159,7 +204,7 @@ pub struct PendingUpdate(std::sync::Mutex<Option<Release>>);
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     let current = semver::Version::parse(&app.package_info().version.to_string()).map_err(|e| Error::Other(e.to_string()))?;
     // Since 0.1.18 one APK serves every device, 64-bit phones and 32-bit phones and TVs.
-    let found = newest_release(engine.settings().beta_updates, |name| name.ends_with("_Android.apk")).await?.filter(|r| r.version > current);
+    let found = newest_release(engine.settings().beta_updates, |v| format!("Kova_{v}_Android.apk")).await?.filter(|r| r.version > current);
     let info = found.as_ref().map(|r| UpdateInfo { version: r.version.to_string(), date: r.date.clone(), body: r.body.clone() });
     *app.state::<PendingUpdate>().0.lock().unwrap() = found;
     Ok(info)
@@ -233,4 +278,20 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
     std::fs::write(&path, &data)?;
     let _ = app.emit("update-progress", 1.0);
     crate::android::install_apk(&app, &path).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::feed_versions;
+
+    #[test]
+    fn versions_come_from_the_feed_newest_first() {
+        let feed = r#"<entry><link rel="alternate" type="text/html" href="https://github.com/scarletjess77/kova/releases/tag/v0.1.32"/></entry>
+<entry><link href="https://github.com/scarletjess77/kova/releases/tag/v0.1.29-beta.1"/></entry>
+<entry><link href="https://github.com/scarletjess77/kova/releases/tag/v0.1.31"/><id>tag:github.com,2008:Repository/1/v0.1.31</id></entry>
+<entry><link href="https://github.com/scarletjess77/kova/releases/tag/nightly"/></entry>"#;
+        let names = |beta| feed_versions(feed, beta).iter().map(|v| v.to_string()).collect::<Vec<_>>();
+        assert_eq!(names(false), ["0.1.32", "0.1.31"]);
+        assert_eq!(names(true), ["0.1.32", "0.1.31", "0.1.29-beta.1"]);
+    }
 }
