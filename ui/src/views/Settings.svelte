@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { disable as autostartOff, enable as autostartOn, isEnabled as autostartIsOn } from '@tauri-apps/plugin-autostart';
   import { getVersion } from '@tauri-apps/api/app';
   import { openPath } from '@tauri-apps/plugin-opener';
@@ -39,18 +40,31 @@
   const CORE_NAMES: Record<CoreKind, string> = { mihomo: 'Mihomo', xray: 'Xray', shoes: 'Shoes' };
 
   async function loadCores(latest: boolean) {
-    checking = latest;
-    const got = await app.run(() => api.coreStatus(latest));
-    if (got) app.cores = got;
-    checking = false;
+    // One check against GitHub at a time: it is rate-limited, and a second one started
+    // while the first is running only burns requests.
+    if (latest) {
+      if (checking) return;
+      checking = true;
+    }
+    try {
+      const got = await app.run(() => api.coreStatus(latest));
+      if (got) app.cores = got;
+    } finally {
+      if (latest) checking = false;
+    }
   }
   // The installed versions come at once from disk; the latest ones from GitHub after.
+  // Only `app.coresVersion` may re-run this. Everything else is read untracked: this
+  // effect also writes `app.cores`, so tracking it made every finished check start the
+  // next one, forever (a permanent spinner and a request to GitHub per loop).
   $effect(() => {
     void app.coresVersion;
-    void (async () => {
-      if (!app.cores.length) await loadCores(false);
-      await loadCores(true);
-    })();
+    untrack(() => {
+      void (async () => {
+        if (!app.cores.length) await loadCores(false);
+        await loadCores(true);
+      })();
+    });
   });
 
   const norm = (v: string | null) => (v ?? '').replace(/^v/, '');

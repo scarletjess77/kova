@@ -29,7 +29,8 @@
   });
   void api.runningPrograms().then((names) => (running = names), () => {});
 
-  let rules = $derived((app.settings?.core.custom_rules ?? []).filter((r) => r.kind === 'process-name'));
+  // Rules edited here wait for Apply on the Rules tab, like the ones typed there.
+  let rules = $derived((app.ruleSettings?.core.custom_rules ?? []).filter((r) => r.kind === 'process-name'));
   const ruleFor = (name: string) => rules.find((r) => same(r.value, name));
   const isBusy = (name: string) => [...(busy?.keys() ?? [])].some((b) => same(b, name));
   const matches = (name: string) => !q.trim() || name.toLowerCase().includes(q.trim().toLowerCase());
@@ -40,18 +41,17 @@
   let others = $derived([...picked, ...running].filter((n, i, all) => all.findIndex((m) => same(m, n)) === i && !ruleFor(n) && !isBusy(n) && matches(n)));
 
   /** Route `name` one way, above every other rule; replaces an earlier rule for it. */
-  async function route(name: string, target: string) {
+  function route(name: string, target: string) {
     const rule: Rule = { kind: 'process-name', value: name, target };
-    const done = target === 'DIRECT' ? t('{name} now goes direct', { name }) : target === 'REJECT' ? t('{name} is now blocked', { name }) : t('{name} now goes through the proxy', { name });
-    await app.saveSettings((x) => {
+    app.stageRules((x) => {
       x.core.custom_rules = [rule, ...x.core.custom_rules.filter((r) => !(r.kind === 'process-name' && same(r.value, name)))];
-    }, done);
+    });
   }
 
-  async function unroute(name: string) {
-    await app.saveSettings((x) => {
+  function unroute(name: string) {
+    app.stageRules((x) => {
       x.core.custom_rules = x.core.custom_rules.filter((r) => !(r.kind === 'process-name' && same(r.value, name)));
-    }, t('Rule for {name} removed', { name }));
+    });
   }
 
   async function browse() {
