@@ -16,11 +16,27 @@ export interface LogLine { id: number; time: string; source: string; level: stri
 const HISTORY = 60;
 const MAX_LOGS = 1500;
 
+type Core = Settings['core'];
+
+/** The fields of `core` that differ from `saved`, or null when none does. */
+function coreChanges(saved: Core, core: Core): Partial<Core> | null {
+  const changed: Record<string, unknown> = {};
+  for (const k of Object.keys(core) as (keyof Core)[]) {
+    if (JSON.stringify(core[k]) !== JSON.stringify(saved[k])) changed[k] = core[k];
+  }
+  return Object.keys(changed).length ? (changed as Partial<Core>) : null;
+}
+
 class AppState {
   ready = $state(false);
   view = $state<View>('dashboard');
   status = $state<Status>({ running: false, busy: false, core: null, sidecar: false, since: null, error: null, mixed_port: 7890, bridged: [], dropped: [], tun_active: false, warning: null });
   settings = $state<Settings | null>(null);
+  /** Edits made on the Rules tab that are not applied yet, as the `core` settings they
+   *  change. Any change to the core restarts the connection, so these wait for Apply and
+   *  are then saved together, with a single restart. */
+  rulesDraft = $state<Partial<Core> | null>(null);
+  applyingRules = $state(false);
   profiles = $state<Profile[]>([]);
   dataDir = $state('');
 
@@ -439,6 +455,45 @@ class AppState {
     await job;
   }
 
+  /** The settings with the Rules edits that wait for Apply on top: what the Rules tab shows. */
+  get ruleSettings(): Settings | null {
+    const s = this.settings;
+    if (!s || !this.rulesDraft) return s;
+    return { ...s, core: { ...s.core, ...this.rulesDraft } };
+  }
+
+  /** Change settings from the Rules tab without saving: the change shows at once and
+   *  waits for `applyRules`. Undoing every edit leaves nothing waiting. */
+  stageRules(patch: (x: Settings) => void) {
+    const saved = this.settings;
+    const shown = this.ruleSettings;
+    if (!saved || !shown) return;
+    const next: Settings = JSON.parse(JSON.stringify(shown));
+    patch(next);
+    this.rulesDraft = coreChanges(saved.core, next.core);
+  }
+
+  discardRules() {
+    this.rulesDraft = null;
+  }
+
+  /** Save the waiting Rules edits in one go, restarting the connection once. */
+  async applyRules(notify = true) {
+    const draft = this.rulesDraft;
+    if (!draft || this.applyingRules) return;
+    this.applyingRules = true;
+    try {
+      const changes = JSON.parse(JSON.stringify(draft)) as Partial<Core>;
+      await this.saveSettings((x) => Object.assign(x.core, changes), notify ? t('Rules applied') : undefined);
+    } finally {
+      this.applyingRules = false;
+      // What the engine now holds is no longer waiting. What it refused (a rule it can't
+      // use, say) stays, along with anything edited meanwhile, to be fixed and applied again.
+      const saved = this.settings;
+      this.rulesDraft = saved ? coreChanges(saved.core, { ...saved.core, ...draft, ...this.rulesDraft }) : null;
+    }
+  }
+
   /** Apply the theme and language settings to the page. */
   async refreshDevice() {
     const d = await api.deviceInfo().catch(() => ({ tv: false, camera: true }) as DeviceInfo);
@@ -472,7 +527,11 @@ class AppState {
     this.toggling = true;
     try {
       if (this.status.running) await this.run(() => api.disconnect());
-      else await this.run(() => api.connect());
+      else {
+        // Rules waiting for Apply would otherwise be left out of the new connection.
+        await this.applyRules(false);
+        await this.run(() => api.connect());
+      }
     } finally {
       this.toggling = false;
     }

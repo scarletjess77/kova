@@ -36,7 +36,8 @@
       {#if !app.editingLayout}
         {#if id === 'proxies' && nodeCount != null}<span class="badge">{nodeCount}</span>{/if}
         {#if id === 'profiles'}<span class="badge">{app.profiles.length}</span>{/if}
-        {#if id === 'rules' && app.suggestionCount}<span class="badge new" title={t('Suggestions waiting')}>{app.suggestionCount}</span>{/if}
+        {#if id === 'rules' && app.rulesDraft}<span class="badge new" title={t('Not applied yet')}>•</span>
+        {:else if id === 'rules' && app.suggestionCount}<span class="badge new" title={t('Suggestions waiting')}>{app.suggestionCount}</span>{/if}
       {/if}
     </button>
   {/snippet}

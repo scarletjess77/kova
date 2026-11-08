@@ -30,7 +30,9 @@
   let target = $state('Proxy');
   let routingApps = $state(false);
 
-  let s = $derived(app.settings);
+  // Edits here wait for Apply (each one would restart the connection), so the page shows
+  // the saved settings with those edits on top.
+  let s = $derived(app.ruleSettings);
   let rules = $derived(s?.core.custom_rules ?? []);
   // Countries the active profile has servers in: a rule can send a site through the
   // fastest of them (`country:US`; the engine makes the group).
@@ -53,12 +55,12 @@
     const c = aiCountry;
     if (!c) return;
     const rule: Rule = { kind: 'geosite', value: AI_LIST, target: `country:${c}` };
-    void app.saveSettings((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]), t('Rule added'));
+    app.stageRules((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]));
   }
   let isClash = $derived(app.activeProfile?.format === 'clash');
 
   function togglePreset(p: Preset) {
-    void app.saveSettings((x) => {
+    app.stageRules((x) => {
       x.core.presets = x.core.presets.includes(p) ? x.core.presets.filter((y) => y !== p) : [...x.core.presets, p];
     });
   }
@@ -68,12 +70,12 @@
     if (!v) return;
     const rule: Rule = { kind, value: v, target };
     // On top: the newest rule wins over older ones that match the same sites.
-    void app.saveSettings((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]), t('Rule added'));
+    app.stageRules((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]));
     value = '';
   }
 
   function move(i: number, d: -1 | 1) {
-    void app.saveSettings((x) => {
+    app.stageRules((x) => {
       const r = [...x.core.custom_rules];
       const j = i + d;
       if (j < 0 || j >= r.length) return;
@@ -139,7 +141,7 @@
       const next = [...rules];
       const [moved] = next.splice(d.from, 1);
       next.splice(d.to, 0, moved);
-      void app.saveSettings((x) => (x.core.custom_rules = next), t('Rule order saved'));
+      app.stageRules((x) => (x.core.custom_rules = next));
     }
   }
 
@@ -210,6 +212,9 @@
   }
 
   async function acceptSuggestion(sg: Suggestion) {
+    // The engine changes the rules itself here: what waits for Apply goes in first, so
+    // the two don't overwrite each other.
+    await app.applyRules(false);
     const saved = await app.run(() => api.acceptSuggestion(sg.domain), t('Exception added: {domain} now goes {way}', { domain: sg.domain, way: sg.route === 'proxy' ? t('through the proxy') : t('direct') }));
     if (saved) app.settings = saved;
     await loadLearned();
@@ -229,6 +234,7 @@
     await loadLearned();
   }
   async function keep(domain: string) {
+    await app.applyRules(false);
     const saved = await app.run(() => api.keepLearned(domain), t('{domain} moved to your rules', { domain }));
     if (saved) app.settings = saved;
     await loadLearned();
@@ -238,7 +244,7 @@
     await loadLearned();
   }
 
-  const remove = (i: number) => app.saveSettings((x) => (x.core.custom_rules = x.core.custom_rules.filter((_, k) => k !== i)));
+  const remove = (i: number) => app.stageRules((x) => (x.core.custom_rules = x.core.custom_rules.filter((_, k) => k !== i)));
   const polClass = (t: string) => (t === 'DIRECT' ? 'direct' : t === 'REJECT' ? 'reject' : 'proxy');
 </script>
 
@@ -247,6 +253,15 @@
 </div>
 
 {#if s}
+  {#if app.rulesDraft}
+    <div class="pending" role="status">
+      <span>{app.status.running ? t('Changes are not applied yet. Apply them all at once; the connection restarts once.') : t('Changes are not applied yet.')}</span>
+      <div class="ops">
+        <button class="btn ghost" disabled={app.applyingRules} onclick={() => app.discardRules()}>{t('Discard')}</button>
+        <button class="btn primary" class:busy={app.applyingRules} disabled={app.applyingRules} onclick={() => app.applyRules()}><Icon name="check" />{t('Apply')}</button>
+      </div>
+    </div>
+  {/if}
   <div class="eyebrow">{t('Routing presets')}</div>
   <div class="presets">
     {#each PRESETS as p (p.id)}
@@ -309,14 +324,14 @@
     <div class="row-sw apply">
       <div><div class="t">{t('Apply to imported Clash profiles')}</div><div class="d">{isClash ? t('Put your rules and presets in front of a Clash profile’s own rules (the active profile is one).') : t('Put your rules and presets in front of a Clash profile’s own rules.')}</div></div>
       <button class="switch" role="switch" aria-label={t('Apply to imported Clash profiles')} aria-checked={s.core.apply_rules_to_clash_profiles}
-        onclick={() => app.saveSettings((x) => (x.core.apply_rules_to_clash_profiles = !x.core.apply_rules_to_clash_profiles))}></button>
+        onclick={() => app.stageRules((x) => (x.core.apply_rules_to_clash_profiles = !x.core.apply_rules_to_clash_profiles))}></button>
     </div>
   </section>
 
   <section class="card smart">
     <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">beta</span>
       <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
-        onclick={() => app.saveSettings((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
+        onclick={() => app.stageRules((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
     <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>
     {#if s.core.smart_routing && s.core.mode !== 'rule'}
       <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
@@ -330,7 +345,7 @@
         <div><div class="t">{t('Also correct the subscription’s rules')}</div>
           <div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div></div>
         <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
-          onclick={() => app.saveSettings((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
+          onclick={() => app.stageRules((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
       </div>
     {/if}
     {#if s.core.smart_routing}
@@ -338,7 +353,7 @@
         <div><div class="t">{t('Send sites that refuse the proxy direct')}</div>
           <div class="d">{t('Off by default. To find out, Kova has to open such a site directly, and once sent direct the site sees your own address. With this off, Kova only moves blocked sites to the proxy.')}</div></div>
         <button class="switch" role="switch" aria-label={t('Send sites that refuse the proxy direct')} aria-checked={s.core.smart_learn_direct}
-          onclick={() => app.saveSettings((x) => (x.core.smart_learn_direct = !x.core.smart_learn_direct))}></button>
+          onclick={() => app.stageRules((x) => (x.core.smart_learn_direct = !x.core.smart_learn_direct))}></button>
       </div>
     {/if}
     {#if suggestions.length}
@@ -394,6 +409,7 @@
 {#if routingApps}<AppRules onclose={() => (routingApps = false)} />{/if}
 
 <style>
+  .pending { position: sticky; top: 0; z-index: 3; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--sunk); font-size: 13px; }
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin: 8px 0 16px; }
   .preset { display: flex; gap: 12px; align-items: flex-start; }
   .preset .t { font-weight: 500; font-size: 14px; }
