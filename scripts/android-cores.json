@@ -4,10 +4,10 @@
     "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
   },
   "xray": {
-    "tag": "v26.10.31",
-    "commit": "a4a3dff5b20c2faae567b742c172c7b95e75c083"
+    "tag": "v26.11.9",
+    "commit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9"
   },
   "shoes": {
-    "tag": "v0.3.6"
+    "tag": "v0.3.7"
   }
 }
