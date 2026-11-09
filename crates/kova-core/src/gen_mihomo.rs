@@ -587,6 +587,60 @@ pub fn sanitize_for_service(raw: &str) -> Result<String, GenError> {
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
 }
 
+/// The `http` proxy providers of a Clash profile as (name, url).
+pub fn http_providers(raw: &str) -> Vec<(String, String)> {
+    let Ok(mut doc) = serde_yaml_ng::from_str::<Yaml>(raw) else { return Vec::new() };
+    let _ = doc.apply_merge();
+    let Some(Yaml::Mapping(providers)) = doc.get("proxy-providers") else { return Vec::new() };
+    providers
+        .iter()
+        .filter_map(|(k, v)| {
+            let url = v.get("url")?.as_str()?;
+            let http = v.get("type").and_then(Yaml::as_str).is_none_or(|t| t == "http");
+            (http && url.starts_with("http")).then(|| (k.as_str().unwrap_or_default().to_string(), url.to_string()))
+        })
+        .collect()
+}
+
+/// The `global-ua` a profile asks Mihomo to download its providers with.
+pub fn global_ua(raw: &str) -> Option<String> {
+    serde_yaml_ng::from_str::<Yaml>(raw).ok()?.get("global-ua")?.as_str().map(str::to_string)
+}
+
+/// Where Kova keeps a provider's downloaded servers, relative to Mihomo's home directory.
+pub fn provider_file(name: &str) -> String {
+    let h = name.bytes().fold(0xcbf29ce484222325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x100000001b3));
+    format!("providers/kova-{h:016x}.yaml")
+}
+
+/// Whether a provider's download holds servers Mihomo can read (a YAML list of `proxies`).
+pub fn provider_has_servers(text: &str) -> bool {
+    serde_yaml_ng::from_str::<Yaml>(text).ok().and_then(|d| d.get("proxies").and_then(Yaml::as_sequence).map(|p| !p.is_empty())).unwrap_or(false)
+}
+
+/// Make the http providers named in `names` read the file Kova downloaded (`provider_file`)
+/// instead of fetching their URL. Mihomo then needs no network to list the servers, so a
+/// provider that can't be reached from inside the VPN (or at start, before it is up)
+/// can't leave every group empty. Filter, override and health-check stay as they were.
+pub fn localize_providers(raw: &str, names: &[String]) -> Result<String, GenError> {
+    let mut doc: Yaml = serde_yaml_ng::from_str(raw).map_err(|e| GenError::Yaml(e.to_string()))?;
+    doc.apply_merge().map_err(|e| GenError::Yaml(e.to_string()))?;
+    if let Some(Yaml::Mapping(providers)) = doc.get_mut("proxy-providers") {
+        for (k, v) in providers.iter_mut() {
+            let (Some(name), Yaml::Mapping(m)) = (k.as_str(), v) else { continue };
+            if !names.iter().any(|n| n == name) {
+                continue;
+            }
+            for key in ["url", "proxy", "header", "interval", "size-limit"] {
+                m.remove(key);
+            }
+            m.insert(Yaml::String("type".into()), Yaml::String("file".into()));
+            m.insert(Yaml::String("path".into()), Yaml::String(format!("./{}", provider_file(name))));
+        }
+    }
+    serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
+}
+
 /// Names of every proxy and group defined in a Clash config.
 /// A url-test group for each country the rules send traffic to (`country:US`), made of
 /// `servers` in that country, and the targets that got one. A country with no servers
