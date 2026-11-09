@@ -127,3 +127,57 @@ fn print_generated_config() {
     let (_, o) = option_sets().remove(1);
     println!("{}", merge_clash(PROVIDERS, &o).unwrap());
 }
+
+/// The shape of the profile in issue #10: the only inline server is a `direct` proxy the
+/// provider downloads through, and every group takes its servers from the provider with
+/// `include-all` and a filter.
+const DIRECT_DOWNLOAD: &str = r#"
+pr: &pr {type: select, include-all: true, filter: "^((?!直连).)*$"}
+proxy-providers:
+  机场:
+    type: http
+    url: "https://substore.example.com/download/x?token=secret"
+    interval: 259200
+    proxy: "🟢 直连"
+    health-check: {enable: true, url: "https://www.gstatic.com/generate_204", interval: 300}
+    override: {client-fingerprint: chrome}
+proxies:
+  - {name: "🟢 直连", type: direct}
+proxy-groups:
+  - {name: "节点选择", type: select, proxies: ["手动", "🟢 直连"]}
+  - {<<: *pr, name: "手动"}
+rules:
+  - MATCH,节点选择
+"#;
+
+#[test]
+fn downloaded_providers_become_files() {
+    use kova_core::gen_mihomo::{http_providers, localize_providers, provider_file, provider_has_servers};
+    let found = http_providers(DIRECT_DOWNLOAD);
+    assert_eq!(found.len(), 1, "{found:?}");
+    assert_eq!(found[0].0, "机场");
+
+    let local = localize_providers(DIRECT_DOWNLOAD, &["机场".to_string()]).unwrap();
+    let doc = parse(&local);
+    let p = &doc["proxy-providers"]["机场"];
+    assert_eq!(p["type"].as_str(), Some("file"));
+    assert_eq!(p["path"].as_str(), Some(format!("./{}", provider_file("机场")).as_str()));
+    for gone in ["url", "proxy", "interval"] {
+        assert!(p.get(gone).is_none(), "`{gone}` must go: {p:?}");
+    }
+    assert!(p.get("health-check").is_some() && p.get("override").is_some(), "{p:?}");
+    // The groups, merge keys included, still take their servers from the provider.
+    let g = groups(&doc);
+    let manual = g.iter().find(|g| g["name"].as_str() == Some("手动")).unwrap();
+    assert_eq!(manual["include-all"].as_bool(), Some(true));
+    assert!(manual["filter"].as_str().is_some());
+    // And Kova's own merge still accepts the result.
+    merge_clash(&local, &RuntimeOptions::default()).unwrap();
+    // A provider left out stays an http provider.
+    let untouched = parse(&localize_providers(DIRECT_DOWNLOAD, &[]).unwrap());
+    assert_eq!(untouched["proxy-providers"]["机场"]["type"].as_str(), Some("http"));
+
+    assert!(provider_has_servers("proxies:\n  - {name: a, type: trojan, server: s, port: 1, password: x}\n"));
+    assert!(!provider_has_servers("proxies: []\n"));
+    assert!(!provider_has_servers("<html>blocked</html>"));
+}

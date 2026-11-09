@@ -816,6 +816,42 @@ impl Engine {
         Ok((added, skipped))
     }
 
+    /// Download the profile's http proxy providers here and point Mihomo at the files, so
+    /// the servers don't depend on Mihomo reaching the provider (its download goes through
+    /// the profile's own `proxy:`, which may not exist yet or may be unreachable from
+    /// inside the VPN). A provider that can't be downloaded keeps the copy from the last
+    /// run, and with none, stays as it was for Mihomo to try.
+    async fn localize_providers(&self, body: &str, home: &std::path::Path, via_proxy: bool) -> String {
+        let providers = gen_mihomo::http_providers(body);
+        if providers.is_empty() {
+            return body.to_string();
+        }
+        let ua = gen_mihomo::global_ua(body);
+        let mut ready = Vec::new();
+        for (name, url) in providers {
+            let file = home.join(gen_mihomo::provider_file(&name));
+            let fetched = self.fetch_subscription(&url, Some(ua.as_deref().unwrap_or("clash.meta")), &[], via_proxy).await;
+            match fetched {
+                Ok(sub) if gen_mihomo::provider_has_servers(&sub.body) => {
+                    if let Some(dir) = file.parent() {
+                        let _ = std::fs::create_dir_all(dir);
+                    }
+                    if std::fs::write(&file, sub.body).is_ok() {
+                        ready.push(name);
+                        continue;
+                    }
+                }
+                Ok(_) => self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("the provider {name} answered, but with no servers Kova could read") }),
+                Err(e) => self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("the provider {name} could not be downloaded: {e}") }),
+            }
+            // The copy from the last run is better than nothing.
+            if std::fs::read_to_string(&file).is_ok_and(|t| gen_mihomo::provider_has_servers(&t)) {
+                ready.push(name);
+            }
+        }
+        gen_mihomo::localize_providers(body, &ready).unwrap_or_else(|_| body.to_string())
+    }
+
     async fn validate_clash(&self, text: &str) -> Result<()> {
         let bin = cores::binary_path(&self.paths.cores_dir(), CoreKind::Mihomo);
         if !bin.exists() {
@@ -1414,6 +1450,7 @@ impl Engine {
         std::fs::create_dir_all(&home)?;
         self.seed_geodata(&home);
         let yaml = if profile.format == Format::Clash {
+            let body = self.localize_providers(&body, &home, matches!(profile.source, Source::Remote { via_proxy: true, .. })).await;
             gen_mihomo::merge_clash(&body, &opts).map_err(|e| Error::Config(e.to_string()))?
         } else {
             gen_mihomo::from_nodes(&nodes, &plan, &bridges, &opts)
