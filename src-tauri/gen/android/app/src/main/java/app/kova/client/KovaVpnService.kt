@@ -196,6 +196,7 @@ class KovaVpnService : VpnService() {
 
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
     private var lastNetwork: String? = null
+    private var networkLost = false
     private var lastDns: List<String>? = null
 
     /** The DNS servers of [network], unless it is a VPN (Kova's own included). */
@@ -235,6 +236,20 @@ class KovaVpnService : VpnService() {
                 }
             }
 
+            // No network at all (airplane mode, a tunnel): when one is back the core's
+            // connections are dead, though it is usually the same kind of network as before.
+            override fun onLost(network: Network) {
+                networkLost = true
+                lastNetwork = null
+            }
+
+            override fun onAvailable(network: Network) {
+                if (networkLost) {
+                    networkLost = false
+                    Actions.send("network:back", keep = true)
+                }
+            }
+
             // Some Wi-Fi networks answer DNS only from their own servers: Kova uses them
             // too for the sites that go direct.
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
@@ -256,6 +271,7 @@ class KovaVpnService : VpnService() {
         val callback = networkCallback ?: return
         networkCallback = null
         lastNetwork = null
+        networkLost = false
         lastDns = null
         try {
             getSystemService(ConnectivityManager::class.java)?.unregisterNetworkCallback(callback)

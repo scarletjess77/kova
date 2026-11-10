@@ -176,6 +176,15 @@ impl Mihomo {
         }
     }
 
+    /// Why one proxy's latency test failed, in Mihomo's words, for the log.
+    pub async fn delay_failure(&self, name: &str, url: &str, timeout_ms: u32) -> String {
+        let path = format!("/proxies/{}/delay?timeout={timeout_ms}&url={}", seg(name), percent_encode(url));
+        match self.json(&path).await {
+            Ok(_) => "it answered this time".to_string(),
+            Err(e) => e.to_string(),
+        }
+    }
+
     /// Test every member of a group concurrently (done by Mihomo).
     pub async fn group_delay(&self, group: &str, url: &str, timeout_ms: u32) -> Result<HashMap<String, u32>, Error> {
         let path = format!("/group/{}/delay?timeout={timeout_ms}&url={}", seg(group), percent_encode(url));

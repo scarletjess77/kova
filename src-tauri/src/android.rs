@@ -311,6 +311,10 @@ pub fn listen_for_actions(app: AppHandle, engine: Arc<Engine>) {
                     engine.network_changed(a.action == "network:mobile").await;
                     Ok(())
                 }
+                "network:back" => {
+                    engine.network_restored().await;
+                    Ok(())
+                }
                 "window" => reopen_window(&app),
                 dns if dns.starts_with("dns:") => {
                     engine.set_network_dns(dns[4..].split(',').map(String::from).collect()).await;
