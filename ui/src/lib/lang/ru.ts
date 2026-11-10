@@ -84,6 +84,8 @@ export const ru: Dict = {
   'Copy address': 'Копировать адрес',
   'Open in Tonkeeper': 'Открыть в Tonkeeper',
   'Or scan the code with any TON wallet. Thank you': 'Или отсканируйте код любым кошельком TON. Спасибо',
+  'Country flags are drawn with the Twemoji Country Flags font; the Twemoji artwork is used under CC-BY 4.0.':
+    'Флаги стран нарисованы шрифтом Twemoji Country Flags; изображения Twemoji используются по лицензии CC-BY 4.0.',
 
   // Config editor
   'Saved. The next subscription update will replace your edits.': 'Сохранено. Следующее обновление подписки заменит ваши правки.',

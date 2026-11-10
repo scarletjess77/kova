@@ -71,6 +71,8 @@ export const zh: Dict = {
   'Copy address': '复制地址',
   'Open in Tonkeeper': '在 Tonkeeper 中打开',
   'Or scan the code with any TON wallet. Thank you': '或用任意 TON 钱包扫描二维码。谢谢',
+  'Country flags are drawn with the Twemoji Country Flags font; the Twemoji artwork is used under CC-BY 4.0.':
+    '国家旗帜由 Twemoji Country Flags 字体绘制；Twemoji 图案按 CC-BY 4.0 许可使用。',
   'Saved. The next subscription update will replace your edits.': '已保存。下次订阅更新会覆盖你的修改。',
   'Config is valid and saved': '配置有效，已保存',
   'Profile configuration': '配置内容',

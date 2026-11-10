@@ -72,6 +72,8 @@ export const fa: Dict = {
   'Copy address': 'کپی نشانی',
   'Open in Tonkeeper': 'باز کردن در Tonkeeper',
   'Or scan the code with any TON wallet. Thank you': 'یا کد را با هر کیف پول TON اسکن کنید. سپاس',
+  'Country flags are drawn with the Twemoji Country Flags font; the Twemoji artwork is used under CC-BY 4.0.':
+    'پرچم کشورها با فونت Twemoji Country Flags کشیده می‌شوند؛ تصاویر Twemoji تحت مجوز CC-BY 4.0 استفاده شده‌اند.',
   'Saved. The next subscription update will replace your edits.': 'ذخیره شد. به‌روزرسانی بعدی اشتراک، تغییرات شما را جایگزین می‌کند.',
   'Config is valid and saved': 'پیکربندی معتبر است و ذخیره شد',
   'Profile configuration': 'پیکربندی پروفایل',

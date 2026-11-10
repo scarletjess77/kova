@@ -730,6 +730,7 @@
       <FoldCard id="donate" anchor="donate" title={t('Support Kova')}>
         {#snippet aside()}<span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span>{/snippet}
         <Donate />
+        <p class="hint gap">{t('Country flags are drawn with the Twemoji Country Flags font; the Twemoji artwork is used under CC-BY 4.0.')}</p>
       </FoldCard>
   </div>
 {/if}
