@@ -7,11 +7,13 @@
 @import '@fontsource-variable/vazirmatn';
 
 /* Country chips draw flags from the bundled Twemoji Country Flags font, so Windows shows
-   flags too; the unicode range leaves every other emoji to the system font. */
+   flags too; the unicode range leaves every other emoji to the system font. The artwork
+   is 0.72 em tall, so size-adjust scales it up to fill the chip. */
 @font-face {
   font-family: 'Twemoji Country Flags';
   src: url('country-flag-emoji-polyfill/dist/TwemojiCountryFlags.woff2') format('woff2');
   unicode-range: U+1F1E6-1F1FF;
+  size-adjust: 190%;
   font-display: swap;
 }
 
