@@ -32,6 +32,10 @@
   let groups = $derived(app.proxies.groups.filter((g) => g.name !== 'GLOBAL' || app.settings?.core.mode === 'global'));
   let group = $derived(groups.find((g) => g.name === groupName) ?? groups[0]);
   let isGroup = (n: string) => app.proxies.groups.some((g) => g.name === n);
+  // Servers a proxy provider downloads are only known to the running core; until then
+  // the profile's own list is all there is.
+  const NOT_A_SERVER = new Set(['Direct', 'Reject', 'RejectDrop', 'Pass', 'Compatible', 'Selector', 'URLTest', 'Fallback', 'LoadBalance', 'Relay']);
+  let nodeCount = $derived(new Set([...Object.keys(app.nodes), ...Object.values(app.proxies.proxies).filter((p) => !NOT_A_SERVER.has(p.type) && !isGroup(p.name)).map((p) => p.name)]).size);
 
   let members = $derived.by(() => {
     if (!group) return [];
@@ -69,7 +73,7 @@
 
 <div class="page-head">
   <h1>{t('Proxies')}</h1>
-  <span class="sub">{tn(groups.length, '{n} group', '{n} groups')} · {tn(Object.keys(app.nodes).length, '{n} node', '{n} nodes')}</span>
+  <span class="sub">{tn(groups.length, '{n} group', '{n} groups')} · {tn(nodeCount, '{n} node', '{n} nodes')}</span>
   <div class="tools">
     <label class="search"><Icon name="search" /><input class="input" placeholder={t('Search nodes, countries, protocols')} bind:value={q} aria-label={t('Search nodes')} /></label>
     <select class="input sort" bind:value={sort} aria-label={t('Sort')}>
