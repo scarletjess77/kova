@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { readText } from '@tauri-apps/plugin-clipboard-manager';
   import { api, type VpnApp, type VpnAppsMode } from '../lib/api';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -29,6 +30,25 @@
     const next = new Set(chosen);
     if (!next.delete(pkg)) next.add(pkg);
     chosen = next;
+  }
+
+  const PACKAGE = /^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z0-9_]+)+$/;
+
+  /** The chosen apps as one package name per line. */
+  const copyList = () => app.run(() => navigator.clipboard.writeText([...chosen].sort().join('\n')), t('List copied'));
+
+  /** Add the installed apps named in the clipboard (package names, one per line or separated by commas). */
+  async function pasteList() {
+    const text = (await readText().catch(() => '')) ?? '';
+    const installed = new Set((apps ?? []).map((a) => a.package));
+    const found = text.split(/[\s,;]+/).filter((p) => PACKAGE.test(p) && installed.has(p));
+    if (!found.length) {
+      app.notify(t('No installed app from the clipboard list'));
+      return;
+    }
+    const added = found.filter((p) => !chosen.has(p)).length;
+    chosen = new Set([...chosen, ...found]);
+    app.notify(tn(added, '{n} app added from the clipboard', '{n} apps added from the clipboard'));
   }
 
   async function save() {
@@ -62,6 +82,8 @@
     <div class="tools">
       <div class="search"><Icon name="search" /><input class="input" placeholder={t('Search apps')} bind:value={query} /></div>
       <label class="sys"><input type="checkbox" bind:checked={system} />{t('System apps')}</label>
+      <button class="btn ghost" onclick={copyList} disabled={!chosen.size}><Icon name="copy" />{t('Copy list')}</button>
+      <button class="btn ghost" onclick={pasteList} disabled={apps === null}><Icon name="clip" />{t('Paste list')}</button>
     </div>
     {#if apps === null}
       <p class="muted">{t('Loading the apps…')}</p>

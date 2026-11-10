@@ -27,6 +27,15 @@ function coreChanges(saved: Core, core: Core): Partial<Core> | null {
   return Object.keys(changed).length ? (changed as Partial<Core>) : null;
 }
 
+function readFlagsChoice(): boolean | null {
+  try {
+    const v = localStorage.getItem('kova.flags');
+    return v === '1' ? true : v === '0' ? false : null;
+  } catch {
+    return null;
+  }
+}
+
 class AppState {
   ready = $state(false);
   view = $state<View>('dashboard');
@@ -36,6 +45,16 @@ class AppState {
    *  change. Any change to the core restarts the connection, so these wait for Apply and
    *  are then saved together, with a single restart. */
   rulesDraft = $state<Partial<Core> | null>(null);
+  /** Flag emoji instead of country codes: the choice on this device. Unset, flags show
+   *  wherever the system draws them, which Windows does not. */
+  flagsChoice = $state<boolean | null>(readFlagsChoice());
+  get flags(): boolean {
+    return this.flagsChoice ?? this.platform !== 'windows';
+  }
+  setFlags(on: boolean) {
+    this.flagsChoice = on;
+    try { localStorage.setItem('kova.flags', on ? '1' : '0'); } catch { /* storage may be blocked */ }
+  }
   applyingRules = $state(false);
   profiles = $state<Profile[]>([]);
   dataDir = $state('');
