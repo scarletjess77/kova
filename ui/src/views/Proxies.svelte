@@ -154,10 +154,10 @@
   .px { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; align-items: start; }
   @container (max-width: 700px) {
     .px { grid-template-columns: minmax(0, 1fr); }
-    .groups { position: static; }
-    .groups:not(.open) .grp:not([aria-current='true']) { display: none; }
-    .groups.open { max-height: 60vh; overflow: auto; }
-    .more { display: inline; margin-inline-start: 6px; font: 500 11px var(--f-mono); color: var(--muted); }
+    .px .groups { position: static; }
+    .px .groups:not(.open) .grp:not([aria-current='true']) { display: none; }
+    .px .groups.open { max-height: 60vh; overflow: auto; }
+    .px .more { display: inline; margin-inline-start: 6px; font: 500 11px var(--f-mono); color: var(--muted); }
   }
   .more { display: none; }
   .groups { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; }
