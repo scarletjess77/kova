@@ -15,7 +15,7 @@
   import ThemePicker from '../components/ThemePicker.svelte';
   import ThemeFileModal from '../components/ThemeFileModal.svelte';
   import { PRESETS, presetOf, type Preset } from '../lib/layout';
-  import { CSS_LIMIT, DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, type FontId, type Look, type LookColors } from '../lib/look';
+  import { CSS_LIMIT, DEFAULT_RADIUS, FONTS, LIMITS, isEmpty, parseHex, type FontId, type Look, type LookColors } from '../lib/look';
   import { DEFAULT_DIM, TAB_VIEWS, isBackdrop, keepPicture, pictureStyle, removePicture, saveChosenFile, slotSize, templatePng, type Fit, type Picture, type Pos, type SlotId } from '../lib/pictures';
   import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 
@@ -154,6 +154,19 @@
     const labels = { title: t('Title bar'), sidebar: t('Sidebar'), cards: t('Cards cover most of this; the picture shows around and between them'), top: t('Top bar'), tabs: t('Tabs'), profile: t('Profile card'), power: t('Power button'), status: t('Status'), controls: t('Mode and capture') };
     const bytes = await templatePng(slot, slotName, labels);
     await app.run(() => saveChosenFile(path, bytes), t('Template saved'));
+  }
+
+  /** A colour typed as a code (#rgb or #rrggbb, # optional); empty goes back to the theme's. */
+  function typeColor(k: keyof LookColors, el: HTMLInputElement) {
+    const raw = el.value.trim();
+    if (!raw) return setColor(k, undefined, true);
+    const hex = ('#' + raw.replace(/^#/, '')).toLowerCase();
+    if (!parseHex(hex)) {
+      el.value = look.colors?.[k] ?? '';
+      app.notify(t('Use a colour code like #1e90ff.'));
+      return;
+    }
+    setColor(k, hex.length === 4 ? '#' + [...hex.slice(1)].map((c) => c + c).join('') : hex, true);
   }
 
   const setColor = (k: keyof LookColors, v: string | undefined, save: boolean) => {
@@ -576,7 +589,9 @@
                   <label class="sw-pick" style="--c:{swatch(k)}">
                     <input type="color" value={swatch(k)} oninput={(e) => setColor(k, e.currentTarget.value, false)} onchange={(e) => setColor(k, e.currentTarget.value, true)} aria-label={COLOR_NAME[k]} />
                   </label>
-                  <span class="sw-t">{COLOR_NAME[k]}<small>{look.colors?.[k] ? look.colors[k] : t('from the theme')}</small></span>
+                  <span class="sw-t">{COLOR_NAME[k]}
+                    <input class="hex" value={look.colors?.[k] ?? ''} placeholder={swatch(k)} maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label={t('Colour code')} onchange={(e) => typeColor(k, e.currentTarget)} />
+                  </span>
                   {#if look.colors?.[k]}<button class="btn ghost sw-x" onclick={() => setColor(k, undefined, true)} aria-label={t('Use the theme colour')} title={t('Use the theme colour')}><Icon name="x" /></button>{/if}
                 </div>
               {/each}
@@ -592,6 +607,12 @@
               <button aria-pressed={look.density !== 'compact'} onclick={() => app.saveLook((l) => delete l.density)}>{t('Comfortable')}</button>
               <button aria-pressed={look.density === 'compact'} onclick={() => app.saveLook((l) => (l.density = 'compact'))}>{t('Compact')}</button>
             </div></div>
+          <div class="fld"><span class="lbl">{t('Country shown as')}</span>
+            <div class="seg" role="group" aria-label={t('Country shown as')}>
+              <button aria-pressed={!app.flags} onclick={() => app.setFlags(false)}>{t('Code')}</button>
+              <button aria-pressed={app.flags} onclick={() => app.setFlags(true)}>{t('Flag')}</button>
+            </div>
+            {#if app.platform === 'windows'}<small class="muted">{t('Windows draws flags as letters.')}</small>{/if}</div>
           <div class="fld full"><label for="lk-scale">{t('Size')} <span class="num val">{look.scale ?? 100}%</span></label>
             <input id="lk-scale" type="range" min={LIMITS.scale[0]} max={LIMITS.scale[1]} step="5" value={look.scale ?? 100}
               oninput={(e) => app.previewLook((l) => (l.scale = Number(e.currentTarget.value)))} onchange={(e) => app.saveLook((l) => { const v = Number(e.currentTarget.value); if (v === 100) delete l.scale; else l.scale = v; })} /></div>
@@ -757,7 +778,8 @@
   .sw-pick { position: relative; flex: none; width: 32px; height: 32px; border-radius: 8px; background: var(--c); box-shadow: inset 0 0 0 1px var(--line-2); cursor: pointer; overflow: hidden; }
   .sw-pick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
   .sw-t { flex: 1; min-width: 0; display: flex; flex-direction: column; font-size: 13px; font-weight: 500; }
-  .sw-t small { font: 400 11px var(--f-mono); color: var(--faint); }
+  .sw-t .hex { width: 100%; min-width: 0; padding: 2px 6px; font: 400 11px var(--f-mono); color: var(--fg); background: transparent; border: 1px solid transparent; border-radius: 6px; }
+  .sw-t .hex:hover, .sw-t .hex:focus { border-color: var(--line-2); outline: none; }
   .sw-x { padding: 4px; }
   .val { color: var(--muted); font-weight: 400; margin-inline-start: 6px; }
   .warn-t { color: var(--warn); }

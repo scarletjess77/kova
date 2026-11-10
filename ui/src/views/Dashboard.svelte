@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { api, errText, type CorePreference, type ExitInfo, type Mode, type Preset, type Quality } from '../lib/api';
-  import { countryCode, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
+  import { countryLabel, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
@@ -223,7 +223,7 @@
           <div class="route">
             {#each chain.slice(0, -1) as c (c)}<span>{c}</span><span class="sep">›</span>{/each}
             {#if endNode}
-              <span class="cc">{countryCode(endNode) ?? '··'}</span><span class="end">{displayName(endNode)}</span>
+              <span class="cc">{countryLabel(endNode, app.flags)}</span><span class="end">{displayName(endNode)}</span>
               {#if endInfo}<span class="chip">{endInfo.protocol} · {endInfo.transport}</span>{/if}
             {/if}
           </div>
@@ -351,7 +351,7 @@
         {#each quick as name (name)}
           {@const isGroup = app.proxies.groups.some((g) => g.name === name)}
           <button aria-pressed={mainGroup.now === name} onclick={() => app.select(mainGroup!.name, name)}>
-            <span class="cc">{#if isGroup}<Icon name="bolt" />{:else}{countryCode(name) ?? '··'}{/if}</span>
+            <span class="cc">{#if isGroup}<Icon name="bolt" />{:else}{countryLabel(name, app.flags)}{/if}</span>
             <span class="nm">{displayName(name)}<span class="pr"> · {isGroup ? t('now {name}', { name: displayName(app.resolve(name)) }) : (app.nodes[name]?.protocol ?? '')}</span></span>
             <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
           </button>

@@ -62,6 +62,17 @@ export function countryCode(name: string): string | null {
   return null;
 }
 
+/** The flag emoji of a two-letter country code. */
+export function flagEmoji(code: string): string {
+  return String.fromCodePoint(...[...code.toUpperCase()].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+}
+
+/** What a country chip shows: the flag when that is wanted, otherwise the code. */
+export function countryLabel(name: string, flags: boolean): string {
+  const code = countryCode(name);
+  return code ? (flags ? flagEmoji(code) : code) : '··';
+}
+
 /** Node name without a leading flag emoji. */
 export function displayName(name: string): string {
   return name.replace(/^[\u{1F1E6}-\u{1F1FF}]{2}\s*/u, '').trim() || name;

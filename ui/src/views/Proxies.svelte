@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { countryCode, displayName } from '../lib/format';
+  import { countryCode, countryLabel, displayName } from '../lib/format';
   import { t, tn } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
@@ -121,7 +121,7 @@
               {@const sub = isGroup(name)}
               <button class="node" class:is-group={sub} aria-pressed={group.now === name} onclick={() => pick(name)}>
                 <span class="r1">
-                  <span class="cc">{#if sub}<Icon name="bolt" />{:else}{countryCode(name) ?? '··'}{/if}</span>
+                  <span class="cc">{#if sub}<Icon name="bolt" />{:else}{countryLabel(name, app.flags)}{/if}</span>
                   <b title={name}>{displayName(name)}</b>
                   <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
                 </span>
