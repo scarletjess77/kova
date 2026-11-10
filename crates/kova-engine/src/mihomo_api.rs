@@ -9,12 +9,17 @@ use serde_json::Value;
 
 use crate::Error;
 
+/// Provider server name → its provider, once known.
+type Owners = std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<HashMap<String, String>>>>>;
+
 #[derive(Clone)]
 pub struct Mihomo {
     base: String,
     secret: String,
     http: reqwest::Client,
     stream_http: reqwest::Client,
+    /// Which proxy provider each provider server belongs to (see `proxies`).
+    owners: Owners,
 }
 
 fn seg(s: &str) -> String {
@@ -88,11 +93,34 @@ pub struct ConnectionsSnapshot {
     pub connections: Vec<Connection>,
 }
 
+fn proxy_info(name: &str, p: &Value) -> ProxyInfo {
+    let delay = p["history"].as_array().and_then(|h| h.last()).and_then(|h| h["delay"].as_u64()).filter(|d| *d > 0).map(|d| d as u32);
+    ProxyInfo {
+        name: name.to_string(),
+        kind: p["type"].as_str().unwrap_or_default().to_string(),
+        udp: p["udp"].as_bool().unwrap_or(false),
+        alive: p["alive"].as_bool().unwrap_or(true),
+        delay,
+    }
+}
+
+/// The servers in Mihomo's `/providers/proxies` answer, as (provider, server). The
+/// provider holding the profile's own servers (`Compatible`) is left out: `/proxies`
+/// has those.
+fn provider_servers_of(v: &Value) -> Vec<(String, Value)> {
+    let Some(providers) = v["providers"].as_object() else { return Vec::new() };
+    providers
+        .iter()
+        .filter(|(_, p)| p["vehicleType"].as_str() != Some("Compatible"))
+        .flat_map(|(name, p)| p["proxies"].as_array().into_iter().flatten().map(move |s| (name.clone(), s.clone())))
+        .collect()
+}
+
 impl Mihomo {
     pub fn new(port: u16, secret: &str) -> Self {
         let http = crate::fetch::builder().no_proxy().timeout(Duration::from_secs(15)).build().expect("client");
         let stream_http = crate::fetch::builder().no_proxy().build().expect("client");
-        Self { base: format!("http://127.0.0.1:{port}"), secret: secret.to_string(), http, stream_http }
+        Self { base: format!("http://127.0.0.1:{port}"), secret: secret.to_string(), http, stream_http, owners: Default::default() }
     }
 
     fn req(&self, c: &reqwest::Client, method: reqwest::Method, path: &str) -> reqwest::RequestBuilder {
@@ -130,18 +158,18 @@ impl Mihomo {
         let map = v["proxies"].as_object().cloned().unwrap_or_default();
         let mut snap = ProxySnapshot::default();
         for (name, p) in &map {
-            let delay = p["history"].as_array().and_then(|h| h.last()).and_then(|h| h["delay"].as_u64()).filter(|d| *d > 0).map(|d| d as u32);
-            snap.proxies.insert(
-                name.clone(),
-                ProxyInfo {
-                    name: name.clone(),
-                    kind: p["type"].as_str().unwrap_or_default().to_string(),
-                    udp: p["udp"].as_bool().unwrap_or(false),
-                    alive: p["alive"].as_bool().unwrap_or(true),
-                    delay,
-                },
-            );
+            snap.proxies.insert(name.clone(), proxy_info(name, p));
         }
+        // Servers that come from a proxy provider are not in `/proxies`; they are listed
+        // under the provider.
+        let mut owners = HashMap::new();
+        for (provider, p) in self.provider_servers().await {
+            if let Some(name) = p["name"].as_str().filter(|n| !snap.proxies.contains_key(*n)) {
+                snap.proxies.insert(name.to_string(), proxy_info(name, &p));
+                owners.insert(name.to_string(), provider);
+            }
+        }
+        *self.owners.lock().unwrap() = Some(std::sync::Arc::new(owners));
         // GLOBAL lists every group in config order; use it to order the groups.
         let order: Vec<String> = map.get("GLOBAL").and_then(|g| g["all"].as_array()).map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default();
         let to_group = |name: &str, p: &Value| -> Option<ProxyGroup> {
@@ -166,9 +194,37 @@ impl Mihomo {
         if r.status().is_success() { Ok(()) } else { Err(Error::Core(format!("could not select {name} in {group}"))) }
     }
 
+    /// Every server of every proxy provider, with the provider's name. Mihomo keeps them
+    /// out of `/proxies`.
+    async fn provider_servers(&self) -> Vec<(String, Value)> {
+        match self.json("/providers/proxies").await {
+            Ok(v) => provider_servers_of(&v),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// The URL that measures one server: servers of a proxy provider are found under it.
+    async fn delay_path(&self, name: &str, url: &str, timeout_ms: u32) -> String {
+        let cached = self.owners.lock().unwrap().clone();
+        let owners = match cached {
+            Some(o) => o,
+            None => {
+                let o: HashMap<String, String> = self.provider_servers().await.into_iter().filter_map(|(provider, p)| Some((p["name"].as_str()?.to_string(), provider))).collect();
+                let o = std::sync::Arc::new(o);
+                *self.owners.lock().unwrap() = Some(o.clone());
+                o
+            }
+        };
+        let query = format!("timeout={timeout_ms}&url={}", percent_encode(url));
+        match owners.get(name) {
+            Some(provider) => format!("/providers/proxies/{}/{}/healthcheck?{query}", seg(provider), seg(name)),
+            None => format!("/proxies/{}/delay?{query}", seg(name)),
+        }
+    }
+
     /// Measure one proxy. `Ok(None)` means it timed out or failed.
     pub async fn delay(&self, name: &str, url: &str, timeout_ms: u32) -> Result<Option<u32>, Error> {
-        let path = format!("/proxies/{}/delay?timeout={timeout_ms}&url={}", seg(name), percent_encode(url));
+        let path = self.delay_path(name, url, timeout_ms).await;
         match self.json(&path).await {
             Ok(v) => Ok(v["delay"].as_u64().filter(|d| *d > 0).map(|d| d as u32)),
             Err(Error::Core(_)) => Ok(None),
@@ -178,7 +234,7 @@ impl Mihomo {
 
     /// Why one proxy's latency test failed, in Mihomo's words, for the log.
     pub async fn delay_failure(&self, name: &str, url: &str, timeout_ms: u32) -> String {
-        let path = format!("/proxies/{}/delay?timeout={timeout_ms}&url={}", seg(name), percent_encode(url));
+        let path = self.delay_path(name, url, timeout_ms).await;
         match self.json(&path).await {
             Ok(_) => "it answered this time".to_string(),
             Err(e) => e.to_string(),
@@ -273,5 +329,26 @@ impl Mihomo {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_servers_are_listed_with_their_provider() {
+        let v: Value = serde_json::json!({ "providers": {
+            "default": { "vehicleType": "Compatible", "proxies": [{ "name": "direct", "type": "Direct" }] },
+            "机场": { "vehicleType": "File", "proxies": [
+                { "name": "HK 01", "type": "Trojan", "udp": true, "history": [{ "delay": 80 }] },
+                { "name": "JP 01", "type": "Vless" } ] }
+        }});
+        let found = provider_servers_of(&v);
+        assert_eq!(found.len(), 2, "{found:?}");
+        assert!(found.iter().all(|(p, _)| p == "机场"));
+        let info = proxy_info("HK 01", &found[0].1);
+        assert_eq!((info.kind.as_str(), info.udp, info.delay), ("Trojan", true, Some(80)));
+        assert!(provider_servers_of(&Value::Null).is_empty());
     }
 }
