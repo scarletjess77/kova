@@ -13,7 +13,11 @@ if (!tag || !repo) throw new Error('usage: GITHUB_REPOSITORY=owner/name node scr
 const gh = (...args) => execFileSync('gh', [...args, '-R', repo], { encoding: 'utf8' });
 const download = (name) => gh('release', 'download', tag, '-p', name, '-O', '-');
 
+const version = tag.replace(/^v/, '');
 const assets = JSON.parse(gh('release', 'view', tag, '--json', 'assets')).assets.map((a) => a.name);
+// Only this version's own files: a tag pushed again after a fix can leave the first
+// build's files on the release, and those must never end up in latest.json.
+const mine = (name) => name.startsWith(`Kova_${version}_`);
 
 // The updater looks up "<os>-<arch>-<installer>" first, then "<os>-<arch>"; one Mac app
 // serves both processors. The second names are the ones releases had before 0.1.18.
@@ -37,7 +41,7 @@ const signatures = {};
 const platforms = {};
 const missing = [];
 for (const [key, pattern] of Object.entries(PACKAGES)) {
-  const name = assets.find((n) => pattern.test(n));
+  const name = assets.find((n) => mine(n) && pattern.test(n));
   const url = name && `https://github.com/${repo}/releases/download/${tag}/${name}`;
   if (name && assets.includes(`${name}.sig`)) {
     signatures[name] ??= download(`${name}.sig`).trim();
@@ -54,7 +58,7 @@ if (!Object.keys(platforms).length) throw new Error('no signed packages in this 
 if (missing.length) console.warn(`no signed package yet for ${missing.join(', ')}`);
 
 // Kova shows the release's own notes; they are written after the build.
-const manifest = { version: tag.replace(/^v/, ''), notes: '', pub_date: new Date().toISOString(), platforms };
+const manifest = { version, notes: '', pub_date: new Date().toISOString(), platforms };
 writeFileSync('latest.json', `${JSON.stringify(manifest, null, 2)}\n`);
 gh('release', 'upload', tag, 'latest.json', '--clobber');
 for (const sig of assets.filter((n) => n.endsWith('.sig'))) gh('release', 'delete-asset', tag, sig, '--yes');
