@@ -20,6 +20,9 @@
   const setView = (k: 'compact' | 'protocol' | 'transport' | 'cores') => app.saveLayout({ ...app.layout, proxies: { ...view, [k]: !view[k] } });
 
   let groupName = $state<string | null>(null);
+  // One column (a phone held upright): only the chosen group shows, so its servers are not
+  // pushed below a list of every group. Tapping it opens the list.
+  let groupsOpen = $state(false);
   let q = $state('');
   type Sort = 'latency' | 'name' | 'profile';
   // The chosen order is kept between visits and restarts.
@@ -99,11 +102,11 @@
   </div>
 {:else}
   <div class="px">
-    <div class="groups">
+    <div class="groups" class:open={groupsOpen}>
       {#each groups as g (g.name)}
         {@const end = app.resolve(g.name)}
-        <button class="grp" onclick={() => (groupName = g.name)} aria-current={g.name === group?.name}>
-          <span class="top"><b>{g.name}</b><span class="chip mono">{KIND[g.type] ?? g.type.toLowerCase()}</span></span>
+        <button class="grp" onclick={() => { if (g.name === group?.name) groupsOpen = !groupsOpen; else { groupName = g.name; groupsOpen = false; } }} aria-current={g.name === group?.name} aria-expanded={g.name === group?.name ? groupsOpen : undefined}>
+          <span class="top"><b>{g.name}</b><span class="chip mono">{KIND[g.type] ?? g.type.toLowerCase()}</span>{#if g.name === group?.name}<span class="more" aria-hidden="true">{groupsOpen ? '▴' : '▾'} {groups.length}</span>{/if}</span>
           <span class="now">{g.now && g.now !== end ? `${displayName(g.now)} › ` : ''}{displayName(end)}{app.delays[end] != null ? ` · ${t('{n} ms', { n: app.delays[end]! })}` : ''}</span>
         </button>
       {/each}
@@ -149,7 +152,14 @@
 <style>
   .sort { width: auto; }
   .px { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 16px; align-items: start; }
-  @container (max-width: 700px) { .px { grid-template-columns: minmax(0, 1fr); } }
+  @container (max-width: 700px) {
+    .px { grid-template-columns: minmax(0, 1fr); }
+    .groups { position: static; }
+    .groups:not(.open) .grp:not([aria-current='true']) { display: none; }
+    .groups.open { max-height: 60vh; overflow: auto; }
+    .more { display: inline; margin-inline-start: 6px; font: 500 11px var(--f-mono); color: var(--muted); }
+  }
+  .more { display: none; }
   .groups { display: flex; flex-direction: column; gap: 6px; position: sticky; top: 0; }
   .grp { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; min-width: 0; }
   .grp:hover { border-color: var(--line-2); }

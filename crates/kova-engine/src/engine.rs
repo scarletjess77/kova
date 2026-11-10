@@ -196,6 +196,8 @@ pub struct Engine {
     quiet: std::sync::atomic::AtomicBool,
     /// Android: the phone is on mobile data rather than Wi-Fi (see `mobile_server`).
     on_mobile: std::sync::atomic::AtomicBool,
+    /// A restart after the network came back is under way.
+    network_restarting: std::sync::atomic::AtomicBool,
     /// Numbers latency tests, so a newer one replaces an older one still running.
     delay_run: std::sync::atomic::AtomicU64,
     /// Android: the DNS servers of the network the phone is on (see `set_network_dns`).
@@ -334,6 +336,7 @@ impl Engine {
             node_failures: Default::default(),
             quiet: Default::default(),
             on_mobile: Default::default(),
+            network_restarting: Default::default(),
             delay_run: Default::default(),
             network_dns: Default::default(),
             holding: Default::default(),
@@ -2029,6 +2032,15 @@ impl Engine {
             }
         }
         drop(checks);
+        // Nothing answered: say why in the log, as the toast can only say that.
+        if current()
+            && !map.is_empty()
+            && map.values().all(Option::is_none)
+            && let Some(first) = map.keys().next()
+        {
+            let why = api.delay_failure(first, &test_url, 5000).await;
+            self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("none of {} servers answered {test_url} within 5 s; {first}: {why}", map.len()) });
+        }
         if let Some(t) = tester {
             t.shutdown().await;
         }
@@ -2049,6 +2061,25 @@ impl Engine {
     /// Android: the screen went off or on.
     pub fn set_quiet(&self, quiet: bool) {
         self.quiet.store(quiet, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// Android: the phone had no network at all (airplane mode, a tunnel) and has one again.
+    /// The core's connections, and the sockets it keeps for its servers, died with the old
+    /// one, and the network usually comes back as the same kind, so nothing else notices.
+    /// Starting the core over is what reconnecting by hand does.
+    pub async fn network_restored(&self) {
+        use std::sync::atomic::Ordering::SeqCst;
+        // The link and its DNS are not ready the moment the network reports back.
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        if !self.status().running || !self.has_tun_fd() || self.network_restarting.swap(true, SeqCst) {
+            return;
+        }
+        let restarted = self.restart().await;
+        self.network_restarting.store(false, SeqCst);
+        match restarted {
+            Ok(()) => self.emit(Event::Log { source: "kova".into(), level: "info".into(), message: "the network came back; the connection was started over".into() }),
+            Err(e) => tracing::warn!("restart after the network came back failed: {e}"),
+        }
     }
 
     /// Android: the phone moved between Wi-Fi and mobile data. With a server set for
