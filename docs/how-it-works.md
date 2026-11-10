@@ -54,7 +54,7 @@ The Russia source enables the **Only blocked sites through the proxy** preset (R
 **Where the files are** (`%APPDATA%\app.kova.client` on Windows, or `KOVA_DATA_DIR`):
 
 - `cores\geoip.dat`, `cores\geosite.dat` and `cores\geodata.json` (source and date). Xray reads these directly.
-- `runtime\main\mihomo\GeoIP.dat` and `GeoSite.dat`, copied from `cores` when they change.
+- `runtime\main\mihomo\GeoIP.dat` and `GeoSite.dat`, hard-linked from `cores` when they change (a copy where the filesystem doesn't allow a link).
 - With the Kova service: its own copy in `C:\Program Files\Kova Service\cores`, refreshed on a source switch.
 
 Custom files can also be dropped into `cores`; they are used until the next scheduled update replaces them.

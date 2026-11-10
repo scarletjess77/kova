@@ -1,8 +1,9 @@
 //! Downloading and installing GeoIP / GeoSite databases.
 //!
 //! The files live in the cores folder (Xray reads them from there through
-//! `XRAY_LOCATION_ASSET`) and are copied into each Mihomo home as `GeoIP.dat` /
-//! `GeoSite.dat`. `geodata.json` beside them records where they came from.
+//! `XRAY_LOCATION_ASSET`) and are hard-linked into each Mihomo home as `GeoIP.dat` /
+//! `GeoSite.dat`, so the ~90 MB Russian lists exist once no matter how many homes use
+//! them. `geodata.json` beside them records where they came from.
 //!
 //! Every source also keeps its own copy in `geodata-cache/<id>/`, so switching back to a
 //! source downloaded recently is a local copy, not another 90 MB download.
@@ -106,12 +107,16 @@ fn is_fresh(dir: &Path, source: &GeoSource) -> Option<Marker> {
     (complete && m.source == source.id() && now() - m.updated_at < max_age(source)).then_some(m)
 }
 
-/// Copy keeping the modification time, so later "is it the same file" checks work.
-fn copy_preserving(from: &Path, to: &Path) -> std::io::Result<()> {
+/// Put `from`'s bytes at `to`, keeping the modification time, so later "is it the same
+/// file" checks work. A hard link where the filesystem allows one — the linked places
+/// then share one copy of the file — and a plain copy where it does not.
+fn place(from: &Path, to: &Path) -> std::io::Result<()> {
     let tmp = crate::store::temp_path(to);
-    std::fs::copy(from, &tmp)?;
-    if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
-        let _ = std::fs::File::options().write(true).open(&tmp).and_then(|f| f.set_modified(t));
+    if std::fs::hard_link(from, &tmp).is_err() {
+        std::fs::copy(from, &tmp)?;
+        if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
+            let _ = std::fs::File::options().write(true).open(&tmp).and_then(|f| f.set_modified(t));
+        }
     }
     std::fs::rename(&tmp, to).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
@@ -121,7 +126,7 @@ fn copy_preserving(from: &Path, to: &Path) -> std::io::Result<()> {
 /// Make the copy in `from` the active one.
 fn install(from: &Path, cores_dir: &Path) -> Result<Marker, Error> {
     for f in FILES.iter().chain(std::iter::once(&MARKER)) {
-        copy_preserving(&from.join(f), &cores_dir.join(f))?;
+        place(&from.join(f), &cores_dir.join(f))?;
     }
     marker(cores_dir).ok_or_else(|| Error::Other("the routing data could not be installed".into()))
 }
@@ -209,7 +214,7 @@ async fn download_into(dir: &Path, source: &GeoSource, proxy: Option<&str>) -> R
     Ok(m)
 }
 
-/// Copy the installed files into a Mihomo home when its copies differ. "Differ", not
+/// Link the installed files into a Mihomo home when its copies differ. "Differ", not
 /// "older": switching back to a cached source installs files with an earlier date.
 pub fn seed_mihomo_home(cores_dir: &Path, home: &Path) {
     for (src, dst) in [("geoip.dat", "GeoIP.dat"), ("geosite.dat", "GeoSite.dat")] {
@@ -218,7 +223,7 @@ pub fn seed_mihomo_home(cores_dir: &Path, home: &Path) {
         let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok()));
         match stamp(&from) {
             Some(f) if stamp(&to) != Some(f) => {
-                let _ = copy_preserving(&from, &to);
+                let _ = place(&from, &to);
             }
             _ => {}
         }
@@ -258,5 +263,25 @@ mod tests {
         let b = crate::store::temp_path(p);
         assert_ne!(a, b);
         assert_eq!(a.parent(), p.parent());
+    }
+
+    #[test]
+    fn homes_share_one_copy_where_the_filesystem_allows() {
+        let dir = tempfile::tempdir().unwrap();
+        let (a, b) = (dir.path().join("a"), dir.path().join("b"));
+        std::fs::create_dir_all(&a).unwrap();
+        std::fs::create_dir_all(&b).unwrap();
+        std::fs::write(a.join("geoip.dat"), [1u8, 2, 3]).unwrap();
+        place(&a.join("geoip.dat"), &b.join("geoip.dat")).unwrap();
+        assert_eq!(std::fs::read(b.join("geoip.dat")).unwrap(), [1, 2, 3]);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::MetadataExt;
+            let (ma, mb) = (
+                std::fs::metadata(a.join("geoip.dat")).unwrap(),
+                std::fs::metadata(b.join("geoip.dat")).unwrap(),
+            );
+            assert_eq!((ma.dev(), ma.ino()), (mb.dev(), mb.ino()));
+        }
     }
 }
