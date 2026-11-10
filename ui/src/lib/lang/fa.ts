@@ -509,7 +509,6 @@ export const fa: Dict = {
   'Country shown as': 'نمایش کشور به‌صورت',
   'Code': 'کد',
   'Flag': 'پرچم',
-  'Windows draws flags as letters.': 'ویندوز پرچم‌ها را به‌صورت حروف نشان می‌دهد.',
   'Copy list': 'کپی فهرست',
   'Paste list': 'چسباندن فهرست',
   'List copied': 'فهرست کپی شد',

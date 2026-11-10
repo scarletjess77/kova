@@ -611,8 +611,7 @@
             <div class="seg" role="group" aria-label={t('Country shown as')}>
               <button aria-pressed={!app.flags} onclick={() => app.setFlags(false)}>{t('Code')}</button>
               <button aria-pressed={app.flags} onclick={() => app.setFlags(true)}>{t('Flag')}</button>
-            </div>
-            {#if app.platform === 'windows'}<small class="muted">{t('Windows draws flags as letters.')}</small>{/if}</div>
+            </div></div>
           <div class="fld full"><label for="lk-scale">{t('Size')} <span class="num val">{look.scale ?? 100}%</span></label>
             <input id="lk-scale" type="range" min={LIMITS.scale[0]} max={LIMITS.scale[1]} step="5" value={look.scale ?? 100}
               oninput={(e) => app.previewLook((l) => (l.scale = Number(e.currentTarget.value)))} onchange={(e) => app.saveLook((l) => { const v = Number(e.currentTarget.value); if (v === 100) delete l.scale; else l.scale = v; })} /></div>

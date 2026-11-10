@@ -45,11 +45,11 @@ class AppState {
    *  change. Any change to the core restarts the connection, so these wait for Apply and
    *  are then saved together, with a single restart. */
   rulesDraft = $state<Partial<Core> | null>(null);
-  /** Flag emoji instead of country codes: the choice on this device. Unset, flags show
-   *  wherever the system draws them, which Windows does not. */
+  /** Flag emoji instead of country codes: the choice on this device. Unset, flags show:
+   *  the bundled font draws them on Windows too. */
   flagsChoice = $state<boolean | null>(readFlagsChoice());
   get flags(): boolean {
-    return this.flagsChoice ?? this.platform !== 'windows';
+    return this.flagsChoice ?? true;
   }
   setFlags(on: boolean) {
     this.flagsChoice = on;

@@ -72,3 +72,5 @@ The same address, with a QR code, is under **Donate** in the app.
 ## License
 
 Copyright © 2026 scarletjess77. [GPL-3.0-or-later](LICENSE).
+
+The country chip flags use the [Twemoji Country Flags](https://github.com/talkjs/country-flag-emoji-polyfill) font, whose glyphs are [Twemoji](https://twitter.github.io/twemoji) artwork, used under [CC-BY-4.0](https://creativecommons.org/licenses/by/4.0/).

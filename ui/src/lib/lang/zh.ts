@@ -508,7 +508,6 @@ export const zh: Dict = {
   'Country shown as': '国家显示为',
   'Code': '代码',
   'Flag': '旗帜',
-  'Windows draws flags as letters.': 'Windows 会把旗帜显示为字母。',
   'Copy list': '复制列表',
   'Paste list': '粘贴列表',
   'List copied': '列表已复制',

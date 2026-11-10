@@ -558,7 +558,6 @@ export const ru: Dict = {
   'Country shown as': 'Страна показана как',
   'Code': 'Код',
   'Flag': 'Флаг',
-  'Windows draws flags as letters.': 'Windows показывает флаги буквами.',
   'Copy list': 'Копировать список',
   'Paste list': 'Вставить список',
   'List copied': 'Список скопирован',
