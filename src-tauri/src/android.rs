@@ -347,6 +347,11 @@ pub async fn device(app: &AppHandle) -> Result<serde_json::Value, Error> {
     call(app, "device", ()).await
 }
 
+/// Colour the area behind the status and navigation bars like the page.
+pub async fn bar_color(app: &AppHandle, color: &str) -> Result<(), Error> {
+    call::<serde_json::Value>(app, "barColor", serde_json::json!({ "color": color })).await.map(|_| ())
+}
+
 /// Hide or show the status and navigation bars.
 pub async fn full_screen(app: &AppHandle, on: bool) -> Result<(), Error> {
     call::<serde_json::Value>(app, "fullScreen", serde_json::json!({ "on": on })).await.map(|_| ())

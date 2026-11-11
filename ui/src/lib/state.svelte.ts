@@ -542,6 +542,21 @@ class AppState {
     i18n.lang = resolveLang(this.settings?.language, this.systemLang);
     document.documentElement.lang = i18n.lang;
     document.documentElement.dir = isRtl(i18n.lang) ? 'rtl' : 'ltr';
+    if (this.platform === 'android') this.syncBars();
+  }
+
+  private barColor = '';
+  /** Android: the area behind the status and navigation bars takes the page's colour. */
+  private syncBars() {
+    // The new theme's colours apply on the next frame.
+    requestAnimationFrame(() => {
+      const m = getComputedStyle(document.body).backgroundColor.match(/\d+(\.\d+)?/g);
+      if (!m || m.length < 3) return;
+      const hex = '#' + m.slice(0, 3).map((n) => Math.round(Number(n)).toString(16).padStart(2, '0')).join('');
+      if (hex === this.barColor) return;
+      this.barColor = hex;
+      api.setBarColor(hex).catch(() => { this.barColor = ''; });
+    });
   }
 
   async toggleConnection() {

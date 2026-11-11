@@ -230,6 +230,7 @@ export const api = {
   deviceInfo: () => invoke<DeviceInfo>('device_info'),
   allowBackground: () => invoke<void>('allow_background'),
   openAutostart: () => invoke<void>('open_autostart'),
+  setBarColor: (color: string) => invoke<void>('set_bar_color', { color }),
   setFullScreen: (on: boolean) => invoke<void>('set_full_screen', { on }),
   lastCrash: () => invoke<{ time: number; text: string } | null>('last_crash'),
   crashNotice: () => invoke<boolean>('crash_notice'),

@@ -541,6 +541,18 @@ async fn allow_background(app: AppHandle) -> R<()> {
     }
 }
 
+/// Android: the page's background colour, for the area behind the system bars.
+#[tauri::command]
+async fn set_bar_color(app: AppHandle, color: String) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::bar_color(&app, &color).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, color);
+        Err(Error::Other("Only on Android".into()))
+    }
+}
+
 /// Android: hide or show the status and navigation bars.
 #[tauri::command]
 async fn set_full_screen(app: AppHandle, on: bool) -> R<()> {
@@ -1065,6 +1077,7 @@ pub fn run() {
             allow_background,
             open_autostart,
             set_full_screen,
+            set_bar_color,
             backup::backup_save,
             backup::backup_open,
             backup::backup_restore,

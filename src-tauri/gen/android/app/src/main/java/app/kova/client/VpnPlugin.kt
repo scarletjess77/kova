@@ -33,6 +33,11 @@ class DetailsArgs {
 }
 
 @InvokeArg
+class BarColorArgs {
+    var color: String = ""
+}
+
+@InvokeArg
 class FullScreenArgs {
     var on: Boolean = false
 }
@@ -159,6 +164,21 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
                 .put("maker", Build.MANUFACTURER.lowercase())
                 .put("fullScreen", MainActivity.fullScreen(current))
         )
+    }
+
+    /** The page's background colour (`#rrggbb`), for the area behind the bars. */
+    @Command
+    fun barColor(invoke: Invoke) {
+        val args = invoke.parseArgs(BarColorArgs::class.java)
+        try {
+            android.graphics.Color.parseColor(args.color)
+        } catch (e: IllegalArgumentException) {
+            invoke.reject("not a colour")
+            return
+        }
+        MainActivity.setBarColor(current, args.color)
+        current.runOnUiThread { (current as? MainActivity)?.applyBarColor() }
+        invoke.resolve()
     }
 
     /** Hide or show the status and navigation bars; kept for the next start too. */

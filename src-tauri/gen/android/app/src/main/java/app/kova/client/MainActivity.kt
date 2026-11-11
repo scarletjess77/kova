@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.View
 import androidx.activity.enableEdgeToEdge
+import androidx.core.graphics.ColorUtils
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -35,6 +36,17 @@ class MainActivity : TauriActivity() {
 
     private const val PREFS = "kova.window"
     private const val FULL_SCREEN = "full_screen"
+    private const val BAR_COLOR = "bar_color"
+    private const val DEFAULT_BAR = "#101012"
+
+    /** The page's background, which shows behind the status and navigation bars. Kept
+     *  between starts, so the bars match the theme before the page has loaded. */
+    fun barColor(context: Context): Int =
+      Color.parseColor(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(BAR_COLOR, DEFAULT_BAR) ?: DEFAULT_BAR)
+
+    fun setBarColor(context: Context, color: String) {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(BAR_COLOR, color).apply()
+    }
 
     /** Whether the status and navigation bars are kept hidden (full screen). */
     fun fullScreen(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(FULL_SCREEN, false)
@@ -42,6 +54,16 @@ class MainActivity : TauriActivity() {
     fun setFullScreen(context: Context, on: Boolean) {
       context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(FULL_SCREEN, on).apply()
     }
+  }
+
+  /** Colour the area behind the bars, and make their icons dark on a light colour. */
+  fun applyBarColor() {
+    val color = barColor(this)
+    findViewById<View>(android.R.id.content).setBackgroundColor(color)
+    val bars = WindowCompat.getInsetsController(window, window.decorView)
+    val light = ColorUtils.calculateLuminance(color) > 0.5
+    bars.isAppearanceLightStatusBars = light
+    bars.isAppearanceLightNavigationBars = light
   }
 
   /**
@@ -65,7 +87,7 @@ class MainActivity : TauriActivity() {
     // Android draws apps under the status and navigation bars; keep the page clear of
     // them (and of a camera cutout or the keyboard), with the app's background behind.
     val root = findViewById<View>(android.R.id.content)
-    root.setBackgroundColor(Color.parseColor("#101012"))
+    applyBarColor()
     ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
       val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout() or WindowInsetsCompat.Type.ime())
       view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
