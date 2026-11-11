@@ -347,6 +347,11 @@ pub async fn device(app: &AppHandle) -> Result<serde_json::Value, Error> {
     call(app, "device", ()).await
 }
 
+/// Hide or show the status and navigation bars.
+pub async fn full_screen(app: &AppHandle, on: bool) -> Result<(), Error> {
+    call::<serde_json::Value>(app, "fullScreen", serde_json::json!({ "on": on })).await.map(|_| ())
+}
+
 /// Ask to be left out of battery saving.
 pub async fn allow_background(app: &AppHandle) -> Result<(), Error> {
     call::<serde_json::Value>(app, "allowBackground", ()).await.map(|_| ())

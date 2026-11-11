@@ -168,7 +168,7 @@ export interface Connection {
 export interface ConnectionsSnapshot { upload_total: number; download_total: number; connections: Connection[] }
 
 export interface CoreStatus { core: CoreKind; installed: string | null; latest: string | null }
-export interface DeviceInfo { tv: boolean; camera: boolean; batteryFree?: boolean; maker?: string }
+export interface DeviceInfo { tv: boolean; camera: boolean; batteryFree?: boolean; maker?: string; fullScreen?: boolean }
 export interface BackupSummary { needs_password: boolean; kova: string | null; created: number | null; profiles: string[] }
 
 export interface ExitInfo { ip: string; country: string; country_code: string; city: string; network: string }
@@ -230,6 +230,7 @@ export const api = {
   deviceInfo: () => invoke<DeviceInfo>('device_info'),
   allowBackground: () => invoke<void>('allow_background'),
   openAutostart: () => invoke<void>('open_autostart'),
+  setFullScreen: (on: boolean) => invoke<void>('set_full_screen', { on }),
   lastCrash: () => invoke<{ time: number; text: string } | null>('last_crash'),
   crashNotice: () => invoke<boolean>('crash_notice'),
   backupSave: (password: string | null, path: string | null, name: string) => invoke<boolean>('backup_save', { password, path, name }),

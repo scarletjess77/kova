@@ -33,6 +33,11 @@ class DetailsArgs {
 }
 
 @InvokeArg
+class FullScreenArgs {
+    var on: Boolean = false
+}
+
+@InvokeArg
 class ApkArgs {
     var path: String = ""
 }
@@ -152,7 +157,17 @@ class VpnPlugin(private val activity: Activity) : Plugin(activity) {
         invoke.resolve(
             JSObject().put("tv", tv).put("camera", camera).put("batteryFree", batteryFree)
                 .put("maker", Build.MANUFACTURER.lowercase())
+                .put("fullScreen", MainActivity.fullScreen(current))
         )
+    }
+
+    /** Hide or show the status and navigation bars; kept for the next start too. */
+    @Command
+    fun fullScreen(invoke: Invoke) {
+        val args = invoke.parseArgs(FullScreenArgs::class.java)
+        MainActivity.setFullScreen(current, args.on)
+        current.runOnUiThread { (current as? MainActivity)?.applyFullScreen() }
+        invoke.resolve()
     }
 
     /** Ask Android to leave Kova out of battery saving, which otherwise may stop the VPN

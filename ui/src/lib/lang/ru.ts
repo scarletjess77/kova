@@ -743,6 +743,9 @@ export const ru: Dict = {
   'Choose a file…': 'Выбрать файл…',
   'Choose the backup file': 'Выберите файл резервной копии',
   'Choose where to save the backup': 'Выберите, куда сохранить резервную копию',
+  'Full screen': 'Полный экран',
+  'Hides the status and navigation bars. Swipe in from the edge of the screen to show them for a moment.':
+    'Скрывает строку состояния и панель навигации. Проведите от края экрана, чтобы показать их ненадолго.',
   'Keep running in the background': 'Работа в фоне',
   'Kova backup': 'Резервная копия Kova',
   'Kova closed unexpectedly last time. Copy report in Logs includes what happened.': 'В прошлый раз Kova неожиданно закрылась. «Скопировать отчёт» в Журнале покажет, что случилось.',

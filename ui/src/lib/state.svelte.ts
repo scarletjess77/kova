@@ -101,6 +101,8 @@ class AppState {
   batteryFree = $state(true);
   /** Android: the phone's maker, lower case, for its own background settings. */
   maker = $state('');
+  /** Android: the status and navigation bars are hidden. */
+  fullScreen = $state(false);
   /** A connect or disconnect the user started is under way. On Android that includes
    *  the permission dialog and opening the VPN, before the engine reports busy. */
   toggling = $state(false);
@@ -520,6 +522,7 @@ class AppState {
     this.camera = d.camera;
     this.batteryFree = d.batteryFree ?? true;
     this.maker = d.maker ?? '';
+    this.fullScreen = d.fullScreen ?? false;
   }
 
   applyTheme() {

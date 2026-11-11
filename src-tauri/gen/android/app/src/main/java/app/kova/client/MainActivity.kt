@@ -7,6 +7,8 @@ import android.os.Bundle
 import android.view.View
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
@@ -30,6 +32,30 @@ class MainActivity : TauriActivity() {
      */
     @JvmStatic
     fun isOpen(): Boolean = live > 0
+
+    private const val PREFS = "kova.window"
+    private const val FULL_SCREEN = "full_screen"
+
+    /** Whether the status and navigation bars are kept hidden (full screen). */
+    fun fullScreen(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getBoolean(FULL_SCREEN, false)
+
+    fun setFullScreen(context: Context, on: Boolean) {
+      context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(FULL_SCREEN, on).apply()
+    }
+  }
+
+  /**
+   * Hide the system bars, or show them again. A swipe from the screen's edge brings them
+   * back for a moment, and they hide again by themselves.
+   */
+  fun applyFullScreen() {
+    val bars = WindowCompat.getInsetsController(window, window.decorView)
+    if (fullScreen(this)) {
+      bars.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+      bars.hide(WindowInsetsCompat.Type.systemBars())
+    } else {
+      bars.show(WindowInsetsCompat.Type.systemBars())
+    }
   }
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,6 +75,7 @@ class MainActivity : TauriActivity() {
     // again, it needs its page in this new window.
     if (opened) Actions.send(Actions.WINDOW, keep = true)
     opened = true
+    applyFullScreen()
     connectIfAsked(intent)
   }
 
@@ -67,7 +94,11 @@ class MainActivity : TauriActivity() {
   // page takes focus as soon as the window has it instead, touch mode or not.
   override fun onWindowFocusChanged(hasFocus: Boolean) {
     super.onWindowFocusChanged(hasFocus)
-    if (hasFocus) focusPage(20)
+    if (hasFocus) {
+      focusPage(20)
+      // Android shows the bars again after a dialog, the keyboard or a swipe.
+      applyFullScreen()
+    }
   }
 
   /** The page view appears a moment after the window, so look for it a few times. */

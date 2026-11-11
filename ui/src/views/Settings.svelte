@@ -379,6 +379,9 @@
           <div class="row-sw"><div><div class="t">{t('Always-on VPN and kill switch')}</div><div class="d">{t('Android starts Kova’s VPN by itself, after a restart too. Pick Kova in Android’s VPN settings and turn on Always-on VPN; also turn on Block connections without VPN to keep apps offline whenever Kova isn’t connected.')}</div></div>
             <button class="btn" onclick={() => app.run(() => api.openVpnSettings())}>{t('Open')}</button></div>
           {#if !app.tv}
+            <div class="row-sw"><div><div class="t">{t('Full screen')}</div><div class="d">{t('Hides the status and navigation bars. Swipe in from the edge of the screen to show them for a moment.')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Full screen')} aria-checked={app.fullScreen}
+                onclick={() => app.run(async () => { await api.setFullScreen(!app.fullScreen); app.fullScreen = !app.fullScreen; })}></button></div>
             <div class="row-sw"><div><div class="t">{t('Keep running in the background')}</div>
               <div class="d">{app.batteryFree ? t('Battery saving leaves Kova alone.') : t('Android may stop Kova to save battery while the screen is off. Allow it to keep running.')}</div></div>
               {#if !app.batteryFree}<button class="btn" onclick={() => app.run(() => api.allowBackground())}>{t('Allow')}</button>{/if}</div>

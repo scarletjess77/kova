@@ -694,6 +694,9 @@ export const fa: Dict = {
   'Choose a file…': 'انتخاب فایل…',
   'Choose the backup file': 'فایل نسخهٔ پشتیبان را انتخاب کنید',
   'Choose where to save the backup': 'جای ذخیرهٔ نسخهٔ پشتیبان را انتخاب کنید',
+  'Full screen': 'تمام‌صفحه',
+  'Hides the status and navigation bars. Swipe in from the edge of the screen to show them for a moment.':
+    'نوار وضعیت و نوار ناوبری را پنهان می‌کند. برای نمایش کوتاه آن‌ها از لبهٔ صفحه به داخل بکشید.',
   'Keep running in the background': 'اجرا در پس‌زمینه',
   'Kova backup': 'نسخهٔ پشتیبان Kova',
   'Kova closed unexpectedly last time. Copy report in Logs includes what happened.': 'Kova دفعهٔ قبل ناگهان بسته شد. «کپی گزارش» در گزارش‌ها نشان می‌دهد چه شد.',

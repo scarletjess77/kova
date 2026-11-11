@@ -693,6 +693,9 @@ export const zh: Dict = {
   'Choose a file…': '选择文件…',
   'Choose the backup file': '选择备份文件',
   'Choose where to save the backup': '请选择备份的保存位置',
+  'Full screen': '全屏',
+  'Hides the status and navigation bars. Swipe in from the edge of the screen to show them for a moment.':
+    '隐藏状态栏和导航栏。从屏幕边缘滑入可短暂显示。',
   'Keep running in the background': '后台运行',
   'Kova backup': 'Kova 备份',
   'Kova closed unexpectedly last time. Copy report in Logs includes what happened.': 'Kova 上次意外关闭。“日志”中的“复制报告”包含了发生的情况。',

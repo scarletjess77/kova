@@ -541,6 +541,18 @@ async fn allow_background(app: AppHandle) -> R<()> {
     }
 }
 
+/// Android: hide or show the status and navigation bars.
+#[tauri::command]
+async fn set_full_screen(app: AppHandle, on: bool) -> R<()> {
+    #[cfg(target_os = "android")]
+    return android::full_screen(&app, on).await;
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, on);
+        Err(Error::Other("Only on Android".into()))
+    }
+}
+
 /// Android: the phone maker's autostart settings.
 #[tauri::command]
 async fn open_autostart(app: AppHandle) -> R<()> {
@@ -1052,6 +1064,7 @@ pub fn run() {
             crash_notice,
             allow_background,
             open_autostart,
+            set_full_screen,
             backup::backup_save,
             backup::backup_open,
             backup::backup_restore,
