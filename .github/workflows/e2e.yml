@@ -1,0 +1,40 @@
+# The end-to-end tests: the real, pinned Mihomo and Xray, a local server, and a
+# connection through each kind of node, in the app's own path and through the Kova
+# service. They download the cores and take a few minutes, so they don't run on every
+# push: every night, whenever the pinned cores change, and when started by hand
+# (Actions → End to end → Run workflow) before a release. Actions are pinned to commits.
+name: End to end
+
+on:
+  schedule:
+    - cron: "41 3 * * *"
+  push:
+    branches: [main, beta]
+    paths: [scripts/android-cores.json]
+  pull_request:
+    paths: [scripts/android-cores.json]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # On Windows: the service path exists only there, and the rest runs the same anywhere.
+  windows:
+    runs-on: windows-latest
+    env:
+      # The cores come from GitHub's releases; runners share its limit for anonymous requests.
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+        with:
+          key: e2e
+      # Installs the pinned cores (checked against their pinned checksums) into
+      # target/test-cores, then connects through them.
+      - run: cargo test -p kova-engine --test e2e -- --ignored --nocapture
+      # Uses the cores the step above installed.
+      - run: cargo test -p kova-service --test service_e2e -- --ignored --nocapture
