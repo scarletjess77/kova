@@ -24,6 +24,15 @@ jobs:
           TAG: ${{ github.event.release.tag_name || inputs.tag }}
         run: |
           if (-not $env:WINGET_TOKEN) { Write-Output "No WINGET_TOKEN secret; skipping."; exit 0 }
+          # Until the first version is merged into winget-pkgs there is nothing to update,
+          # and wingetcreate fails: skip, so a release isn't marked with a failed run.
+          try {
+            Invoke-RestMethod "https://api.github.com/repos/microsoft/winget-pkgs/contents/manifests/s/scarletjess77/Kova" -Headers @{ Authorization = "Bearer $env:WINGET_TOKEN" } | Out-Null
+          } catch {
+            if ($_.Exception.Response.StatusCode.value__ -ne 404) { throw }
+            Write-Output "Kova is not in winget yet (its first version is still in review); skipping."
+            exit 0
+          }
           $version = $env:TAG.TrimStart('v')
           # The installer is Kova_<version>_Windows.exe since 0.1.18, _x64-setup.exe before.
           $installer = if ([version]($version -replace '-.*') -ge [version]'0.1.18') { "Kova_${version}_Windows.exe" } else { "Kova_${version}_x64-setup.exe" }
