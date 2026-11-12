@@ -751,7 +751,7 @@ async fn background(app: AppHandle, engine: Arc<Engine>) {
         if st.installed.is_none() && st.core != kova_core::CoreKind::Shoes {
             let name = st.core.label();
             let _ = app.emit("toast", tr(l, "Downloading {}…", &[name]));
-            match engine.install_core(st.core).await {
+            match engine.install_shipped_core(st.core).await {
                 Ok(tag) => {
                     let _ = app.emit("toast", tr(l, "{} {} installed", &[name, &tag]));
                 }

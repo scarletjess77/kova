@@ -2303,9 +2303,25 @@ impl Engine {
         out
     }
 
-    /// Install or update a core. Restarts the connection if that core is in use.
+    /// Install or update a core to its newest release, as the user asks in Settings.
+    /// Restarts the connection if that core is in use.
     pub async fn install_core(&self, core: CoreKind) -> Result<String> {
         let tag = cores::install_latest(&self.paths.cores_dir(), core).await?;
+        self.core_replaced(core).await?;
+        Ok(tag)
+    }
+
+    /// Install the version of a core that Kova ships, for one that is missing (an
+    /// AppImage carries none): the version this Kova was tested with, checked against
+    /// its pinned checksum, not whatever is newest that day.
+    pub async fn install_shipped_core(&self, core: CoreKind) -> Result<String> {
+        let tag = cores::install_pinned(&self.paths.cores_dir(), core).await?;
+        self.core_replaced(core).await?;
+        Ok(tag)
+    }
+
+    /// Restart the connection if it runs on `core`, whose program was just replaced.
+    async fn core_replaced(&self, core: CoreKind) -> Result<()> {
         let in_use = {
             let run = self.run.lock().await;
             run.as_ref().is_some_and(|r| r.front_kind == core || (core == CoreKind::Xray && r.sidecar.is_some()) || (core == CoreKind::Shoes && r.shoes.is_some()))
@@ -2313,7 +2329,7 @@ impl Engine {
         if in_use {
             self.restart().await?;
         }
-        Ok(tag)
+        Ok(())
     }
 
     /// Whether the current connection runs Mihomo inside the Kova service.

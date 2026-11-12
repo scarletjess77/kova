@@ -10,7 +10,7 @@ npm run tauri dev        # run with hot reload
 npm run tauri build      # release build and installer
 ```
 
-Set `KOVA_DATA_DIR` to keep development data apart from a real profile (`dev-data/` is ignored by git). On first launch Kova downloads any missing core.
+Set `KOVA_DATA_DIR` to keep development data apart from a real profile (`dev-data/` is ignored by git). On first launch Kova downloads any missing core, at the pinned version.
 
 ## Android
 
