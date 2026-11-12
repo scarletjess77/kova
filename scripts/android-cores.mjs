@@ -2,7 +2,7 @@
 // libxray.so: Android only runs programs that ship inside the app.
 //
 // Xray for arm64 is the official release, checked against the SHA-256 digest GitHub
-// publishes. Xray has no 32-bit Android release, so for armeabi-v7a (older phones and
+// publishes and the one pinned in android-cores.json. Xray has no 32-bit Android release, so for armeabi-v7a (older phones and
 // most TVs) it is built from its official source at the pinned commit, like Mihomo.
 // Mihomo is built from the official source of its latest release, with the `cmfa` tag
 // that Clash Meta for Android uses: the released Android build is made for rooted phones
@@ -143,7 +143,12 @@ async function xray(abi) {
   const r = await fetchRetrying(asset.browser_download_url);
   if (!r.ok) throw new Error(`download of ${asset.name} failed: ${r.status}`);
   const data = Buffer.from(await r.arrayBuffer());
-  if (`sha256:${createHash('sha256').update(data).digest('hex')}` !== asset.digest) throw new Error(`checksum mismatch for ${asset.name}`);
+  const sha256 = createHash('sha256').update(data).digest('hex');
+  if (`sha256:${sha256}` !== asset.digest) throw new Error(`checksum mismatch for ${asset.name}`);
+  // And still the file that was reviewed when the version was pinned (pin-cores.mjs).
+  const pinned = PINNED.xray.sha256?.[asset.name];
+  if (!pinned) throw new Error(`${asset.name} has no pinned checksum in android-cores.json; run scripts/pin-cores.mjs`);
+  if (sha256 !== pinned) throw new Error(`${asset.name} is not the file Kova pinned: expected ${pinned}, got ${sha256}`);
   writeFileSync(join(jniLibs, abi, 'libxray.so'), fromZip(data, 'xray'));
   console.log(`${abi}/libxray.so: XTLS/Xray-core ${rel.tag_name} (${asset.name}, checksum ok)`);
 }

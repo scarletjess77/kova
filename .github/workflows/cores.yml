@@ -38,5 +38,5 @@ jobs:
               "[$repo $latest](https://github.com/$repo/releases/tag/$latest) is out; Kova still pins $pinned." \
               "To update, set in \`scripts/android-cores.json\`:" \
               "\`\"tag\": \"$latest\", \"commit\": \"$commit\"\`" \
-              "The release workflow builds the new cores and checks them; read the release notes for breaking changes first.")"
+              "Then run \`node scripts/pin-cores.mjs\`, which writes the new files' checksums beside the tag, and run the end-to-end tests. Read the release notes for breaking changes first.")"
           done

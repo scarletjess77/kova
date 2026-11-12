@@ -132,18 +132,32 @@ struct Asset {
 
 /// The versions Kova's builds ship, for every system: reviewed and changed only by
 /// editing this file (`scripts/android-cores.json`, named for where it began). The
-/// installers carry these, and the tests run against them.
+/// installers carry these, and the tests run against them. Beside each tag it holds the
+/// SHA-256 of every file of that release Kova may download (`scripts/pin-cores.mjs`
+/// writes them).
 const PINNED: &str = include_str!("../../../scripts/android-cores.json");
 
-/// The release tag of `core` that Kova's builds ship (see [`PINNED`]).
-pub fn pinned_tag(core: CoreKind) -> String {
+/// What [`PINNED`] says about `core`.
+fn pin(core: CoreKind) -> serde_json::Value {
     let pins: serde_json::Value = serde_json::from_str(PINNED).expect("android-cores.json is valid JSON");
     let key = match core {
         CoreKind::Mihomo => "mihomo",
         CoreKind::Xray => "xray",
         CoreKind::Shoes => "shoes",
     };
-    pins[key]["tag"].as_str().expect("a pinned tag for each core").to_string()
+    pins[key].clone()
+}
+
+/// The release tag of `core` that Kova's builds ship (see [`PINNED`]).
+pub fn pinned_tag(core: CoreKind) -> String {
+    pin(core)["tag"].as_str().expect("a pinned tag for each core").to_string()
+}
+
+/// The SHA-256 the file `asset` of `core`'s pinned release had when the pin was
+/// reviewed. GitHub's own digest only says a download is the file the release holds
+/// now; this says the release still holds the file that was reviewed.
+fn pinned_sha256(core: CoreKind, asset: &str) -> Option<String> {
+    pin(core)["sha256"][asset].as_str().map(str::to_ascii_lowercase)
 }
 
 async fn latest_release(core: CoreKind) -> Result<Release, Error> {
@@ -267,6 +281,12 @@ async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, ar
     if actual != expected {
         return Err(Error::Core(format!("checksum mismatch for {}: expected {expected}, got {actual}", asset.name)));
     }
+    if tag.is_some() {
+        let pinned = pinned_sha256(core, &asset.name).ok_or_else(|| Error::Core(format!("{} has no pinned checksum; refusing to install it", asset.name)))?;
+        if actual != pinned {
+            return Err(Error::Core(format!("{} is not the file Kova pinned: expected {pinned}, got {actual}", asset.name)));
+        }
+    }
 
     let staging = cores_dir.join(format!(".staging-{}", core.label().to_lowercase()));
     let _ = std::fs::remove_dir_all(&staging);
@@ -386,4 +406,27 @@ pub async fn status(cores_dir: &Path, core: CoreKind, check_latest: bool) -> Cor
     // On Android the cores can't be replaced separately, so there is nothing to offer.
     let latest = if check_latest && !cfg!(target_os = "android") { latest_version(core).await.ok() } else { None };
     CoreStatus { core, installed, latest }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every pinned core names the checksum of each file it may be installed from.
+    #[test]
+    fn pinned_cores_have_checksums() {
+        for (core, some_file) in [(CoreKind::Mihomo, "mihomo-linux-arm64"), (CoreKind::Xray, "Xray-linux-64.zip"), (CoreKind::Shoes, "shoes-x86_64-unknown-linux-musl.tar.gz")] {
+            let pin = pin(core);
+            let files = pin["sha256"].as_object().unwrap_or_else(|| panic!("{}: run scripts/pin-cores.mjs", core.label()));
+            let name = files.keys().find(|n| n.starts_with(some_file)).unwrap_or_else(|| panic!("{}: no {some_file}", core.label()));
+            let sum = pinned_sha256(core, name).unwrap();
+            assert!(sum.len() == 64 && sum.bytes().all(|b| b.is_ascii_hexdigit()), "{name}: {sum}");
+            // Mihomo's files carry the version in their name: checksums left from another
+            // version would be for files this one doesn't have.
+            if core == CoreKind::Mihomo {
+                assert!(files.keys().all(|n| n.contains(&pinned_tag(core))), "{:?}", files.keys().collect::<Vec<_>>());
+            }
+            assert_eq!(pinned_sha256(core, "something-else.zip"), None);
+        }
+    }
 }

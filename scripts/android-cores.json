@@ -1,13 +1,42 @@
 {
   "mihomo": {
     "tag": "v1.19.33",
-    "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8"
+    "commit": "3f27ef39f8c96bbfbc8b0b9bb10f5c9ef60149d8",
+    "sha256": {
+      "mihomo-darwin-amd64-compatible-v1.19.33.gz": "eefe967b74312f70b64efa0dfa54929d00c7af8e94416e1b12df09863a40f35b",
+      "mihomo-darwin-amd64-v1-v1.19.33.gz": "61f979d6aae3deffe4e3895161349c3d9189149eef88c5aceb7c6d4a7270a78d",
+      "mihomo-darwin-amd64-v1.19.33.gz": "551ae54ef8d77a5e21f7a8185a59b441fb13a0fb0514fcdef5ca2816f6f50015",
+      "mihomo-darwin-arm64-v1.19.33.gz": "060b64b0f2c9a310831db0fe4adb2878de67bfa606c311813c1f13966aa504b6",
+      "mihomo-linux-amd64-compatible-v1.19.33.gz": "386508bfb1c72c43b6a0eda73708ecdce82546581b0ebcb16366c53757c622b6",
+      "mihomo-linux-amd64-v1-v1.19.33.gz": "8ec92e7b2fdc6b853ba00156bab7e4e965c8b0d843b8c4ac8ab98795f02ad524",
+      "mihomo-linux-amd64-v1.19.33.gz": "132f6f3edf9a65e62f04853aed3358472e0b2b7666daa8419edfa2ddf5bb6323",
+      "mihomo-linux-arm64-v1.19.33.gz": "ba408b317080ee265c46cb923a50018c1b82cbd708551cdd46a1e3e307396187",
+      "mihomo-windows-amd64-compatible-v1.19.33.zip": "7aaf636a4f2172dcd8ec34ac4f52797b059195e5afd6409508c963e545f8864d",
+      "mihomo-windows-amd64-v1-v1.19.33.zip": "fb0b960eff568459502d4ebe53e9cca203053d86ec9024fe935f19615d74d9aa",
+      "mihomo-windows-amd64-v1.19.33.zip": "6ab2180875f9f6fff8b19386d760daec257f66b45f72b3afc650634272fa837a",
+      "mihomo-windows-arm64-v1.19.33.zip": "a2a26869a14634c49f3fbcecc593b498ed8591fbdd7616b24475b3d60b148da3"
+    }
   },
   "xray": {
     "tag": "v26.11.9",
-    "commit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9"
+    "commit": "676eaf66f8f05d4d558ee7a74b4736623d3feeb9",
+    "sha256": {
+      "Xray-android-arm64-v8a.zip": "edcefc25b9b3195b11e18624c8269a969d6aabc39c6298a9a5ab29de15d46f3b",
+      "Xray-linux-64.zip": "b651f7e1d9966ee2c1b1ee1bf8b52c72771824d3065dce96bbc8bcc19ed95f82",
+      "Xray-linux-arm64-v8a.zip": "64ed6858982a7f5eb85d88b811089063bd4f17561f4c8f44e0f1dc8e6f6430be",
+      "Xray-macos-64.zip": "488963e676e06f5e48547f9dd38116aaca8de4234959b4272ae8f284e658dfd0",
+      "Xray-macos-arm64-v8a.zip": "233f0c66681cd0726f81a6b2b6ed6a5710869e312047b522e46ed53035bebd26",
+      "Xray-windows-64.zip": "1262522266337b824f07beb8e1375786b437683b3890105469088f8e17e0a69d",
+      "Xray-windows-arm64-v8a.zip": "9fdd48ff890e54ffdc37f92df9037c940fe4d4f914755b70cc644b97e9678a83"
+    }
   },
   "shoes": {
-    "tag": "v0.3.7"
+    "tag": "v0.3.7",
+    "sha256": {
+      "shoes-aarch64-apple-darwin.tar.gz": "f6e4fb30692b9304304cac7bef01a6d8737a3089d21546511217e2f5dd0d7be2",
+      "shoes-aarch64-unknown-linux-musl.tar.gz": "37f6d7da72bbef195287eb2c94fd23ab3930b237b420ddb1a9e0a03db9d05d28",
+      "shoes-x86_64-apple-darwin.tar.gz": "835b39516de8a38e337efe6607f914fd89de9e1bb55acaef98a2a25d43bd94b2",
+      "shoes-x86_64-unknown-linux-musl.tar.gz": "c594d7b30b474b6b3ab4cd30cc0996ba39aac2e66ffaadd725894037866a2705"
+    }
   }
 }
