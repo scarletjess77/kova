@@ -100,6 +100,15 @@ async fn from_feed(beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R
     Ok(None)
 }
 
+/// The SHA-256 a checksum text names, in lowercase: a bare digest as GitHub's API gives
+/// it, or a `sha256sum` line (`<digest>  <file>`) as the `.sha256` file next to the APK
+/// holds. `None` for anything else, such as an error page.
+#[cfg_attr(desktop, allow(dead_code))]
+fn sha256_from_text(text: &str) -> Option<String> {
+    let digest = text.split_whitespace().next()?;
+    (digest.len() == 64 && digest.bytes().all(|b| b.is_ascii_hexdigit())).then(|| digest.to_ascii_lowercase())
+}
+
 // ---------------------------------------------------------------------------- desktop
 
 /// The update the last check found, kept for installing (and retrying).
@@ -211,9 +220,9 @@ pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<O
 }
 
 /// Download the APK, reporting progress (0..1) as `update-progress`, check it against
-/// the digest GitHub publishes, and hand it to Android's installer, which asks the user
-/// to confirm. Android installs it over Kova, keeping its data, only when it is signed
-/// with the same key as the installed one.
+/// the digest GitHub publishes (or the `.sha256` file of the release), and hand it to
+/// Android's installer, which asks the user to confirm. Android installs it over Kova,
+/// keeping its data, only when it is signed with the same key as the installed one.
 #[cfg(mobile)]
 #[tauri::command]
 pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<()> {
@@ -265,11 +274,19 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
             Err(e) => return Err(e),
         }
     }
-    if let Some(expected) = &r.digest {
-        let actual = kova_engine::fetch::sha256_hex(&data);
-        if &actual != expected {
-            return Err(Error::Other(format!("Kova {} failed its checksum check (expected {expected}, got {actual})", r.version)));
+    // Nothing is handed to the installer without a checksum: GitHub's own digest, or
+    // where the API didn't answer, the `.sha256` file published next to the APK.
+    let expected = match r.digest.as_deref().and_then(sha256_from_text) {
+        Some(d) => d,
+        None => match c.get(format!("{}.sha256", r.asset)).send().await.and_then(|resp| resp.error_for_status()) {
+            Ok(resp) => sha256_from_text(&resp.text().await?),
+            Err(_) => None,
         }
+        .ok_or_else(|| Error::Other(format!("Could not get the checksum of Kova {}, so it was not installed. Try again later", r.version)))?,
+    };
+    let actual = kova_engine::fetch::sha256_hex(&data);
+    if actual != expected {
+        return Err(Error::Other(format!("Kova {} failed its checksum check (expected {expected}, got {actual})", r.version)));
     }
     let dir = app.path().app_cache_dir().map_err(|e| Error::Other(e.to_string()))?.join("updates");
     let _ = std::fs::remove_dir_all(&dir);
@@ -282,7 +299,18 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
 
 #[cfg(test)]
 mod tests {
-    use super::feed_versions;
+    use super::{feed_versions, sha256_from_text};
+
+    #[test]
+    fn a_checksum_is_a_whole_sha256_or_nothing() {
+        let hex = "9F86D081884C7D659A2FEAA0C55AD015A3BF4F1B2B0B822CD15D6C15B0F00A08";
+        let lower = hex.to_ascii_lowercase();
+        assert_eq!(sha256_from_text(hex).as_deref(), Some(lower.as_str()), "GitHub's digest");
+        assert_eq!(sha256_from_text(&format!("{lower}  Kova_0.2.6_Android.apk\n")).as_deref(), Some(lower.as_str()), "a sha256sum line");
+        assert_eq!(sha256_from_text("<html>Not Found</html>"), None);
+        assert_eq!(sha256_from_text(&lower[..63]), None, "too short");
+        assert_eq!(sha256_from_text(""), None);
+    }
 
     #[test]
     fn versions_come_from_the_feed_newest_first() {

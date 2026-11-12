@@ -3,8 +3,8 @@
 # Publishing makes it "latest", which is when installed copies of Kova see the update.
 #
 # The release page gets one installer per system with a plain name (Kova_1.2.3_Windows.exe,
-# _macOS.dmg, _Linux.AppImage and _Linux.deb, _Android.apk), plus the two files the
-# desktop updater reads: latest.json and the Mac app's .app.tar.gz.
+# _macOS.dmg, _Linux.AppImage and _Linux.deb, _Android.apk), plus the files the updaters
+# read: latest.json and the Mac app's .app.tar.gz on the desktop, and the APK's .sha256.
 #
 # Every build runs at once, each in its own job. A push to main builds the same things
 # without releasing them: GitHub lets a tag's run reuse only caches made on main, so
@@ -199,7 +199,12 @@ jobs:
         run: |
           for i in $(seq 1 60); do gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1 && break; sleep 20; done
           apk="Kova_${GITHUB_REF_NAME#v}_Android.apk"
-          files=("$apk")
+          # The APK's SHA-256 next to it. Kova checks the download against the digest
+          # GitHub's API gives; when the API refuses (its hourly limit is shared by
+          # everyone behind one VPN server) it reads this file instead, and installs
+          # nothing it has no checksum for.
+          sha256sum "$apk" > "$apk.sha256"
+          files=("$apk" "$apk.sha256#Checksum of the APK, for in-app updates")
           # Kova up to 0.1.18-beta.1 updates itself only from an APK named after the
           # processor. The 0.1.18 releases carry the same APK under those names too, so
           # older installs still reach 0.1.18, which looks for the new name.
