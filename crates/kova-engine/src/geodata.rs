@@ -1,12 +1,14 @@
 //! Downloading and installing GeoIP / GeoSite databases.
 //!
 //! The files live in the cores folder (Xray reads them from there through
-//! `XRAY_LOCATION_ASSET`) and are hard-linked into each Mihomo home as `GeoIP.dat` /
-//! `GeoSite.dat`, so the ~90 MB Russian lists exist once no matter how many homes use
-//! them. `geodata.json` beside them records where they came from.
+//! `XRAY_LOCATION_ASSET`) and are linked into each Mihomo home as `GeoIP.dat` /
+//! `GeoSite.dat`, so the ~100 MB Russian lists exist once no matter how many homes use
+//! them: hard links where the system allows them, symbolic links on Android, which
+//! allows apps none. `geodata.json` beside them records where they came from.
 //!
 //! Every source also keeps its own copy in `geodata-cache/<id>/`, so switching back to a
-//! source downloaded recently is a local copy, not another 90 MB download.
+//! source downloaded recently is a local link, not another 100 MB download. A copy that
+//! is neither in use nor current any more is removed.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -90,10 +92,12 @@ pub fn info(cores_dir: &Path, needed_site: &[&str], needed_ip: &[&str]) -> GeoIn
 
 /// How long a downloaded copy counts as current.
 pub fn max_age(source: &GeoSource) -> i64 {
-    match source {
-        GeoSource::Runetfreedom => 12 * 3600,
-        _ => 7 * 86400,
-    }
+    max_age_of(&source.id())
+}
+
+/// [`max_age`] for a source by the name its marker records.
+fn max_age_of(id: &str) -> i64 {
+    if id == GeoSource::Runetfreedom.id() { 12 * 3600 } else { 7 * 86400 }
 }
 
 fn cache_dir(cores_dir: &Path, source: &GeoSource) -> std::path::PathBuf {
@@ -108,12 +112,29 @@ fn is_fresh(dir: &Path, source: &GeoSource) -> Option<Marker> {
 }
 
 /// Put `from`'s bytes at `to`, keeping the modification time, so later "is it the same
-/// file" checks work. A hard link where the filesystem allows one — the linked places
-/// then share one copy of the file — and a plain copy where it does not.
+/// file" checks work. A hard link where the system allows one, so the linked places
+/// share one copy of the file. Android allows apps none, so there (and wherever else a
+/// hard link fails) `to` becomes a symbolic link to `from`, which shares the copy just
+/// as well. A plain copy is the last resort.
 fn place(from: &Path, to: &Path) -> std::io::Result<()> {
+    place_as(from, to, true)
+}
+
+/// [`place`], with hard links tried only when `hard_links` is set (tests turn them off
+/// to take the path Android takes).
+fn place_as(from: &Path, to: &Path, hard_links: bool) -> std::io::Result<()> {
+    std::fs::metadata(from)?;
+    // Already one file: nothing to do. And when `from` is itself a link to `to`, a
+    // link back would leave two names pointing at each other and no file.
+    if same_file(from, to) {
+        return Ok(());
+    }
     let tmp = crate::store::temp_path(to);
-    if let Err(err) = std::fs::hard_link(from, &tmp) {
-        tracing::warn!("{}: could not link it ({err}); copying it instead", to.display());
+    let hard = if hard_links { std::fs::hard_link(from, &tmp) } else { Err(std::io::Error::other("hard links are off")) };
+    if let Err(err) = hard
+        && let Err(soft) = symlink(from, &tmp)
+    {
+        tracing::warn!("{}: could not link it ({err}; {soft}); copying it instead", to.display());
         std::fs::copy(from, &tmp)?;
         if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
             let _ = std::fs::File::options().write(true).open(&tmp).and_then(|f| f.set_modified(t));
@@ -124,7 +145,19 @@ fn place(from: &Path, to: &Path) -> std::io::Result<()> {
     })
 }
 
-/// Whether both paths are the same file on disk (a hard link), where that can be told.
+/// A symbolic link at `at` to `from`, by its full path so it holds wherever it is read from.
+#[cfg(unix)]
+fn symlink(from: &Path, at: &Path) -> std::io::Result<()> {
+    std::os::unix::fs::symlink(std::path::absolute(from)?, at)
+}
+
+/// Windows lets ordinary accounts make hard links but not symbolic ones.
+#[cfg(not(unix))]
+fn symlink(_from: &Path, _at: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other("no symbolic links here"))
+}
+
+/// Whether both paths are the same file on disk (linked either way), where that can be told.
 fn same_file(a: &Path, b: &Path) -> bool {
     #[cfg(unix)]
     {
@@ -151,6 +184,26 @@ pub fn share_cached_copies(cores_dir: &Path) {
             let (active, copy) = (cores_dir.join(f), cache.path().join(f));
             if stamp(&active).is_some() && stamp(&active) == stamp(&copy) && !same_file(&active, &copy) {
                 let _ = place(&active, &copy);
+            }
+        }
+    }
+}
+
+/// Remove the downloaded copies of sources that are neither in use nor current. Such a
+/// copy is never read again: switching back to its source downloads a new one. On a
+/// phone the Russian lists alone are 100 MB.
+pub fn drop_stale_caches(cores_dir: &Path) {
+    let Ok(caches) = std::fs::read_dir(cores_dir.join("geodata-cache")) else { return };
+    let active = marker(cores_dir).map(|m| m.source);
+    for cache in caches.flatten() {
+        let dir = cache.path();
+        // A copy without its marker may be a download still being written.
+        let Some(m) = marker(&dir) else { continue };
+        let in_use = Some(&m.source) == active.as_ref() || FILES.iter().any(|f| same_file(&cores_dir.join(f), &dir.join(f)));
+        if !in_use && now() - m.updated_at >= max_age_of(&m.source) {
+            match std::fs::remove_dir_all(&dir) {
+                Ok(()) => tracing::info!("removed the old routing data of {}", m.source),
+                Err(e) => tracing::warn!("could not remove the old routing data of {}: {e}", m.source),
             }
         }
     }
@@ -354,6 +407,66 @@ mod tests {
             );
             assert_eq!((ma.dev(), ma.ino()), (mb.dev(), mb.ino()));
         }
+    }
+
+    /// Android allows no hard links: the places share one copy through symbolic links,
+    /// and placing a file back over the one it links to leaves both readable.
+    #[cfg(unix)]
+    #[test]
+    fn places_share_one_copy_without_hard_links() {
+        let dir = tempfile::tempdir().unwrap();
+        let (cache, cores, home) = (dir.path().join("cache.dat"), dir.path().join("geoip.dat"), dir.path().join("GeoIP.dat"));
+        std::fs::write(&cache, [1u8, 2, 3]).unwrap();
+        place_as(&cache, &cores, false).unwrap();
+        place_as(&cores, &home, false).unwrap();
+        assert!(std::fs::symlink_metadata(&cores).unwrap().file_type().is_symlink());
+        assert!(same_file(&cache, &cores) && same_file(&cache, &home));
+        assert_eq!(std::fs::read(&home).unwrap(), [1, 2, 3]);
+
+        // The other way round is a link to itself in the making: nothing happens.
+        place_as(&home, &cache, false).unwrap();
+        place_as(&cores, &cache, false).unwrap();
+        assert!(std::fs::symlink_metadata(&cache).unwrap().file_type().is_file());
+        assert_eq!(std::fs::read(&home).unwrap(), [1, 2, 3]);
+
+        // A new download replaces the file; every place reads the new one.
+        write_atomic(&cache, &[9u8; 4]).unwrap();
+        assert_eq!(std::fs::read(&home).unwrap(), [9u8; 4]);
+
+        // A separate copy an earlier version left becomes a link too.
+        let old = dir.path().join("old.dat");
+        std::fs::write(&old, [9u8; 4]).unwrap();
+        place_as(&cores, &old, false).unwrap();
+        assert!(same_file(&cache, &old));
+        assert!(place_as(&dir.path().join("missing.dat"), &old, false).is_err(), "nothing to link to");
+        assert_eq!(std::fs::read(&old).unwrap(), [9u8; 4], "and what was there stays");
+    }
+
+    #[test]
+    fn old_copies_of_other_sources_are_removed() {
+        let dir = tempfile::tempdir().unwrap();
+        let cores = dir.path().join("cores");
+        let cache = |source: &GeoSource| cache_dir(&cores, source);
+        let custom = |n: &str| GeoSource::Custom { geoip: format!("https://example.com/{n}/geoip.dat"), geosite: format!("https://example.com/{n}/geosite.dat") };
+        let day = 86400;
+        // In use, though long past its refresh; another source, old; a third, recent.
+        for (source, age) in [(GeoSource::Runetfreedom, 30 * day), (GeoSource::Default, 30 * day), (custom("recent"), day)] {
+            std::fs::create_dir_all(cache(&source)).unwrap();
+            fake_install(&cache(&source), &source, age);
+        }
+        // A download that has not written its marker yet.
+        let unfinished = cores.join("geodata-cache").join("unfinished");
+        std::fs::create_dir_all(&unfinished).unwrap();
+        std::fs::write(unfinished.join("geoip.dat"), [1u8]).unwrap();
+        install(&cache(&GeoSource::Runetfreedom), &cores).unwrap();
+
+        drop_stale_caches(&cores);
+        assert!(cache(&GeoSource::Runetfreedom).exists(), "the source in use");
+        assert!(!cache(&GeoSource::Default).exists(), "old and not in use");
+        assert!(cache(&custom("recent")).exists(), "still current: switching back needs no download");
+        assert!(unfinished.exists());
+        assert_eq!(marker(&cores).unwrap().source, "runetfreedom");
+        assert!(FILES.iter().all(|f| std::fs::read(cores.join(f)).is_ok()), "the active files still read");
     }
 
     #[test]

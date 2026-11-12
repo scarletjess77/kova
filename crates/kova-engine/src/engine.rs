@@ -1125,6 +1125,7 @@ impl Engine {
 
     fn seed_geodata(&self, home: &Path) {
         crate::geodata::share_cached_copies(&self.paths.cores_dir());
+        crate::geodata::drop_stale_caches(&self.paths.cores_dir());
         crate::geodata::seed_mihomo_home(&self.paths.cores_dir(), home);
     }
 
