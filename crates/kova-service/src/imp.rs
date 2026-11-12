@@ -125,7 +125,9 @@ impl Service {
                 exe_sha256: tokio::task::spawn_blocking(kova_engine::service::own_exe_sha256).await.ok().flatten(),
                 ..Response::ok()
             },
-            Request::InstallCore => match cores::install_latest(&self.cores_dir(), CoreKind::Mihomo).await {
+            // The version Kova's builds ship and were tested with, never whatever is
+            // newest: this Mihomo runs with system rights.
+            Request::InstallCore => match cores::install_pinned(&self.cores_dir(), CoreKind::Mihomo).await {
                 Ok(tag) => Response { core_version: Some(tag), ..Response::ok() },
                 Err(e) => Response::err(e),
             },
@@ -166,7 +168,7 @@ impl Service {
         let bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
         if !bin.exists() {
             self.log("Downloading Mihomo for the Kova service…");
-            let tag = cores::install_latest(&cores_dir, CoreKind::Mihomo).await.map_err(|e| e.to_string())?;
+            let tag = cores::install_pinned(&cores_dir, CoreKind::Mihomo).await.map_err(|e| e.to_string())?;
             self.log(&format!("Mihomo {tag} installed"));
         }
         // Routing data: our own verified copy of the app's chosen source. Downloaded only
@@ -267,13 +269,22 @@ const CLIENTS: &str = "clients.txt";
 
 /// Whether the program at the other end of `pipe` may use the service. The pipe's
 /// security lets in any signed-in user; this narrows it to Kova itself, so another
-/// program can't have Mihomo run with system rights. Without the list (the service
-/// run from a console, or installed by an older Kova until it is reinstalled) anyone
-/// the pipe lets in may.
+/// program can't have Mihomo run with system rights. The installed service refuses
+/// everyone when the list is missing or unreadable: installing always writes it, so
+/// its absence means something is wrong, not that anyone may come in. Only a service
+/// run from a console in a folder of its own (development and tests, without system
+/// rights) lets in anyone the pipe does.
 fn allowed_client(home: &Path, pipe: &NamedPipeServer) -> bool {
-    let Ok(list) = std::fs::read_to_string(home.join(CLIENTS)) else { return true };
-    let Some(image) = client_image(pipe) else { return false };
-    list.lines().map(str::trim).any(|l| !l.is_empty() && same_path(l, &image))
+    let list = std::fs::read_to_string(home.join(CLIENTS)).ok();
+    allowed(list.as_deref(), client_image(pipe).as_deref(), home == service_home())
+}
+
+/// [`allowed_client`]'s decision: `list` is the list's text if there is one, `image`
+/// the caller's program, `installed` whether this is the installed service.
+fn allowed(list: Option<&str>, image: Option<&str>, installed: bool) -> bool {
+    let Some(list) = list else { return !installed };
+    let Some(image) = image else { return false };
+    list.lines().map(str::trim).any(|l| !l.is_empty() && same_path(l, image))
 }
 
 fn same_path(a: &str, b: &str) -> bool {
@@ -646,13 +657,25 @@ mod tests {
         let name = format!(r"\\.\pipe\kova-client-test-{}", std::process::id());
         let (server, _client) = connected(&name).await;
         let me = std::env::current_exe().unwrap();
-        assert!(allowed_client(home.path(), &server), "no list yet: as before");
+        assert!(allowed_client(home.path(), &server), "a console run in its own folder, without a list");
 
         std::fs::write(home.path().join(CLIENTS), format!("{}\n", me.display().to_string().to_uppercase())).unwrap();
         assert!(allowed_client(home.path(), &server), "the listed program, whatever the case of its path");
 
         std::fs::write(home.path().join(CLIENTS), r"C:\Program Files\Kova\kova.exe").unwrap();
         assert!(!allowed_client(home.path(), &server), "any other program is refused");
+    }
+
+    /// The installed service lets nobody in without its list of programs.
+    #[test]
+    fn the_installed_service_refuses_everyone_without_its_list() {
+        let kova = r"C:\Program Files\Kova\kova.exe";
+        assert!(!allowed(None, Some(kova), true), "no list: refused");
+        assert!(allowed(None, Some(kova), false), "a console run elsewhere: as the pipe allows");
+        assert!(!allowed(Some(""), Some(kova), true), "an empty list names nobody");
+        assert!(allowed(Some(kova), Some(kova), true));
+        assert!(!allowed(Some(kova), None, true), "a caller that can't be identified");
+        assert!(!allowed(Some(kova), Some(r"C:\Users\me\evil.exe"), true));
     }
 
     /// Mihomo's folder and what is already in it end up open to SYSTEM and administrators

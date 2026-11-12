@@ -7,7 +7,7 @@
 //! `kova_engine::service`.
 //!
 //! What keeps this from being a privilege-escalation hole:
-//! - it only runs its own Mihomo, downloaded and checksum-verified by the service into a
+//! - it only runs its own Mihomo, at the version Kova ships, checksum-verified into a
 //!   folder ordinary users can't write;
 //! - configs are sanitised (no web UI, no extra controller channels, controller on
 //!   loopback with a secret), and Mihomo confines provider paths to its home folder;
