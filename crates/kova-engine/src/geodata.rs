@@ -112,7 +112,8 @@ fn is_fresh(dir: &Path, source: &GeoSource) -> Option<Marker> {
 /// then share one copy of the file — and a plain copy where it does not.
 fn place(from: &Path, to: &Path) -> std::io::Result<()> {
     let tmp = crate::store::temp_path(to);
-    if std::fs::hard_link(from, &tmp).is_err() {
+    if let Err(err) = std::fs::hard_link(from, &tmp) {
+        tracing::warn!("{}: could not link it ({err}); copying it instead", to.display());
         std::fs::copy(from, &tmp)?;
         if let Ok(t) = std::fs::metadata(from).and_then(|m| m.modified()) {
             let _ = std::fs::File::options().write(true).open(&tmp).and_then(|f| f.set_modified(t));
@@ -121,6 +122,38 @@ fn place(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::rename(&tmp, to).inspect_err(|_| {
         let _ = std::fs::remove_file(&tmp);
     })
+}
+
+/// Whether both paths are the same file on disk (a hard link), where that can be told.
+fn same_file(a: &Path, b: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (std::fs::metadata(a), std::fs::metadata(b)) {
+            (Ok(a), Ok(b)) => (a.dev(), a.ino()) == (b.dev(), b.ino()),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = (a, b);
+        false
+    }
+}
+
+/// Copies of the active files that earlier versions left in the download cache are
+/// the same bytes: link them to the active files so each list is on disk once.
+pub fn share_cached_copies(cores_dir: &Path) {
+    let Ok(caches) = std::fs::read_dir(cores_dir.join("geodata-cache")) else { return };
+    let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok()));
+    for cache in caches.flatten() {
+        for f in FILES {
+            let (active, copy) = (cores_dir.join(f), cache.path().join(f));
+            if stamp(&active).is_some() && stamp(&active) == stamp(&copy) && !same_file(&active, &copy) {
+                let _ = place(&active, &copy);
+            }
+        }
+    }
 }
 
 /// Make the copy in `from` the active one.
@@ -222,7 +255,7 @@ pub fn seed_mihomo_home(cores_dir: &Path, home: &Path) {
         let to = home.join(dst);
         let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.len(), m.modified().ok()));
         match stamp(&from) {
-            Some(f) if stamp(&to) != Some(f) => {
+            Some(f) if stamp(&to) != Some(f) || !same_file(&from, &to) => {
                 let _ = place(&from, &to);
             }
             _ => {}
@@ -277,11 +310,37 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::MetadataExt;
+            assert!(same_file(&a.join("geoip.dat"), &b.join("geoip.dat")));
             let (ma, mb) = (
                 std::fs::metadata(a.join("geoip.dat")).unwrap(),
                 std::fs::metadata(b.join("geoip.dat")).unwrap(),
             );
             assert_eq!((ma.dev(), ma.ino()), (mb.dev(), mb.ino()));
+        }
+    }
+
+    #[test]
+    fn old_separate_copies_are_linked_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let cores = dir.path().join("cores");
+        let cache = cores.join("geodata-cache").join("x");
+        let home = dir.path().join("home");
+        for d in [&cache, &home] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let t = std::time::SystemTime::now() - std::time::Duration::from_secs(60);
+        for (dir, name) in [(&cores, "geoip.dat"), (&cache, "geoip.dat"), (&home, "GeoIP.dat")] {
+            let f = std::fs::File::create(dir.join(name)).unwrap();
+            std::io::Write::write_all(&mut &f, &[7u8; 64]).unwrap();
+            f.set_modified(t).unwrap();
+        }
+        share_cached_copies(&cores);
+        seed_mihomo_home(&cores, &home);
+        assert_eq!(std::fs::read(home.join("GeoIP.dat")).unwrap(), [7u8; 64]);
+        #[cfg(unix)]
+        {
+            assert!(same_file(&cores.join("geoip.dat"), &cache.join("geoip.dat")));
+            assert!(same_file(&cores.join("geoip.dat"), &home.join("GeoIP.dat")));
         }
     }
 }
