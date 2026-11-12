@@ -1214,6 +1214,8 @@ impl Engine {
         // (Clash Verge also defaults its controller to 9097) or with a leftover core.
         opts.controller_port = free_port();
         opts.xray_metrics_port = free_port();
+        // On a phone Kova's own verified updates are the only ones.
+        opts.kova_updates_geodata = cfg!(target_os = "android");
         let mut warning = None;
         if quiet {
             // Only latency tests use it: servers without rules or routing data start fastest.

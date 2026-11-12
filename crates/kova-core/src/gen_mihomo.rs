@@ -50,7 +50,7 @@ fn base(opts: &RuntimeOptions) -> Value {
         // Phones and TV boxes: read the routing data from disk instead of holding all of
         // it (some 90 MB for the Russian lists) in memory.
         "geodata-loader": if opts.tun_fd.is_some() { "memconservative" } else { "standard" },
-        "geo-auto-update": !opts.without_geodata,
+        "geo-auto-update": !opts.without_geodata && !opts.kova_updates_geodata,
         "geo-update-interval": 24,
         "geox-url": geox_url(opts),
         "profile": { "store-selected": true, "store-fake-ip": true },
@@ -348,6 +348,10 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
             }
             set(&mut doc, &k, v);
         }
+    }
+    // Also when the profile asks for it: its download would land on Kova's files.
+    if opts.kova_updates_geodata {
+        set(&mut doc, "geo-auto-update", json!(false));
     }
     set(&mut doc, "tun", tun(opts));
     if opts.dns.override_profile || !doc.contains_key("dns") {
@@ -1143,6 +1147,31 @@ rules:
         assert_eq!(doc["authentication"], json!(["kova:pw"]));
         assert_eq!(doc["tunnels"][0], "tcp/udp,127.0.0.1:6553,1.1.1.1:53,A", "tunnels take no login");
         assert_eq!(doc["dns"]["listen"], "0.0.0.0:1053", "shared on purpose");
+    }
+
+    #[test]
+    fn mihomo_leaves_the_routing_data_alone_where_kova_updates_it() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let from_links = |o: &RuntimeOptions| -> Value { serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), o)).unwrap() };
+        // A profile that asks Mihomo to update the data itself.
+        let raw = "geo-auto-update: true
+geo-update-interval: 6
+proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+rules:
+  - MATCH,Sel
+";
+        let from_clash = |o: &RuntimeOptions| -> Value { serde_yaml_ng::from_str(&merge_clash(raw, o).unwrap()).unwrap() };
+
+        let mut o = opts();
+        assert_eq!(from_links(&o)["geo-auto-update"], true);
+        assert_eq!(from_clash(&o)["geo-auto-update"], true, "the profile's own choice");
+        o.kova_updates_geodata = true;
+        assert_eq!(from_links(&o)["geo-auto-update"], false);
+        assert_eq!(from_clash(&o)["geo-auto-update"], false);
     }
 
     #[test]

@@ -404,6 +404,12 @@ pub struct RuntimeOptions {
     /// through which the data is then fetched. Set per run.
     #[serde(skip)]
     pub without_geodata: bool,
+    /// Kova keeps the routing data current by itself, so Mihomo must not download it
+    /// as well. Set per run on Android: there Mihomo's own daily download would be
+    /// another 100 MB of the Russian lists, often on mobile data, written unchecked
+    /// over the files Kova verified.
+    #[serde(skip)]
+    pub kova_updates_geodata: bool,
     /// Beta. Make connections to the servers harder for DPI to recognise: the TLS
     /// handshake goes out in small pieces and UDP connections start with random packets.
     /// Done by a local Xray that every server connection is dialled through.
@@ -475,6 +481,7 @@ impl Default for RuntimeOptions {
             smart: None,
             tun_fd: None,
             without_geodata: false,
+            kova_updates_geodata: false,
             anti_dpi: false,
             anti_dpi_port: None,
             xray_legacy_masks: false,
