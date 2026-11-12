@@ -9,7 +9,7 @@ use kova_engine::process::CoreProcess;
 use kova_engine::service::{PIPE_NAME, PROTOCOL_VERSION, Request, Response};
 use kova_engine::{cores, geodata};
 
-use crate::{EXIT_COPY, EXIT_NO_ADMIN, EXIT_REGISTER, EXIT_REMOVE, EXIT_START, Failure};
+use crate::{EXIT_COPY, EXIT_NO_ADMIN, EXIT_REGISTER, EXIT_REMOVE, EXIT_START, Failure, gate};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::windows::named_pipe::{NamedPipeServer, ServerOptions};
 use tokio::sync::Mutex;
@@ -88,6 +88,8 @@ struct Service {
     starting: Mutex<()>,
     core: Mutex<Option<CoreProcess>>,
     owner: Mutex<Option<Owner>>,
+    /// The gate in front of Mihomo's controller (see [`crate::gate`]), while it runs.
+    gate: Mutex<Option<tokio::task::JoinHandle<()>>>,
     exit: StdMutex<Option<String>>,
     logs: Arc<StdMutex<Logs>>,
 }
@@ -104,8 +106,15 @@ impl Service {
         push_log(&self.logs, line);
     }
 
+    async fn close_gate(&self) {
+        if let Some(gate) = self.gate.lock().await.take() {
+            gate.abort();
+        }
+    }
+
     async fn stop_core(&self, reason: Option<&str>) {
         *self.owner.lock().await = None;
+        self.close_gate().await;
         if let Some(c) = self.core.lock().await.take() {
             c.stop().await;
             if let Some(r) = reason {
@@ -144,6 +153,7 @@ impl Service {
                 let exited = core.as_mut().and_then(|c| c.exited());
                 if let Some(msg) = exited {
                     core.take();
+                    self.close_gate().await;
                     *self.exit.lock().unwrap() = Some(msg);
                 }
                 let log_seq = self.logs.lock().unwrap().seq;
@@ -163,6 +173,19 @@ impl Service {
 
     async fn start(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32) -> Result<(), String> {
         let config = kova_core::gen_mihomo::sanitize_for_service(config).map_err(|e| e.to_string())?;
+        // Mihomo's controller gets a port and a secret of the service's own; Kova's are
+        // answered by the gate, which passes on only what Kova needs (see `gate`).
+        let inner_secret = kova_engine::service::random_secret();
+        // Two free ports, held together so they differ: Kova freed the port it chose
+        // a moment ago, and Windows may hand that very one out here.
+        let free = || std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| Ok((l.local_addr()?.port(), l))).map_err(|e| format!("no free port for Mihomo's controller: {e}"));
+        let ((first, held), (second, also_held)) = (free()?, free()?);
+        let moved = |port| kova_core::gen_mihomo::move_controller(&config, port, &inner_secret).map_err(|e| e.to_string());
+        let (inner_port, (config, asked)) = match moved(first)? {
+            (_, asked) if asked.port == first => (second, moved(second)?),
+            done => (first, done),
+        };
+        drop((held, also_held));
         let owner = Owner::open(owner_pid).ok_or("the requesting app is not running")?;
         let cores_dir = self.cores_dir();
         let bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
@@ -192,6 +215,9 @@ impl Service {
         geodata::seed_mihomo_home(&cores_dir, &run);
         let cfg = run.join("config.yaml");
         std::fs::write(&cfg, config).map_err(|e| e.to_string())?;
+        // Before Mihomo starts: if the port Kova chose can't be had, nothing runs.
+        let listener = gate::bind(asked.port).await.map_err(|e| format!("could not open the controller port {}: {e}", asked.port))?;
+        let keys = gate::Keys { client_secret: asked.secret, upstream_port: inner_port, upstream_secret: inner_secret };
         let logs = self.logs.clone();
         let sink: kova_engine::process::LineSink = Arc::new(move |_core: &str, line: &str| push_log(&logs, line));
         let (h, c) = (run.to_string_lossy().to_string(), cfg.to_string_lossy().to_string());
@@ -201,6 +227,7 @@ impl Service {
             return Err(msg);
         }
         *self.core.lock().await = Some(proc);
+        *self.gate.lock().await = Some(tokio::spawn(gate::serve(listener, Arc::new(keys))));
         *self.owner.lock().await = Some(owner);
         Ok(())
     }
@@ -350,6 +377,7 @@ pub async fn serve(pipe: String, home: PathBuf, shutdown: impl std::future::Futu
         starting: Mutex::new(()),
         core: Mutex::new(None),
         owner: Mutex::new(None),
+        gate: Mutex::new(None),
         exit: StdMutex::new(None),
         logs: Default::default(),
     });

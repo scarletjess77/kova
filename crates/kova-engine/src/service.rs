@@ -16,6 +16,12 @@ use crate::Error;
 pub const PIPE_NAME: &str = r"\\.\pipe\kova-service";
 pub const PROTOCOL_VERSION: u32 = 1;
 
+/// A secret nobody can guess, from the system's random numbers: the service's own for
+/// Mihomo's controller, new on every start.
+pub fn random_secret() -> String {
+    format!("{}{}", uuid::Uuid::new_v4().simple(), uuid::Uuid::new_v4().simple())
+}
+
 /// The pipe to use; tests point this at a private instance.
 pub fn pipe_name() -> String {
     std::env::var("KOVA_SERVICE_PIPE").unwrap_or_else(|_| PIPE_NAME.to_string())

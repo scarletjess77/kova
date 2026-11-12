@@ -587,6 +587,31 @@ pub fn sanitize_for_service(raw: &str) -> Result<String, GenError> {
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
 }
 
+/// Where a config asked for its controller, and with which secret.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Controller {
+    pub port: u16,
+    pub secret: String,
+}
+
+/// Give a sanitised config another controller port and secret, and say which it asked
+/// for. The Kova service runs Mihomo's controller on a port and with a secret of its
+/// own, and answers on the asked-for ones itself, passing on only what Kova needs: the
+/// asked-for secret is in the user's data folder, where every program of that account
+/// can read it.
+pub fn move_controller(sanitized: &str, port: u16, secret: &str) -> Result<(String, Controller), GenError> {
+    let mut doc: Mapping = serde_yaml_ng::from_str(sanitized).map_err(|e| GenError::Yaml(e.to_string()))?;
+    let asked_port = doc.get("external-controller").and_then(Yaml::as_str).and_then(|c| c.strip_prefix("127.0.0.1:")).and_then(|p| p.parse::<u16>().ok());
+    let asked = Controller {
+        port: asked_port.ok_or_else(|| GenError::Yaml("the controller must listen on 127.0.0.1".into()))?,
+        secret: doc.get("secret").and_then(Yaml::as_str).unwrap_or_default().to_string(),
+    };
+    doc.insert(Yaml::String("external-controller".into()), Yaml::String(format!("127.0.0.1:{port}")));
+    doc.insert(Yaml::String("secret".into()), Yaml::String(secret.into()));
+    let moved = serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))?;
+    Ok((moved, asked))
+}
+
 /// The `http` proxy providers of a Clash profile as (name, url).
 pub fn http_providers(raw: &str) -> Vec<(String, String)> {
     let Ok(mut doc) = serde_yaml_ng::from_str::<Yaml>(raw) else { return Vec::new() };
@@ -1136,6 +1161,19 @@ rules:
         assert!(sanitize_for_service("external-controller: 127.0.0.1:1\n").is_err(), "no secret");
         assert!(sanitize_for_service("secret: 0123456789abcdef0123\nexternal-controller: 0.0.0.0:9090\n").is_err(), "not loopback");
         assert!(sanitize_for_service("secret: 0123456789abcdef0123\n").is_err(), "no controller");
+    }
+
+    #[test]
+    fn the_service_moves_the_controller_and_keeps_the_rest() {
+        let asked = "secret: 0123456789abcdef0123\nexternal-controller: 127.0.0.1:61000\nmode: rule\n";
+        let (moved, was) = move_controller(asked, 61555, "a-secret-only-the-service-has").unwrap();
+        assert_eq!(was, Controller { port: 61000, secret: "0123456789abcdef0123".into() });
+        let out: Value = serde_yaml_ng::from_str(&moved).unwrap();
+        assert_eq!(out["external-controller"], "127.0.0.1:61555");
+        assert_eq!(out["secret"], "a-secret-only-the-service-has");
+        assert_eq!(out["mode"], "rule");
+        assert!(!moved.contains("0123456789abcdef0123"), "{moved}");
+        assert!(move_controller("secret: x\nexternal-controller: 0.0.0.0:9090\n", 1, "s").is_err(), "not loopback");
     }
 
     #[test]
