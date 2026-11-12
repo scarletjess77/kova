@@ -1126,9 +1126,6 @@ impl Engine {
     fn seed_geodata(&self, home: &Path) {
         crate::geodata::share_cached_copies(&self.paths.cores_dir());
         crate::geodata::seed_mihomo_home(&self.paths.cores_dir(), home);
-        if let Some(root) = self.paths.cores_dir().parent() {
-            crate::geodata::log_usage(root);
-        }
     }
 
     pub fn geodata_info(&self) -> crate::geodata::GeoInfo {
@@ -1456,6 +1453,11 @@ impl Engine {
         let home = run_dir.join("mihomo");
         std::fs::create_dir_all(&home)?;
         self.seed_geodata(&home);
+        if let Some(root) = self.paths.cores_dir().parent().filter(|_| !quiet) {
+            for message in crate::geodata::usage_report(root) {
+                self.emit(Event::Log { source: "kova".into(), level: "info".into(), message });
+            }
+        }
         let yaml = if profile.format == Format::Clash {
             let body = self.localize_providers(&body, &home, matches!(profile.source, Source::Remote { via_proxy: true, .. })).await;
             gen_mihomo::merge_clash(&body, &opts).map_err(|e| Error::Config(e.to_string()))?

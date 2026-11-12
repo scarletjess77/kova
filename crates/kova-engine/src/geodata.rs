@@ -156,9 +156,9 @@ pub fn share_cached_copies(cores_dir: &Path) {
     }
 }
 
-/// Write the big files under `root` to the log, with how many names each has, and how
-/// much disk they use once a file with several names is counted once.
-pub fn log_usage(root: &Path) {
+/// The big files under `root`, with how many names each has, and how much disk they
+/// use once a file with several names is counted once; one line each, for the log.
+pub fn usage_report(root: &Path) -> Vec<String> {
     fn walk(dir: &Path, out: &mut Vec<(std::path::PathBuf, std::fs::Metadata)>) {
         for e in std::fs::read_dir(dir).into_iter().flatten().flatten() {
             let Ok(m) = e.metadata() else { continue };
@@ -173,6 +173,7 @@ pub fn log_usage(root: &Path) {
     walk(root, &mut files);
     let mut seen = std::collections::HashSet::new();
     let (mut total, mut once) = (0u64, 0u64);
+    let mut lines = Vec::new();
     for (path, m) in &files {
         #[cfg(unix)]
         let (names, id) = {
@@ -186,9 +187,10 @@ pub fn log_usage(root: &Path) {
             once += m.len();
         }
         let shown = path.strip_prefix(root).unwrap_or(path);
-        tracing::info!("storage: {} {} MB, {names} name(s)", shown.display(), m.len() >> 20);
+        lines.push(format!("storage: {} {} MB, {names} name(s)", shown.display(), m.len() >> 20));
     }
-    tracing::info!("storage: big files {} MB by name, {} MB on disk", total >> 20, once >> 20);
+    lines.push(format!("storage: big files {} MB by name, {} MB on disk", total >> 20, once >> 20));
+    lines
 }
 
 /// Make the copy in `from` the active one.
