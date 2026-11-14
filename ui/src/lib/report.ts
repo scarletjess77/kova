@@ -5,15 +5,23 @@ import { getVersion } from '@tauri-apps/api/app';
 import { api, type Check } from './api';
 import { app } from './state.svelte';
 
+/** Addresses that say nothing about who or where: this device, home networks, and the
+ *  ranges Kova and Mihomo use inside (the TUN adapter, fake-ip). */
+const LOCAL_ADDRESS = /^(0\.|10\.|127\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|198\.1[89]\.)/;
+
 /** Takes out what identifies the subscription or the device: links (which carry the
- *  access key), UUIDs used as passwords, long tokens and Kova's own secrets. */
-export function redact(text: string, secrets: string[] = []): string {
+ *  access key), UUIDs used as passwords, long tokens, Kova's own secrets, and where the
+ *  servers are (their names, given in `servers`, and every public address). */
+export function redact(text: string, secrets: string[] = [], servers: string[] = []): string {
   let out = text;
   for (const s of secrets) if (s && s.length >= 6) out = out.split(s).join('<secret>');
+  // Longest first, so a name that is part of another doesn't leave the rest of it.
+  for (const s of [...new Set(servers)].filter((s) => s.length >= 4).sort((a, b) => b.length - a.length)) out = out.split(s).join('<server>');
   return out
     .replace(/\b([a-z][a-z0-9+.-]*):\/\/[^\s"'<>]+/gi, (_, scheme: string) => `<${scheme.toLowerCase()} link>`)
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<id>')
-    .replace(/[A-Za-z0-9_+/=-]{32,}/g, '<secret>');
+    .replace(/[A-Za-z0-9_+/=-]{32,}/g, '<secret>')
+    .replace(/\b(?:\d{1,3}\.){3}\d{1,3}\b/g, (address) => (LOCAL_ADDRESS.test(address) ? address : '<address>'));
 }
 
 export async function buildReport(checks?: Check[] | null): Promise<string> {
@@ -49,7 +57,9 @@ export async function buildReport(checks?: Check[] | null): Promise<string> {
     for (const l of logs) lines.push(`${l.time} ${l.level.slice(0, 4).toUpperCase()} ${l.source}: ${l.message}`);
   }
   const secrets = [set?.core.secret, set?.core.local_password, set?.device_id].filter((x): x is string => !!x);
-  return redact(lines.join('\n'), secrets);
+  // The servers' own names: whoever reads the report must not learn where they are.
+  const servers = p ? await api.profileNodes(p.id).then((nodes) => nodes.map((n) => n.server), () => [] as string[]) : [];
+  return redact(lines.join('\n'), secrets, servers);
 }
 
 /** Copy the report and say what was left out. */
