@@ -128,7 +128,8 @@ pub async fn subscription(url: &str, user_agent: Option<&str>, headers: &[crate:
         usage: header("subscription-userinfo").map(|u| parse_userinfo(&u)),
         title: title.filter(|t| !t.is_empty()),
         update_hours: header("profile-update-interval").and_then(|v| v.trim().parse().ok()),
-        support_url: header("profile-web-page-url").or_else(|| header("support-url")),
+        // A web address only: the Provider button opens it.
+        support_url: header("profile-web-page-url").or_else(|| header("support-url")).map(|u| u.trim().to_string()).filter(|u| (u.starts_with("https://") || u.starts_with("http://")) && !u.contains(char::is_whitespace)),
         announce: header("announce").map(|a| decode_title(&a).trim().chars().take(300).collect::<String>()).filter(|a| !a.is_empty()),
         body: read_capped(resp, MAX_SUBSCRIPTION).await?,
     })
