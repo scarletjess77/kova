@@ -824,10 +824,13 @@ impl Engine {
     /// the profile's own `proxy:`, which may not exist yet or may be unreachable from
     /// inside the VPN). A provider that can't be downloaded keeps the copy from the last
     /// run, and with none, stays as it was for Mihomo to try.
-    async fn localize_providers(&self, body: &str, home: &std::path::Path, via_proxy: bool) -> String {
+    ///
+    /// Returns the config and the files it now reads, as (name in Mihomo's folder,
+    /// content): a Mihomo that runs elsewhere (in the Kova service) needs them too.
+    async fn localize_providers(&self, body: &str, home: &std::path::Path, via_proxy: bool) -> (String, Vec<(String, String)>) {
         let providers = gen_mihomo::http_providers(body);
         if providers.is_empty() {
-            return body.to_string();
+            return (body.to_string(), Vec::new());
         }
         let ua = gen_mihomo::global_ua(body);
         let mut ready = Vec::new();
@@ -852,7 +855,13 @@ impl Engine {
                 ready.push(name);
             }
         }
-        gen_mihomo::localize_providers(body, &ready).unwrap_or_else(|_| body.to_string())
+        match gen_mihomo::localize_providers(body, &ready) {
+            Ok(localized) => {
+                let files = ready.iter().map(|name| gen_mihomo::provider_file(name)).filter_map(|f| std::fs::read_to_string(home.join(&f)).ok().map(|text| (f, text))).collect();
+                (localized, files)
+            }
+            Err(_) => (body.to_string(), Vec::new()),
+        }
     }
 
     async fn validate_clash(&self, text: &str) -> Result<()> {
@@ -1461,8 +1470,10 @@ impl Engine {
                 self.emit(Event::Log { source: "kova".into(), level: "info".into(), message });
             }
         }
+        let mut provider_files = Vec::new();
         let yaml = if profile.format == Format::Clash {
-            let body = self.localize_providers(&body, &home, matches!(profile.source, Source::Remote { via_proxy: true, .. })).await;
+            let (body, files) = self.localize_providers(&body, &home, matches!(profile.source, Source::Remote { via_proxy: true, .. })).await;
+            provider_files = files;
             gen_mihomo::merge_clash(&body, &opts).map_err(|e| Error::Config(e.to_string()))?
         } else {
             gen_mihomo::from_nodes(&nodes, &plan, &bridges, &opts)
@@ -1478,7 +1489,7 @@ impl Engine {
             let tail = Arc::new(std::sync::Mutex::new(Vec::new()));
             log_poller = Some(self.spawn_service_logs(since, tail.clone()));
             // The first start may download Mihomo and the routing data into the service.
-            let start = Request::Start { config: yaml, geodata: opts.geodata.clone(), owner_pid: std::process::id() };
+            let start = Request::Start { config: yaml, geodata: opts.geodata.clone(), owner_pid: std::process::id(), files: provider_files };
             if let Err(e) = call(&start, Duration::from_secs(600)).await {
                 if let Some(p) = log_poller {
                     p.abort();

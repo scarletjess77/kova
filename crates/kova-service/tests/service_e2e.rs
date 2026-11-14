@@ -39,6 +39,24 @@ async fn target_server() -> u16 {
     port
 }
 
+/// A server that answers every request with `body`, as a provider's address does.
+async fn text_server(body: String) -> u16 {
+    let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = l.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        loop {
+            let Ok((mut s, _)) = l.accept().await else { return };
+            let body = body.clone();
+            tokio::spawn(async move {
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf).await;
+                let _ = s.write_all(format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+            });
+        }
+    });
+    port
+}
+
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "runs real cores; needs target/test-cores from the engine e2e test"]
 async fn engine_runs_mihomo_through_the_service() {
@@ -92,7 +110,7 @@ async fn engine_runs_mihomo_through_the_service() {
     assert_eq!(hello.exe_sha256, kova_engine::service::own_exe_sha256(), "the service reports the hash of its executable");
 
     // An unsafe config is refused.
-    let bad = call(&Request::Start { config: "external-controller: 0.0.0.0:9090\n".into(), geodata: GeoSource::Default, owner_pid: std::process::id() }, Duration::from_secs(10)).await;
+    let bad = call(&Request::Start { config: "external-controller: 0.0.0.0:9090\n".into(), geodata: GeoSource::Default, owner_pid: std::process::id(), files: Vec::new() }, Duration::from_secs(10)).await;
     assert!(bad.is_err(), "config without a secret on a public controller must be refused");
 
     // Local Xray server playing the remote end.
@@ -135,6 +153,26 @@ async fn engine_runs_mihomo_through_the_service() {
     }
     assert!(got_log, "no Mihomo log lines were relayed from the service");
 
+    // A Clash profile whose servers come from a proxy provider. Kova downloads the
+    // provider's list itself and points Mihomo at the file; the Mihomo in the service
+    // has a folder of its own and must still find the servers.
+    let provider = format!("proxies:\n  - {{name: Prov WS, type: vless, server: 127.0.0.1, port: {ws_port}, uuid: {uuid}, network: ws, tls: false, udp: true, ws-opts: {{path: /ws}}}}\n");
+    let provider_port = text_server(provider).await;
+    let with_provider = format!(
+        "proxy-providers:\n  prov:\n    type: http\n    url: http://127.0.0.1:{provider_port}/prov.yaml\n    interval: 3600\nproxy-groups:\n  - {{name: Sel, type: select, use: [prov]}}\nrules:\n  - MATCH,Sel\n"
+    );
+    let p = engine.add_profile(&with_provider, Some("Providers".into())).await.unwrap();
+    let switched = engine.set_active_profile(&p.id).await;
+    assert!(switched.is_ok(), "a profile with a proxy provider did not start through the service: {switched:?} / {:?}", engine.status());
+    let names: Vec<String> = engine.proxies().await.map(|s| s.proxies.into_keys().collect()).unwrap_or_default();
+    assert!(names.iter().any(|n| n == "Prov WS"), "the provider's server is missing in the service's Mihomo; it lists {names:?}");
+    let body = client.get(format!("http://localhost:{target}/")).send().await.map_err(|e| e.to_string());
+    let body = match body {
+        Ok(r) => r.text().await.map_err(|e| e.to_string()),
+        Err(e) => Err(e),
+    };
+    assert_eq!(body.as_deref(), Ok("hello via service"), "no connection through the provider's server");
+
     // A crash inside the service is noticed by the app. Only the Mihomo this test's
     // in-process service started is stopped: the machine may be running Kova for real.
     {
@@ -156,7 +194,12 @@ async fn engine_runs_mihomo_through_the_service() {
     let mut owner = std::process::Command::new("ping").args(["-n", "3", "127.0.0.1"]).stdout(std::process::Stdio::null()).spawn().unwrap();
     let ctl = free_port();
     let cfg = format!("mixed-port: {}\nexternal-controller: 127.0.0.1:{ctl}\nsecret: 0123456789abcdef0123456789abcdef\nrules:\n  - MATCH,DIRECT\n", free_port());
-    call(&Request::Start { config: cfg, geodata: GeoSource::Default, owner_pid: owner.id() }, Duration::from_secs(30)).await.unwrap();
+    call(&Request::Start { config: cfg, geodata: GeoSource::Default, owner_pid: owner.id(), files: Vec::new() }, Duration::from_secs(30)).await.unwrap();
+
+    // Only the providers' lists may come with a config: any other file name is refused.
+    let elsewhere = Request::Start { config: String::new(), geodata: GeoSource::Default, owner_pid: std::process::id(), files: vec![("providers/../config.yaml".into(), "x".into())] };
+    let refused = call(&elsewhere, Duration::from_secs(10)).await.unwrap_err().to_string();
+    assert!(refused.contains("does not keep a file"), "{refused}");
     assert!(call(&Request::Status, Duration::from_secs(5)).await.unwrap().running);
     let _ = owner.wait();
     let mut stopped = false;

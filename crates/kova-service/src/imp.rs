@@ -27,7 +27,8 @@ use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_SYNCHRONIZE, Wa
 
 pub const SERVICE_NAME: &str = "KovaService";
 const DISPLAY_NAME: &str = "Kova TUN service";
-const MAX_REQUEST: u64 = 16 * 1024 * 1024;
+/// A start request carries the config and the providers' server lists.
+const MAX_REQUEST: u64 = 64 * 1024 * 1024;
 const MAX_LOG_LINES: usize = 2000;
 
 /// Where the service keeps its binary, its Mihomo and Mihomo's home. Under Program
@@ -140,7 +141,7 @@ impl Service {
                 Ok(tag) => Response { core_version: Some(tag), ..Response::ok() },
                 Err(e) => Response::err(e),
             },
-            Request::Start { config, geodata: source, owner_pid } => match self.start_one(&config, &source, owner_pid).await {
+            Request::Start { config, geodata: source, owner_pid, files } => match self.start_one(&config, &source, owner_pid, &files).await {
                 Ok(()) => Response { running: true, ..Response::ok() },
                 Err(e) => Response::err(e),
             },
@@ -166,12 +167,17 @@ impl Service {
         }
     }
 
-    async fn start_one(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32) -> Result<(), String> {
+    async fn start_one(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32, files: &[(String, String)]) -> Result<(), String> {
         let _one_at_a_time = self.starting.lock().await;
-        self.start(config, source, owner_pid).await
+        self.start(config, source, owner_pid, files).await
     }
 
-    async fn start(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32) -> Result<(), String> {
+    async fn start(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32, files: &[(String, String)]) -> Result<(), String> {
+        // Only the providers' lists, under the names Kova gives them: nothing the app
+        // sends may be written anywhere else with the service's rights.
+        if let Some((name, _)) = files.iter().find(|(name, _)| !kova_core::gen_mihomo::is_provider_file(name)) {
+            return Err(format!("the Kova service does not keep a file called {name}"));
+        }
         let config = kova_core::gen_mihomo::sanitize_for_service(config).map_err(|e| e.to_string())?;
         // Mihomo's controller gets a port and a secret of the service's own; Kova's are
         // answered by the gate, which passes on only what Kova needs (see `gate`).
@@ -213,6 +219,15 @@ impl Service {
             lock_down(&run).map_err(|e| format!("could not protect Mihomo's folder: {e}"))?;
         }
         geodata::seed_mihomo_home(&cores_dir, &run);
+        // This run's lists only: one left from another profile is never read again.
+        let providers = run.join("providers");
+        let _ = std::fs::remove_dir_all(&providers);
+        if !files.is_empty() {
+            std::fs::create_dir_all(&providers).map_err(|e| e.to_string())?;
+        }
+        for (name, text) in files {
+            std::fs::write(run.join(name), text).map_err(|e| format!("could not keep a provider's servers: {e}"))?;
+        }
         let cfg = run.join("config.yaml");
         std::fs::write(&cfg, config).map_err(|e| e.to_string())?;
         // Before Mihomo starts: if the port Kova chose can't be had, nothing runs.

@@ -32,7 +32,16 @@ pub fn pipe_name() -> String {
 pub enum Request {
     Hello,
     /// Start Mihomo with `config`. The service stops it again if `owner_pid` exits.
-    Start { config: String, geodata: GeoSource, owner_pid: u32 },
+    /// `files` are the proxy providers' server lists the app downloaded, as (name in
+    /// Mihomo's folder, content): the config reads them from there, and the service's
+    /// Mihomo has a folder of its own.
+    Start {
+        config: String,
+        geodata: GeoSource,
+        owner_pid: u32,
+        #[serde(default)]
+        files: Vec<(String, String)>,
+    },
     Stop,
     Status,
     /// Log lines with a sequence number greater than `since`.

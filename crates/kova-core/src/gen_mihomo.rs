@@ -642,6 +642,15 @@ pub fn provider_file(name: &str) -> String {
     format!("providers/kova-{h:016x}.yaml")
 }
 
+/// Whether `path` is one of those files and nothing else: the name [`provider_file`]
+/// makes, to the letter. The Kova service writes the lists the app sends it under
+/// these names with system rights, so a name must not be able to lead anywhere else.
+pub fn is_provider_file(path: &str) -> bool {
+    path.strip_prefix("providers/kova-")
+        .and_then(|rest| rest.strip_suffix(".yaml"))
+        .is_some_and(|hash| hash.len() == 16 && hash.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+}
+
 /// Whether a provider's download holds servers Mihomo can read (a YAML list of `proxies`).
 pub fn provider_has_servers(text: &str) -> bool {
     serde_yaml_ng::from_str::<Yaml>(text).ok().and_then(|d| d.get("proxies").and_then(Yaml::as_sequence).map(|p| !p.is_empty())).unwrap_or(false)
@@ -1172,6 +1181,14 @@ rules:
         o.kova_updates_geodata = true;
         assert_eq!(from_links(&o)["geo-auto-update"], false);
         assert_eq!(from_clash(&o)["geo-auto-update"], false);
+    }
+
+    #[test]
+    fn provider_files_have_one_shape_of_name() {
+        assert!(is_provider_file(&provider_file("机场")) && is_provider_file(&provider_file("")));
+        for bad in ["providers/kova-0123456789abcdef.yaml/../../x", "providers/../kova-0123456789abcdef.yaml", "../providers/kova-0123456789abcdef.yaml", "providers/kova-0123456789ABCDEF.yaml", "providers/kova-0123.yaml", "providers\\kova-0123456789abcdef.yaml", "config.yaml", "C:/providers/kova-0123456789abcdef.yaml", ""] {
+            assert!(!is_provider_file(bad), "{bad}");
+        }
     }
 
     #[test]
