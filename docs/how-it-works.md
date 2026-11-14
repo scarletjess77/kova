@@ -76,6 +76,12 @@ When a rule chosen on purpose (the user's, a preset's or the subscription's) sen
 
 Learned sites are stored in `learned.json` in the data folder and expire after 30 days unless learned again. **Keep** turns one into a permanent rule. The first visit to a newly blocked site still fails once; throttling is not detected yet.
 
+## Kill switch (beta)
+
+Settings → **Kill switch**, off by default. When the connection drops by itself, Kova tries to bring it back and meanwhile leaves the system proxy pointing at its own port, where nothing answers: apps that use the system proxy stay offline instead of going out directly. It holds until the connection is back or you disconnect.
+
+It holds the system proxy only. A program that ignores the system proxy is not held, and in TUN mode without the system proxy there is nothing to hold: Kova reconnects, and until it has, traffic goes out directly. On Android the system's own **Block connections without VPN** (Settings → VPN) does this for every app.
+
 ## Anti-DPI (beta)
 
 Settings → Anti-DPI dials every server connection through the local Xray, which sends the start of each connection in a shape simpler filtering doesn't recognise: the TLS greeting in pieces of 100–200 bytes, 10–20 ms apart, and UDP connections (Hysteria2, TUIC) opened with 10–20 random bytes. It uses Xray's Finalmask (`fragment` and `noise`). With an Xray older than v26.3.23, which has neither, the same is done through the Direct outbound's `fragment` and `noises`, which newer Xray warns are going away.
