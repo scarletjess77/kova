@@ -10,16 +10,32 @@
   ; the rights Program Files has: administrators and SYSTEM change it, users only read.
   ; Only a folder named Kova, so a folder chosen for other things too stays as it is.
   ${GetFileName} "$INSTDIR" $1
-  StrCmp $1 "Kova" kova_lock kova_lock_done
+  StrCmp $1 "Kova" kova_lock kova_other
   kova_lock:
     DetailPrint "Protecting the Kova folder"
     nsExec::ExecToLog 'icacls "$INSTDIR" /inheritance:r /grant:r "*S-1-5-32-544:(OI)(CI)F" "*S-1-5-18:(OI)(CI)F" "*S-1-5-32-545:(OI)(CI)RX" /C /Q'
     Pop $1
-  kova_lock_done:
-  DetailPrint "Installing the Kova service for TUN mode"
-  nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --service-install'
-  Pop $0
-  DetailPrint "Kova service setup finished ($0)"
+    Goto kova_service
+  kova_other:
+    ; A folder of another name is left as it is. Under Program Files it is protected
+    ; already. Anywhere else ordinary programs may change what is in it, and setting the
+    ; service up from here would run whatever kova.exe is there as administrator, now and
+    ; at every update. There the service is left to Settings, TUN mode, Install, where
+    ; Windows asks first.
+    StrLen $2 "$PROGRAMFILES64"
+    StrCpy $3 "$INSTDIR" $2
+    StrCmp $3 "$PROGRAMFILES64" kova_service
+    StrLen $2 "$PROGRAMFILES32"
+    StrCpy $3 "$INSTDIR" $2
+    StrCmp $3 "$PROGRAMFILES32" kova_service
+    DetailPrint "The Kova service is not set up from this folder; use Settings, TUN mode"
+    Goto kova_service_done
+  kova_service:
+    DetailPrint "Installing the Kova service for TUN mode"
+    nsExec::ExecToLog '"$INSTDIR\${MAINBINARYNAME}.exe" --service-install'
+    Pop $0
+    DetailPrint "Kova service setup finished ($0)"
+  kova_service_done:
 !macroend
 
 !macro NSIS_HOOK_PREUNINSTALL
