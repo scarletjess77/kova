@@ -663,6 +663,14 @@ fn look_picture_remove(engine: Eng<'_>, slot: String) -> R<()> {
     Ok(())
 }
 
+/// Whether `path` names a file of one of these kinds. The save dialogs give Kova a path
+/// from the window; what Kova writes there is a picture, a theme or a backup, so it
+/// only ever writes files named as one: never a program or a script, wherever the path
+/// points.
+pub(crate) fn has_extension(path: &str, kinds: &[&str]) -> bool {
+    std::path::Path::new(path).extension().and_then(|e| e.to_str()).is_some_and(|e| kinds.iter().any(|k| e.eq_ignore_ascii_case(k)))
+}
+
 /// Writes a file the user chose a place for in the save dialog (a picture template): the
 /// raw bytes, the path percent-encoded in the `path` header.
 #[tauri::command]
@@ -674,6 +682,9 @@ fn save_chosen_file(request: tauri::ipc::Request<'_>) -> R<()> {
     let path = percent_decode(path);
     if path.is_empty() || bytes.len() > 20 * 1024 * 1024 {
         return Err(Error::Other("Nothing to save".into()));
+    }
+    if !has_extension(&path, &["png"]) || picture_ext(bytes) != Some("png") {
+        return Err(Error::Other("Save the picture as a .png file".into()));
     }
     std::fs::write(path, bytes)?;
     Ok(())
@@ -692,6 +703,9 @@ async fn save_text_document(app: AppHandle, path: Option<String>, name: String, 
     {
         let _ = (app, name);
         let path = path.ok_or_else(|| Error::Other("Choose where to save it".into()))?;
+        if !has_extension(&path, &["kovatheme", "json"]) {
+            return Err(Error::Other("Save the theme as a .kovatheme file".into()));
+        }
         kova_engine::store::write_atomic(std::path::Path::new(&path), text.as_bytes())?;
         Ok(true)
     }
@@ -1139,7 +1153,16 @@ pub fn run() {
 
 #[cfg(test)]
 mod look_picture_tests {
-    use super::{percent_decode, picture_ext, valid_slot};
+    use super::{has_extension, percent_decode, picture_ext, valid_slot};
+
+    #[test]
+    fn saved_files_are_named_as_what_they_are() {
+        assert!(has_extension(r"C:\Users\me\Pictures\kova-app-1200x780.PNG", &["png"]));
+        assert!(has_extension("/home/me/night.kovatheme", &["kovatheme", "json"]));
+        for path in [r"C:\Users\me\Start Menu\Programs\Startup\x.bat", "theme.kovatheme.exe", "png", "/home/me/.bashrc", ""] {
+            assert!(!has_extension(path, &["png", "kovatheme", "json"]), "{path}");
+        }
+    }
 
     #[test]
     fn pictures_are_told_by_their_first_bytes() {

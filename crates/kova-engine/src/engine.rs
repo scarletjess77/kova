@@ -640,7 +640,7 @@ impl Engine {
             let mut idx = self.profiles.write().unwrap();
             idx.profiles.retain(|p| p.id != id);
         }
-        let _ = std::fs::remove_file(self.paths.profile_body(id));
+        self.paths.remove_body(id);
         self.save_profiles()?;
         if self.settings().active_profile.as_deref() == Some(id) {
             let next = self.profiles().first().map(|p| p.id.clone());
@@ -722,6 +722,9 @@ impl Engine {
         let parsed = subscription::parse(text)?;
         if parsed.format == Format::Clash {
             self.validate_clash(text).await?;
+        }
+        if self.profiles.read().unwrap().get(id).is_none() {
+            return Err(Error::Other("profile not found".into()));
         }
         self.paths.write_body(id, text)?;
         {

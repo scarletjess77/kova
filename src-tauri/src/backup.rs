@@ -50,6 +50,9 @@ pub async fn backup_save(app: AppHandle, engine: State<'_, Arc<Engine>>, passwor
     {
         let _ = (app, name);
         let path = path.ok_or_else(|| Error::Other("Choose where to save the backup".into()))?;
+        if !crate::has_extension(&path, &["json"]) {
+            return Err(Error::Other("Save the backup as a .json file".into()));
+        }
         kova_engine::store::write_atomic(std::path::Path::new(&path), text.as_bytes())?;
         Ok(true)
     }

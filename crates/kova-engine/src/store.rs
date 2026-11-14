@@ -40,13 +40,31 @@ impl Paths {
 
     /// A profile's content, opened (see [`crate::secret`]).
     pub fn read_body(&self, id: &str) -> std::io::Result<String> {
-        let stored = std::fs::read_to_string(self.profile_body(id))?;
+        let stored = std::fs::read_to_string(self.checked_body(id)?)?;
         crate::secret::open(&stored).ok_or_else(|| std::io::Error::other("this profile was saved on another computer or account and can't be opened here; add it again"))
     }
 
     /// Save a profile's content, sealed where the system allows.
     pub fn write_body(&self, id: &str, text: &str) -> std::io::Result<()> {
-        write_atomic(&self.profile_body(id), crate::secret::seal(text).as_bytes())
+        write_atomic(&self.checked_body(id)?, crate::secret::seal(text).as_bytes())
+    }
+
+    /// Remove a profile's content, if it has any.
+    pub fn remove_body(&self, id: &str) {
+        if let Ok(path) = self.checked_body(id) {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    /// Where the profile `id` keeps its content. An id is letters, digits, `-` and `_`,
+    /// as Kova makes them: it becomes a file name, and one from outside (the window, a
+    /// backup) must not be able to name a file anywhere else.
+    fn checked_body(&self, id: &str) -> std::io::Result<PathBuf> {
+        let plain = !id.is_empty() && id.len() <= 64 && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_');
+        if !plain {
+            return Err(std::io::Error::other("profile not found"));
+        }
+        Ok(self.profile_body(id))
     }
     pub fn settings(&self) -> PathBuf {
         self.root.join("settings.json")
@@ -400,6 +418,22 @@ pub fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_profiles_id_can_only_name_its_own_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let paths = Paths::new(dir.path()).unwrap();
+        paths.write_body("0a1b2c3d4e5f", "vless://example").unwrap();
+        assert_eq!(paths.read_body("0a1b2c3d4e5f").unwrap(), "vless://example");
+        std::fs::write(dir.path().join("settings.txt"), "outside").unwrap();
+        for id in ["../settings", "..\\settings", "a/b", "a.b", "", "C:x"] {
+            assert!(paths.read_body(id).is_err() && paths.write_body(id, "x").is_err(), "{id:?}");
+            paths.remove_body(id);
+        }
+        assert_eq!(std::fs::read_to_string(dir.path().join("settings.txt")).unwrap(), "outside");
+        paths.remove_body("0a1b2c3d4e5f");
+        assert!(paths.read_body("0a1b2c3d4e5f").is_err());
+    }
 
     #[test]
     fn a_damaged_file_is_kept_aside_not_overwritten() {
