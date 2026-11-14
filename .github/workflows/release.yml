@@ -95,9 +95,11 @@ jobs:
       - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The updater key: Kova only installs updates signed with it.
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # The updater key: Kova only installs updates signed with it. Only a release
+          # gets it: this step builds every dependency, and whatever runs in it can read
+          # what it is given. Other builds make no update packages, so they need none.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ env.RELEASE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ env.RELEASE == 'true' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         with:
           # Without a tag name the action only builds.
           tagName: ${{ env.RELEASE == 'true' && github.ref_name || '' }}
@@ -110,7 +112,7 @@ jobs:
           # latest.json is written once, by the updater job below.
           includeUpdaterJson: false
           assetNamePattern: "[name]_[version]_${{ matrix.system }}[ext]"
-          args: ${{ format('--bundles {0} {1} --config {2}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '', matrix.no_cores && '{"bundle":{"createUpdaterArtifacts":true}}' || '{"bundle":{"createUpdaterArtifacts":true,"resources":{"resources/cores/":"cores/"}}}') }}
+          args: ${{ format('--bundles {0} {1} --config {2}', matrix.bundles, matrix.target && format('--target {0}', matrix.target) || '', matrix.no_cores && format('{{"bundle":{{"createUpdaterArtifacts":{0}}}}}', env.RELEASE) || format('{{"bundle":{{"createUpdaterArtifacts":{0},"resources":{{"resources/cores/":"cores/"}}}}}}', env.RELEASE)) }}
 
   # The desktop updater's manifest, written once every desktop build has uploaded its
   # signed package: builds that each added their part could overwrite each other's. The
@@ -175,14 +177,18 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Build the APK
         env:
-          # The APK signing key: every release must use the same one to install as an update.
-          KEYSTORE_BASE64: ${{ secrets.KOVA_ANDROID_KEYSTORE }}
-          KOVA_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.KOVA_ANDROID_KEYSTORE_PASSWORD }}
+          # The APK signing key: every release must use the same one to install as an
+          # update. Only a release gets it (see the updater key above); other builds
+          # make an unsigned APK.
+          KEYSTORE_BASE64: ${{ env.RELEASE == 'true' && secrets.KOVA_ANDROID_KEYSTORE || '' }}
+          KOVA_ANDROID_KEYSTORE_PASSWORD: ${{ env.RELEASE == 'true' && secrets.KOVA_ANDROID_KEYSTORE_PASSWORD || '' }}
         run: |
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kova.jks"
-          export KOVA_ANDROID_KEYSTORE="$RUNNER_TEMP/kova.jks"
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kova.jks"
+            export KOVA_ANDROID_KEYSTORE="$RUNNER_TEMP/kova.jks"
+          fi
           npx tauri android build --apk --target aarch64 --target armv7
-          cp "$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release.apk' | head -n 1)" "Kova_${GITHUB_REF_NAME#v}_Android.apk"
+          cp "$(find src-tauri/gen/android/app/build/outputs/apk -name '*-release*.apk' | head -n 1)" "Kova_${GITHUB_REF_NAME#v}_Android.apk"
       # A build that isn't a release (a dry run on a branch) keeps its APK to try out.
       - name: Keep the APK
         if: env.RELEASE != 'true'
