@@ -69,6 +69,8 @@ fn as_root(script: &str, args: &[&str]) -> Result<(), Error> {
         Some(0) => Ok(()),
         // pkexec: the dialog was dismissed, or the user isn't allowed.
         Some(126) | Some(127) => Err(Error::Other("Administrator rights were not given".into())),
+        // The grant script: the copy was not the file Kova had read.
+        Some(3) => Err(Error::Other("Mihomo changed while it was being copied, so it got no rights. Try again".into())),
         _ => Err(Error::Other(format!("granting TUN rights failed ({status}); is setcap (libcap) installed?"))),
     }
 }
@@ -83,7 +85,8 @@ pub fn grant(mihomo: &Path) -> Result<(), Error> {
     let script = crate::tun_rights::grant_script(&mihomo_path().to_string_lossy(), CAPS);
     // SAFETY: getuid has no preconditions.
     let uid = unsafe { libc::getuid() }.to_string();
-    as_root(&script, &[&mihomo.to_string_lossy(), &uid])?;
+    let sum = std::fs::read(mihomo).map(|b| crate::fetch::sha256_hex(&b))?;
+    as_root(&script, &[&mihomo.to_string_lossy(), &uid, &sum])?;
     if granted().is_none() {
         return Err(Error::Other("the network rights didn't stick (setcap); is the folder on a file system without capabilities?".into()));
     }

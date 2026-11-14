@@ -2,7 +2,11 @@
 //! kept apart so they are checked on every platform's test run.
 
 /// The root script that installs the copy of Mihomo with network rights. `$1` is the
-/// Mihomo to copy, `$2` the user allowed to run the copy: the one who said yes.
+/// Mihomo to copy, `$2` the user allowed to run the copy: the one who said yes, `$3`
+/// the SHA-256 Kova read from that Mihomo before asking. The copy must have it: the
+/// file is the user's and could be swapped between Kova's look and root's copy, and
+/// whatever is copied gets the rights. (A file swapped before Kova looked is beyond
+/// this check; the script exits with 3 when the copy is another file.)
 ///
 /// File capabilities apply to whoever runs a file, so a copy anyone may run would hand
 /// network-admin rights to every account on the machine (with a config of its own:
@@ -13,7 +17,9 @@
 pub fn grant_script(target: &str, caps: &str) -> String {
     format!(
         "set -e; case \"$2\" in ''|*[!0-9]*) exit 2;; esac; \
+         case \"$3\" in ''|*[!0-9a-f]*) exit 2;; esac; \
          install -D -m 0500 -o \"$2\" -g 0 \"$1\" {target}; \
+         [ \"$(sha256sum {target} | cut -d' ' -f1)\" = \"$3\" ] || {{ rm -f {target}; exit 3; }}; \
          setcap {caps} {target} || {{ rm -f {target}; exit 1; }}"
     )
 }
@@ -33,6 +39,10 @@ mod tests {
         assert!(s.contains("install -D -m 0500 -o \"$2\" -g 0 \"$1\" /usr/local/lib/kova/mihomo"), "{s}");
         assert!(s.contains("setcap cap_net_admin+ep /usr/local/lib/kova/mihomo || { rm -f /usr/local/lib/kova/mihomo; exit 1; }"), "{s}");
         assert!(s.starts_with("set -e; case \"$2\" in ''|*[!0-9]*) exit 2;; esac;"), "only a numeric user is accepted: {s}");
+        assert!(s.contains("case \"$3\" in ''|*[!0-9a-f]*) exit 2;; esac;"), "and only a checksum as the checksum: {s}");
+        let (copied, checked, granted) = (s.find("install -D").unwrap(), s.find("sha256sum /usr/local/lib/kova/mihomo").unwrap(), s.find("setcap").unwrap());
+        assert!(copied < checked && checked < granted, "the copy is checked before it gets the rights: {s}");
+        assert!(s.contains("= \"$3\" ] || { rm -f /usr/local/lib/kova/mihomo; exit 3; }"), "{s}");
 
         assert!(open_to_others(0o755), "the first copies were runnable by anyone");
         assert!(open_to_others(0o750), "the next ones by the user's group");
