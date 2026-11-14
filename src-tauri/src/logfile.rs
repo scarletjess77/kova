@@ -7,11 +7,41 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-static FILE: OnceLock<Mutex<fs::File>> = OnceLock::new();
+static FILE: OnceLock<Mutex<Log>> = OnceLock::new();
 static DIR: OnceLock<PathBuf> = OnceLock::new();
 
 /// Above this the log starts over, keeping the old one beside it.
 const MAX: u64 = 2 * 1024 * 1024;
+
+/// The open log and how much it holds.
+struct Log {
+    file: fs::File,
+    path: PathBuf,
+    size: u64,
+}
+
+impl Log {
+    /// The log as `kova.log.1` (replacing the one before it), and a new, empty log.
+    /// Kova can run for weeks: started over only at launch, the log would grow all
+    /// that time. Where the old one can't be moved, this one goes on.
+    fn start_over(&mut self) {
+        self.size = 0;
+        let old = old_log(&self.path);
+        let _ = fs::remove_file(&old);
+        if fs::rename(&self.path, &old).is_ok()
+            && let Ok(file) = fs::OpenOptions::new().create(true).append(true).open(&self.path)
+        {
+            self.file = file;
+        }
+    }
+}
+
+/// Where the log before this one is kept: `kova.log.1` beside `kova.log`.
+fn old_log(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_owned();
+    name.push(".1");
+    name.into()
+}
 
 /// A `tracing` writer: the log file once [`start`] has opened it, nothing before.
 pub struct Writer;
@@ -19,14 +49,21 @@ pub struct Writer;
 impl Write for Writer {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         match FILE.get().and_then(|f| f.lock().ok()) {
-            Some(mut f) => f.write(buf),
+            Some(mut log) => {
+                if log.size > MAX {
+                    log.start_over();
+                }
+                let n = log.file.write(buf)?;
+                log.size += n as u64;
+                Ok(n)
+            }
             None => Ok(buf.len()),
         }
     }
 
     fn flush(&mut self) -> io::Result<()> {
         match FILE.get().and_then(|f| f.lock().ok()) {
-            Some(mut f) => f.flush(),
+            Some(mut log) => log.file.flush(),
             None => Ok(()),
         }
     }
@@ -40,10 +77,11 @@ pub fn start(data: &Path) {
     }
     let path = dir.join("kova.log");
     if fs::metadata(&path).is_ok_and(|m| m.len() > MAX) {
-        let _ = fs::rename(&path, dir.join("kova.log.1"));
+        let _ = fs::rename(&path, old_log(&path));
     }
-    if let Ok(f) = fs::OpenOptions::new().create(true).append(true).open(&path) {
-        let _ = FILE.set(Mutex::new(f));
+    if let Ok(file) = fs::OpenOptions::new().create(true).append(true).open(&path) {
+        let size = file.metadata().map_or(0, |m| m.len());
+        let _ = FILE.set(Mutex::new(Log { file, path, size }));
     }
     let _ = DIR.set(dir);
     let previous = std::panic::take_hook();
@@ -101,6 +139,25 @@ fn utc(secs: i64) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_full_log_starts_over_and_keeps_the_one_before() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("kova.log");
+        std::fs::write(&path, "old lines
+").unwrap();
+        let file = std::fs::OpenOptions::new().append(true).open(&path).unwrap();
+        let mut log = super::Log { file, path: path.clone(), size: super::MAX + 1 };
+        log.start_over();
+        log.file.write_all(b"new line
+").unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "new line
+");
+        assert_eq!(std::fs::read_to_string(dir.path().join("kova.log.1")).unwrap(), "old lines
+");
+        assert_eq!(log.size, 0);
+    }
+
     #[test]
     fn dates_are_right() {
         assert_eq!(super::utc(0), "1970-01-01 00:00 UTC");

@@ -50,7 +50,16 @@ async fn answers(url: &str, proxy: Option<&str>) -> Result<(), String> {
 /// The public address a plain-text echo service sees.
 async fn public_ip(url: &str, proxy: Option<&str>) -> Option<String> {
     let c = client(proxy, 8)?;
-    let t = c.get(url).send().await.ok()?.text().await.ok()?;
+    // An address is a few dozen bytes; whatever else answers is not read to its end.
+    let mut r = c.get(url).send().await.ok()?;
+    let mut body = Vec::new();
+    while let Some(chunk) = r.chunk().await.ok()? {
+        body.extend_from_slice(&chunk);
+        if body.len() > 256 {
+            return None;
+        }
+    }
+    let t = String::from_utf8(body).ok()?;
     let t = t.trim();
     t.parse::<std::net::IpAddr>().ok().map(|_| t.to_string())
 }
