@@ -1478,6 +1478,10 @@ impl Engine {
         } else {
             gen_mihomo::from_nodes(&nodes, &plan, &bridges, &opts)
         };
+        // Kova itself has administrator or root rights (TUN on macOS, or started that
+        // way), and so will the Mihomo it starts: its config, which a subscription may
+        // have written, gets the care the Kova service gives every config.
+        let yaml = if !via_service && crate::process::is_elevated() { gen_mihomo::sanitize_for_service(&yaml).map_err(|e| Error::Config(e.to_string()))? } else { yaml };
         let cfg = home.join("config.yaml");
         std::fs::write(&cfg, &yaml)?;
         let (h, c) = (home.to_string_lossy().to_string(), cfg.to_string_lossy().to_string());

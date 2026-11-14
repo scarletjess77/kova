@@ -281,21 +281,24 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
 /// with ours; the controller is ours so the UI can talk to the core.
 const STRIP: &[&str] = &[
     "port", "socks-port", "redir-port", "tproxy-port", "external-controller-tls", "external-controller-unix",
-    "external-controller-pipe", "external-ui", "external-ui-url", "external-ui-name", "authentication", "skip-auth-prefixes",
+    "external-controller-pipe", "external-controller-cors", "external-doh-server", "external-ui", "external-ui-url", "external-ui-name",
+    "authentication", "skip-auth-prefixes",
 ];
 
 /// The profile's own extra ports (`listeners`, `tunnels`, the DNS server) listen where Kova's port does: on
 /// this computer only, unless LAN sharing is on. A listener with no `listen` would take
-/// every address, and one with `users: []` would skip the login. With LAN sharing on,
-/// listeners keep their address and fall back to Kova's login; tunnels can't take a login,
-/// so they stay on this computer.
+/// every address, and one with `users: []` would skip the login where Kova's ports ask
+/// for one (with LAN sharing on, and always on Android, where every app can reach them):
+/// it falls back to Kova's login. With LAN sharing on, listeners keep their address;
+/// tunnels can't take a login, so they stay on this computer.
 fn confine_inbounds(doc: &mut Mapping, allow_lan: bool) {
     if let Some(Yaml::Sequence(listeners)) = doc.get_mut("listeners") {
         for l in listeners.iter_mut() {
             let Yaml::Mapping(m) = l else { continue };
             if !allow_lan {
                 m.insert(Yaml::String("listen".into()), Yaml::String("127.0.0.1".into()));
-            } else if m.get("users").and_then(Yaml::as_sequence).is_some_and(Vec::is_empty) {
+            }
+            if m.get("users").and_then(Yaml::as_sequence).is_some_and(Vec::is_empty) {
                 m.remove("users");
             }
         }
@@ -1143,6 +1146,7 @@ rules:
         let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &opts()).unwrap()).unwrap();
         assert_eq!(doc["listeners"][0]["listen"], "127.0.0.1", "no address means every address");
         assert_eq!(doc["listeners"][1]["listen"], "127.0.0.1");
+        assert!(doc["listeners"][1].get("users").is_none(), "on a phone every app reaches this port: Kova's login, not none");
         assert_eq!(doc["tunnels"][0], "tcp/udp,127.0.0.1:6553,1.1.1.1:53,A");
         assert_eq!(doc["tunnels"][1]["address"], "127.0.0.1:6554");
         assert_eq!(doc["dns"]["listen"], "127.0.0.1:1053", "the profile's DNS server too");
