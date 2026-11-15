@@ -1,0 +1,29 @@
+# Checks Cargo.lock against the RustSec advisory database. Runs weekly, whenever
+# Cargo.lock changes, and by hand. A new advisory fails this workflow only, not the
+# build and test workflow. Actions are pinned to commits.
+name: Audit
+
+on:
+  schedule:
+    - cron: '17 5 * * 1'
+  push:
+    branches: [main, master, beta]
+    paths: ['Cargo.lock']
+  pull_request:
+    paths: ['Cargo.lock']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+      - uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+      - run: cargo install cargo-audit --locked
+      - run: cargo audit
