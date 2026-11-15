@@ -49,4 +49,4 @@
   let { name, class: cls = '' }: { name: IconName; class?: string } = $props();
 </script>
 
-<svg class="i {cls}" viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS[name]} /></svg>
+<svg class="i {cls}" data-icon={name} viewBox="0 0 24 24" aria-hidden="true"><path d={ICONS[name]} /></svg>

@@ -235,7 +235,8 @@ input, textarea, .selectable { user-select: text; }
 @media (hover: hover) { .btn.ghost:hover:not(:disabled) { background: var(--sunk); color: var(--fg); } }
 .btn.danger { color: var(--bad); }
 .btn .i { width: 16px; height: 16px; }
-.btn.busy .i { animation: spin .8s linear infinite; }
+.btn.busy .i { animation: busy-pulse 1s ease-in-out infinite; }
+.btn.busy .i[data-icon='refresh'] { animation: spin .8s linear infinite; }
 .input { height: 32px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); padding: 0 10px; min-width: 0; width: 100%; }
 .input:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
 textarea.input { height: auto; padding: 8px 10px; resize: vertical; }
@@ -272,6 +273,7 @@ select.input { padding-inline-end: 6px; }
 .lat.testing { color: var(--faint); background: var(--sunk); animation: pulse 1s infinite; }
 @keyframes pulse { 50% { opacity: .4; } }
 @keyframes spin { to { transform: rotate(360deg); } }
+@keyframes busy-pulse { 50% { opacity: .35; } }
 
 .bar { height: 4px; border-radius: 4px; background: var(--sunk); overflow: hidden; }
 .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
