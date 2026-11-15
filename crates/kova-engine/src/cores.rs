@@ -346,6 +346,24 @@ pub fn adopt_bundled(bundle_dir: &Path, cores_dir: &Path) -> Vec<String> {
     adopted
 }
 
+/// Most bytes read from one unpacked file, so a decompression bomb cannot exhaust memory.
+const MAX_UNPACKED: u64 = 512 * 1024 * 1024;
+
+/// Reads `r` to the end, failing if it holds more than `limit` bytes.
+fn read_limited(r: impl Read, limit: u64) -> Result<Vec<u8>, Error> {
+    let mut buf = Vec::new();
+    r.take(limit + 1).read_to_end(&mut buf)?;
+    if buf.len() as u64 > limit {
+        return Err(Error::Core("an unpacked file is larger than the allowed size".into()));
+    }
+    Ok(buf)
+}
+
+/// Unpacks the downloaded core archive into `out`. The archive is a .tar.gz
+/// (Shoes), a bare .gz, or a .zip. Only the core binary is kept, plus the
+/// `.dat` geodata files from zip archives unless `keep_geodata` is true.
+/// Entries are matched by file name only, so paths inside the archive are
+/// never used to write outside `out`. Each unpacked file is limited to 512 MiB.
 fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bool) -> Result<(), Error> {
     let bin = binary_name(core);
     // Shoes: one program in a tar.gz.
@@ -355,8 +373,7 @@ fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bo
             let mut entry = entry?;
             let file = entry.path()?.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
             if file == bin {
-                let mut buf = Vec::new();
-                entry.read_to_end(&mut buf)?;
+                let buf = read_limited(&mut entry, MAX_UNPACKED)?;
                 std::fs::write(out.join(bin), buf)?;
                 return Ok(());
             }
@@ -364,9 +381,8 @@ fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bo
         return Err(Error::Core(format!("{name} did not contain {bin}")));
     }
     if name.ends_with(".gz") {
-        let mut d = flate2::read::GzDecoder::new(data);
-        let mut buf = Vec::new();
-        d.read_to_end(&mut buf)?;
+        let d = flate2::read::GzDecoder::new(data);
+        let buf = read_limited(d, MAX_UNPACKED)?;
         std::fs::write(out.join(bin), buf)?;
         return Ok(());
     }
@@ -393,8 +409,7 @@ fn extract(name: &str, data: &[u8], core: CoreKind, out: &Path, keep_geodata: bo
         } else {
             continue;
         };
-        let mut buf = Vec::new();
-        f.read_to_end(&mut buf)?;
+        let buf = read_limited(&mut f, MAX_UNPACKED)?;
         std::fs::write(out.join(target), buf)?;
     }
     Ok(())
@@ -411,6 +426,14 @@ pub async fn status(cores_dir: &Path, core: CoreKind, check_latest: bool) -> Cor
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A file exactly at the limit is read; one byte over is refused.
+    #[test]
+    fn read_limited_enforces_the_cap() {
+        let data = vec![7u8; 100];
+        assert_eq!(read_limited(std::io::Cursor::new(&data), 100).unwrap().len(), 100);
+        assert!(read_limited(std::io::Cursor::new(&data), 99).is_err());
+    }
 
     /// Every pinned core names the checksum of each file it may be installed from.
     #[test]
