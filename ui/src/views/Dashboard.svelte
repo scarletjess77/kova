@@ -446,7 +446,7 @@
   .hero { display: flex; flex-direction: column; gap: 20px; padding: 20px; container: hero / inline-size; }
   .hero-top { display: flex; gap: 24px; align-items: center; }
   .hero-text { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
-  .power { width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line-2); background: var(--sunk); color: var(--muted); display: grid; place-items: center; flex: none; position: relative; transition: background .2s, color .2s, border-color .2s; }
+  .power { -webkit-tap-highlight-color: transparent; width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line-2); background: var(--sunk); color: var(--muted); display: grid; place-items: center; flex: none; position: relative; transition: background .2s, color .2s, border-color .2s; }
   .power :global(.i) { width: 36px; height: 36px; stroke-width: 2; }
   /* Hover only with a mouse: on a touch screen it sticks after the tap. */
   @media (hover: hover) { .power:not(.on):hover:not(:disabled) { border-color: var(--accent); color: var(--fg); } }
