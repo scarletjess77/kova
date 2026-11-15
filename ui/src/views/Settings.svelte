@@ -691,7 +691,7 @@
           <div class="upd">
             <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
             {#if app.update.date}<div class="d">{t('Released {date}', { date: app.update.date.slice(0, 10) })}</div>{/if}
-            {#if app.update.body}<p class="notes">{@html notesHtml(app.update.body)}</p>{/if}
+            {#if app.update.body}<p class="notes">{@html notesHtml(app.update.body, 20000)}</p>{/if}
             {#if app.updateProgress !== null}
               <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
               <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : app.mobile ? t('Opening Android’s installer') : t('Installing, Kova will restart')}</div>
@@ -762,7 +762,8 @@
   .upd { display: flex; flex-direction: column; gap: 6px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); margin-bottom: 4px; }
   .upd .t { font-weight: 500; }
   .upd .d { font-size: 12px; color: var(--muted); }
-  .notes { margin: 4px 0 0; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+  .notes { margin: 4px 0 0; font-size: 12px; color: var(--muted); white-space: pre-wrap; max-height: min(40vh, 320px); overflow-y: auto; overscroll-behavior: contain; padding-inline-end: 6px; }
+  :global(.app.tv) .notes { max-height: none; overflow-y: visible; }
   .svc { display: flex; align-items: center; gap: 12px; padding: 10px 12px; margin: 8px 0 4px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); flex-wrap: wrap; }
   .svc-text { flex: 1; min-width: 200px; }
   .svc .t { font-weight: 500; }
