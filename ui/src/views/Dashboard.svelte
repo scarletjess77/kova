@@ -1,9 +1,8 @@
 <script lang="ts">
   import { friendly } from '../lib/errors';
   import { onDestroy } from 'svelte';
-  import { openUrl } from '@tauri-apps/plugin-opener';
   import { api, errText, type CorePreference, type ExitInfo, type Mode, type Preset, type Quality } from '../lib/api';
-  import { countryLabel, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
+  import { countryCode, countryLabel, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
   import { t, tn, tx } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
@@ -55,16 +54,42 @@
   });
   let endNode = $derived(chain.length ? chain[chain.length - 1] : undefined);
   let endInfo = $derived(endNode ? app.nodes[endNode] : undefined);
-  let quick = $derived.by(() => {
+  // Quick switch: the groups of the main group, then the five fastest servers that have
+  // been tested; nothing is guessed before a test has run.
+  const BUILT_IN = new Set(['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE']);
+  const isGroupName = (n: string) => app.proxies.groups.some((g) => g.name === n);
+  const isServer = (n: string) => !isGroupName(n) && !BUILT_IN.has(n.toUpperCase()) && !['Direct', 'Reject', 'RejectDrop', 'Pass', 'Compatible'].includes(app.proxies.proxies[n]?.type ?? '');
+  let quickGroups = $derived(mainGroup ? mainGroup.all.filter(isGroupName).slice(0, 6) : []);
+  let serverCount = $derived(mainGroup ? mainGroup.all.filter(isServer).length : 0);
+  // While a test runs the rows keep their order and new results are appended, so a tap
+  // never lands on a row that moved; the list is sorted again when the test ends.
+  let frozen: string[] = [];
+  let quickServers = $derived.by(() => {
     if (!mainGroup) return [];
-    const groups = mainGroup.all.filter((n) => app.proxies.groups.some((g) => g.name === n));
-    const nodes = mainGroup.all
-      .filter((n) => !groups.includes(n) && app.delays[n] != null)
-      .sort((a, b) => (app.delays[a] ?? 1e9) - (app.delays[b] ?? 1e9))
-      .slice(0, 4);
-    const fill = nodes.length ? [] : mainGroup.all.filter((n) => !groups.includes(n)).slice(0, 4);
-    return [...groups.slice(0, 2), ...nodes, ...fill];
+    const tested = mainGroup.all.filter((n) => isServer(n) && (app.delayOf(n) != null || app.isDead(n)));
+    const sorted = [...tested.filter((n) => app.delayOf(n) != null).sort((a, b) => (app.delayOf(a) ?? 1e9) - (app.delayOf(b) ?? 1e9)), ...tested.filter((n) => app.delayOf(n) == null)];
+    const keep = app.testing.size > 0 ? frozen.filter((n) => tested.includes(n)) : [];
+    frozen = [...keep, ...sorted.filter((n) => !keep.includes(n))].slice(0, 5);
+    return frozen;
   });
+  let currentNode = $derived(mainGroup?.now ? app.resolve(mainGroup.now) : undefined);
+  // Only a select group can be pinned; an imported url-test or fallback group picks by itself.
+  let readOnly = $derived(!!mainGroup && mainGroup.type !== 'Selector');
+  // The row just clicked, until the core has answered.
+  let pending = $state<string | null>(null);
+  async function pick(name: string) {
+    if (!mainGroup || pending || readOnly) return;
+    pending = name;
+    try { await app.select(mainGroup.name, name); } finally { pending = null; }
+  }
+  const testAll = () => { if (app.testing.size === 0) void app.testDelays(); };
+  const groupType = (name: string) => app.proxies.groups.find((g) => g.name === name)?.type;
+  const groupTitle = (name: string) => { const ty = groupType(name); return ty === 'URLTest' ? t('Fastest server') : ty === 'Fallback' ? t('Failover') : displayName(name); };
+  const groupSub = (name: string) => {
+    const now = displayName(app.resolve(name));
+    const ty = groupType(name);
+    return ty === 'URLTest' ? t('Switches by itself · now {name}', { name: now }) : ty === 'Fallback' ? t('Takes over if a server fails · now {name}', { name: now }) : t('now {name}', { name: now });
+  };
 
   let now = $state(Date.now());
   const tick = setInterval(() => { if (!document.hidden) now = Date.now(); }, 1000);
@@ -126,10 +151,10 @@
   // arranging, every card shows, hidden ones faded.
   let CARD_NAME = $derived<Record<CardId, string>>({
     connect: t('Connect and status'), exit: t('Exit point'), quality: t('Connection quality'), traffic: t('Traffic'),
-    quick: t('Quick switch'), tiles: t('Session numbers'), more: t('More details'),
+    quick: t('Quick switch'), tiles: t('Session numbers'), more: t('More details'), controls: t('Routing mode and core'),
   });
   /** Each card's own width, wherever it goes: wide, narrow, or the whole row. */
-  const KIND: Record<CardId, 'wide' | 'narrow' | 'full'> = { connect: 'wide', exit: 'narrow', quality: 'full', traffic: 'wide', quick: 'narrow', tiles: 'full', more: 'full' };
+  const KIND: Record<CardId, 'wide' | 'narrow' | 'full'> = { connect: 'wide', exit: 'narrow', quality: 'full', traffic: 'wide', quick: 'narrow', tiles: 'full', more: 'full', controls: 'full' };
   let cards = $derived(app.layout.cards);
   let fold = $derived(cards.findIndex((c) => c.id === 'more'));
   let below = $derived(cards.slice(fold + 1).some((c) => !c.hidden));
@@ -181,11 +206,8 @@
 
 <div class="page-head">
   <h1>{t('Dashboard')}</h1>
-  {#if profile}<span class="sub">{profile.name} · {tn(profile.node_count, '{n} node', '{n} nodes')}</span>{/if}
   <div class="tools">
-    {#if profile?.support_url}<button class="btn ghost" onclick={() => app.run(() => openUrl(profile!.support_url!))}><Icon name="external" />{t('Provider support')}</button>{/if}
     <button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button>
-    {#if !app.editingLayout}<button class="btn ghost" onclick={() => (app.editingLayout = true)}><Icon name="edit" />{t('Edit layout')}</button>{/if}
   </div>
 </div>
 {#if subWarning}<div class="sub-warn"><Icon name="alert" />{subWarning}</div>{/if}
@@ -252,29 +274,9 @@
         {/if}
       </div>
     </div>
-    {#if settings}
+    {#if settings && !app.mobile}
       <div class="hero-controls">
-        <div class="col">
-        <div class="fld"><span class="lbl">{t('Routing mode')}</span>
-          <div class="seg" role="group" aria-label={t('Routing mode')}>
-            {#each [['rule', tx('mode', 'Rule')], ['global', tx('mode', 'Global')], ['direct', tx('mode', 'Direct')]] as [m, l] (m)}
-              <button aria-pressed={settings.core.mode === m} onclick={() => setMode(m as Mode)}>{l}</button>
-            {/each}
-          </div>
-        </div>
-        {#if profile}
-          <div class="fld"><span class="lbl">{t('Core')}</span>
-            <div class="seg" role="group" aria-label={t('Core')}>
-              <!-- On a phone the VPN needs Mihomo in front; Xray still runs what only it supports. -->
-              {#each [['auto', t('Automatic')], ['mihomo', 'Mihomo'], ...(!app.mobile || profile.core === 'xray' ? [['xray', 'Xray']] : [])] as [c, l] (c)}
-                <button aria-pressed={profile.core === c} onclick={() => setCore(c as CorePreference)}>{l}</button>
-              {/each}
-            </div>
-          </div>
-        {/if}
-        </div>
         <!-- On a phone the VPN captures everything; there is nothing to choose. -->
-        {#if !app.mobile}
         <div class="fld"><span class="lbl">{t('Capture traffic')}</span>
           <div class="togs">
             <div class="tog"><Icon name="monitor" /><span>{t('System proxy')}<small>{t('Apps that follow the system proxy')}</small></span>
@@ -285,10 +287,34 @@
                 onclick={() => app.saveSettings((x) => (x.core.tun.enabled = !x.core.tun.enabled))}></button></div>
           </div>
         </div>
-        {/if}
       </div>
     {/if}
   </section>
+{/snippet}
+{#snippet cardControls()}
+  {#if settings}
+  <section class="card controls">
+    <div class="ctl-row">
+      <div class="fld"><span class="lbl">{t('Routing mode')}</span>
+        <div class="seg" role="group" aria-label={t('Routing mode')}>
+          {#each [['rule', tx('mode', 'Rule')], ['global', tx('mode', 'Global')], ['direct', tx('mode', 'Direct')]] as [m, l] (m)}
+            <button aria-pressed={settings.core.mode === m} onclick={() => setMode(m as Mode)}>{l}</button>
+          {/each}
+        </div>
+      </div>
+      {#if profile}
+        <div class="fld"><span class="lbl">{t('Core')}</span>
+          <div class="seg" role="group" aria-label={t('Core')}>
+            <!-- On a phone the VPN needs Mihomo in front; Xray still runs what only it supports. -->
+            {#each [['auto', t('Automatic')], ['mihomo', 'Mihomo'], ...(!app.mobile || profile.core === 'xray' ? [['xray', 'Xray']] : [])] as [c, l] (c)}
+              <button aria-pressed={profile.core === c} onclick={() => setCore(c as CorePreference)}>{l}</button>
+            {/each}
+          </div>
+        </div>
+      {/if}
+    </div>
+  </section>
+  {/if}
 {/snippet}
 {#snippet cardExit()}
   <section class="card exit">
@@ -345,19 +371,38 @@
 {/snippet}
 {#snippet cardQuick()}
   <section class="card">
-    <div class="card-h"><h2>{t('Quick switch')}</h2>{#if mainGroup}<span class="aside">{t('{name} group', { name: mainGroup.name })}</span>{/if}</div>
-    {#if quick.length && mainGroup}
-      <div class="qs">
-        {#each quick as name (name)}
-          {@const isGroup = app.proxies.groups.some((g) => g.name === name)}
-          <button aria-pressed={mainGroup.now === name} onclick={() => app.select(mainGroup!.name, name)}>
-            <span class="cc">{#if isGroup}<Icon name="bolt" />{:else}{countryLabel(name, app.flags)}{/if}</span>
-            <span class="nm">{displayName(name)}<span class="pr"> · {isGroup ? t('now {name}', { name: displayName(app.resolve(name)) }) : (app.nodes[name]?.protocol ?? '')}</span></span>
-            <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
+    <div class="card-h qh"><h2>{t('Quick switch')}</h2>
+      {#if mainGroup}
+        <span class="aside">{#if currentNode}{#if countryCode(currentNode)}<span class="cc">{countryLabel(currentNode, app.flags)}</span> {/if}{displayName(currentNode)}{/if}</span>
+        <button class="btn ghost qs-test" class:busy={app.testing.size > 0} aria-label={t('Test speed')} title={t('Test speed')} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test speed')}</button>
+      {/if}
+    </div>
+    {#if mainGroup && (quickGroups.length || serverCount)}
+      {#if readOnly}<p class="muted qs-note">{t('{group} chooses automatically. Pick a node in a select group to pin one.', { group: mainGroup.name })}</p>{/if}
+      <div class="qs" class:ro={readOnly}>
+        {#each quickGroups as name (name)}
+          <button aria-pressed={readOnly ? undefined : mainGroup.now === name} aria-disabled={readOnly || !!pending} onclick={() => pick(name)}>
+            <span class="cc"><Icon name="bolt" /></span>
+            <span class="nm"><span class="t">{groupTitle(name)}</span><span class="pr">{groupSub(name)}</span></span>
+            {#if pending === name}<span class="lat none">…</span>{:else}<Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />{/if}
+            {#if mainGroup.now === name}<Icon name="check" />{/if}
+          </button>
+        {/each}
+        {#each quickServers as name (name)}
+          {@const info = app.nodes[name]}
+          <button class:dim={app.delayOf(name) == null} aria-pressed={readOnly ? undefined : mainGroup.now === name} aria-disabled={readOnly || !!pending} onclick={() => pick(name)}>
+            <span class="cc">{countryLabel(name, app.flags)}</span>
+            <span class="nm"><span class="t">{displayName(name)}</span>{#if info}<span class="pr">{info.protocol}{info.transport && info.transport !== 'tcp' ? ` · ${info.transport}` : ''}</span>{/if}</span>
+            {#if pending === name}<span class="lat none">…</span>{:else}<Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(name)} />{/if}
+            {#if mainGroup.now === name}<Icon name="check" />{/if}
           </button>
         {/each}
       </div>
-      <button class="btn ghost more" onclick={() => app.go('proxies')}>{t('All nodes and groups')}</button>
+      {#if !quickServers.length && serverCount}
+        <div class="qs-hint"><span class="muted">{t('Test speed to see the fastest servers.')}</span>
+          <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test speed')}</button></div>
+      {/if}
+      <button class="btn ghost more" onclick={() => app.go('proxies')}>{serverCount ? t('All servers ({n})', { n: serverCount }) : t('All servers and groups')}</button>
     {:else}
       <p class="muted">{t('Nodes appear here once a profile is added.')}</p>
     {/if}
@@ -395,6 +440,7 @@
         {/if}
         {#if c.id === 'connect'}{@render cardConnect()}
         {:else if c.id === 'exit'}{@render cardExit()}
+        {:else if c.id === 'controls'}{@render cardControls()}
         {:else if c.id === 'quality'}{@render cardQuality()}
         {:else if c.id === 'traffic'}{@render cardTraffic()}
         {:else if c.id === 'quick'}{@render cardQuick()}
@@ -461,9 +507,8 @@
   .route .end { font-weight: 500; }
   .hero-meta { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; color: var(--muted); font-size: 12px; }
   .hero-meta .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
-  .hero-controls .col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
-  .hero-controls { display: grid; grid-template-columns: auto 1fr; gap: 16px 28px; align-items: start; padding-top: 16px; border-top: 1px solid var(--line); }
-  @container hero (max-width: 420px) { .hero-controls { grid-template-columns: 1fr; } .hero-top { flex-direction: column; align-items: flex-start; } }
+  .hero-controls { padding-top: 16px; border-top: 1px solid var(--line); }
+  @container hero (max-width: 420px) { .hero-top { flex-direction: column; align-items: flex-start; } }
   /* The first-start guide is long: in a narrow desktop card the power button goes above it, so
      the steps get the full width instead of wrapping into a tall column. */
   @container hero (max-width: 640px) {
@@ -482,9 +527,11 @@
   :global(.app.mobile) .state { font-size: 30px; }
   :global(.app.mobile) .route, :global(.app.mobile) .hero-meta { justify-content: center; }
   :global(.app.mobile) .hero-meta .chip { text-align: start; }
-  :global(.app.mobile) .hero-controls { grid-template-columns: minmax(0, 1fr); }
-  :global(.app.mobile) .hero-controls .seg { display: flex; }
-  :global(.app.mobile) .hero-controls .seg button { flex: 1; }
+  .ctl-row { display: flex; flex-wrap: wrap; gap: 14px 28px; }
+  .ctl-row .fld { min-width: 0; }
+  :global(.app.mobile) .ctl-row .fld { flex: 1 1 100%; }
+  :global(.app.mobile) .ctl-row .seg { display: flex; }
+  :global(.app.mobile) .ctl-row .seg button { flex: 1; }
   .tog { display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--win); }
   .tog :global(.i) { color: var(--muted); }
   .tog span { font-size: 13px; font-weight: 500; }
@@ -507,11 +554,23 @@
   .leg i { width: 10px; height: 3px; border-radius: 2px; display: block; }
   .leg b { font: 500 14px var(--f-mono); color: var(--fg); }
   .qs { display: flex; flex-direction: column; gap: 4px; }
-  .qs button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: none; text-align: start; min-width: 0; }
-  @media (hover: hover) { .qs button:hover { background: var(--sunk); } }
+  .qs button { display: flex; align-items: center; gap: 10px; padding: 8px 10px; min-height: 40px; border: 1px solid transparent; border-radius: 8px; background: none; text-align: start; min-width: 0; }
+  :global(.app.tv) .qs button { min-height: 44px; }
+  @media (hover: hover) { .qs:not(.ro) button:hover:not([aria-disabled='true']) { background: var(--sunk); } }
   .qs button[aria-pressed='true'] { border-color: var(--faint); background: var(--accent-soft); }
-  .qs .nm { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .qs button[aria-disabled='true'] { cursor: default; }
+  .qs-note { margin: 0 0 8px; font-size: 12px; }
+  .qs button.dim { opacity: .55; }
+  .qs button > :global(.i) { width: 16px; height: 16px; flex: none; color: var(--accent); }
+  .qs .nm { font-weight: 500; flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .qs .nm .t, .qs .pr { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .qs .pr { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .qh { flex-wrap: wrap; row-gap: 4px; }
+  .qh .aside { min-width: 0; overflow-wrap: anywhere; }
+  .qs-test { height: 28px; padding-inline: 8px; }
+  .qs-test[aria-disabled='true'], .qs-hint .btn[aria-disabled='true'] { opacity: .55; cursor: default; }
+  :global(.app.mobile) .qs-test { height: 40px; }
+  .qs-hint { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; margin-top: 8px; font-size: 13px; }
   .more { margin-top: 8px; }
   .tile { display: flex; flex-direction: column; gap: 4px; }
   .tile .v { font: 500 22px var(--f-mono); letter-spacing: -.02em; }

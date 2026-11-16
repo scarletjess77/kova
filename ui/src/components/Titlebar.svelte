@@ -24,6 +24,7 @@
     <div class="tb-profile" data-tauri-drag-region={app.mobile ? undefined : ''}>/ <b>{app.activeProfile.name}</b></div>
   {/if}
   <div class="spacer" data-tauri-drag-region={app.mobile ? undefined : ''}></div>
+  <button class="tb-btn" onclick={() => { if (app.view !== 'dashboard') { app.go('dashboard'); app.editingLayout = true; } else { app.editingLayout = !app.editingLayout; } }} title={t('Edit layout')} aria-label={t('Edit layout')} aria-pressed={app.editingLayout}><Icon name="edit" /></button>
   <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" />{#if !app.mobile}<span>{t('Donate')}</span>{/if}</button>
   <button class="tb-btn" onclick={() => (themesOpen = true)} title={t('Theme')} aria-label={t('Theme')} aria-haspopup="dialog"><Icon name="moon" /></button>
   {#if !app.mobile}
@@ -56,6 +57,7 @@
   .spacer { flex: 1; align-self: stretch; }
   .tb-btn { height: 28px; width: 30px; display: grid; place-items: center; border: 0; background: none; border-radius: 6px; color: var(--muted); }
   @media (hover: hover) { .tb-btn:hover { background: var(--sunk); color: var(--fg); } }
+  .tb-btn[aria-pressed='true'] { background: var(--accent-soft); color: var(--fg); }
   .tb-btn.donate { width: auto; gap: 6px; padding: 0 8px; display: flex; align-items: center; font-size: 12px; font-weight: 500; }
   .tb-btn.donate :global(.i) { width: 15px; height: 15px; }
   .winctl { display: flex; height: 100%; }

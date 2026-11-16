@@ -8,8 +8,9 @@ export type TabId = (typeof TABS)[number];
 /**
  * Dashboard cards. `connect` (the power button and status) can move but never hides;
  * `more` is the "More details" divider: cards below it wait behind that button.
+ * `controls` holds Routing mode and Core; only the Everything preset shows it.
  */
-export const CARDS = ['connect', 'exit', 'quality', 'traffic', 'quick', 'more', 'tiles'] as const;
+export const CARDS = ['connect', 'exit', 'controls', 'quality', 'traffic', 'quick', 'more', 'tiles'] as const;
 export type CardId = (typeof CARDS)[number];
 
 export const FIXED_CARDS: readonly CardId[] = ['connect', 'more'];
@@ -64,23 +65,23 @@ function presetBody(name: Preset, form: Form): Layout {
       return {
         tabs: items(TABS, ['connections', 'rules', 'check', 'logs']),
         cards: phone
-          ? items(['connect', 'quick', 'more', 'exit', 'quality', 'traffic', 'tiles'], ['quality', 'traffic', 'tiles'])
-          : items(['connect', 'exit', 'quick', 'quality', 'traffic', 'tiles', 'more'], ['quality', 'traffic', 'tiles']),
+          ? items(['connect', 'controls', 'quick', 'more', 'exit', 'quality', 'traffic', 'tiles'], ['controls', 'quality', 'traffic', 'tiles'])
+          : items(['connect', 'exit', 'controls', 'quick', 'quality', 'traffic', 'tiles', 'more'], ['controls', 'quality', 'traffic', 'tiles']),
       };
     case 'everything':
       return {
         tabs: items(TABS),
         cards: phone
-          ? items(['connect', 'quick', 'exit', 'quality', 'traffic', 'tiles', 'more'])
-          : items(['connect', 'exit', 'quality', 'traffic', 'quick', 'tiles', 'more']),
+          ? items(['connect', 'controls', 'quick', 'exit', 'quality', 'traffic', 'tiles', 'more'])
+          : items(['connect', 'exit', 'controls', 'quality', 'traffic', 'quick', 'tiles', 'more']),
       };
     default:
       return {
         tabs: items(TABS),
         // Phones: the essentials first, the rest a tap away, as Kova always had it.
         cards: phone
-          ? items(['connect', 'quick', 'more', 'exit', 'quality', 'traffic', 'tiles'])
-          : items(['connect', 'exit', 'quality', 'traffic', 'quick', 'tiles', 'more']),
+          ? items(['connect', 'controls', 'quick', 'more', 'exit', 'quality', 'traffic', 'tiles'], ['controls'])
+          : items(['connect', 'exit', 'controls', 'quality', 'traffic', 'quick', 'tiles', 'more'], ['controls']),
       };
   }
 }
@@ -109,11 +110,18 @@ function merge<T extends string>(saved: Item<T>[] | undefined, def: Item<T>[], f
 /** The layout to use: the saved one, completed from the standard one. */
 export function resolve(saved: Layout | undefined, form: Form): Layout {
   const def = preset('standard', form);
+  // The Everything layout saved before the controls card existed keeps the controls it had.
+  const every = preset('everything', form).cards;
+  const savedCards = saved?.cards ?? [];
+  // (On desktops it was the same as Standard, so that layout stays Standard.)
+  const sameOrder = (a: Item[], b: Item[]) => a.length === b.length && a.every((x, i) => !x.hidden && x.id === b[i].id);
+  const plain = (cards: Item[]) => cards.filter((x) => x.id !== 'controls');
+  const oldEverything = !savedCards.some((c) => c.id === 'controls') && sameOrder(savedCards, plain(every)) && !sameOrder(savedCards, plain(def.cards));
   // Status items keep their own places: only which show is the user's.
   const hiddenStatus = new Set((saved?.status ?? []).filter((x) => x.hidden).map((x) => x.id));
   return {
     tabs: merge(saved?.tabs, def.tabs),
-    cards: merge(saved?.cards, def.cards, FIXED_CARDS),
+    cards: merge(saved?.cards, oldEverything ? every : def.cards, FIXED_CARDS),
     status: items(STATUS, [...hiddenStatus]),
     proxies: { ...PROXY_VIEW, ...(saved?.proxies ?? {}) },
   };
