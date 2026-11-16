@@ -190,6 +190,9 @@ pub struct UserInfo {
     pub expire: Option<i64>,
 }
 
+/// 9999-12-31 23:59:59 UTC, the last date a page can show.
+const MAX_EXPIRE: u64 = 253_402_300_799;
+
 pub fn parse_userinfo(header: &str) -> UserInfo {
     let mut u = UserInfo::default();
     for part in header.split(';') {
@@ -201,7 +204,8 @@ pub fn parse_userinfo(header: &str) -> UserInfo {
             "upload" => u.upload = n.unwrap_or(0),
             "download" => u.download = n.unwrap_or(0),
             "total" => u.total = n.unwrap_or(0),
-            "expire" => u.expire = n.filter(|e| *e > 0).map(|e| e as i64),
+            // 0 and anything past the year 9999 mean "no expiry known": no date can show it.
+            "expire" => u.expire = n.filter(|e| (1..=MAX_EXPIRE).contains(e)).map(|e| e as i64),
             _ => {}
         }
     }
@@ -256,6 +260,9 @@ mod tests {
         assert_eq!(u.expire, Some(1798675200));
         assert_eq!(decode_title("base64:0J/RgNC40LLQtdGC"), "Привет");
         assert_eq!(parse_userinfo("upload=1; expire=0").expire, None);
+        assert_eq!(parse_userinfo("expire=253402300799").expire, Some(253_402_300_799), "the last day shown");
+        assert_eq!(parse_userinfo("expire=253402300800").expire, None);
+        assert_eq!(parse_userinfo("expire=18446744073709551615").expire, None, "not a negative number");
     }
 
     /// A WARP profile as wgcf writes it, and an Xray outbound Kova doesn't model.

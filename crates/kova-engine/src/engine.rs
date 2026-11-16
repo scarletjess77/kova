@@ -14,7 +14,7 @@ use kova_core::options::{AUTO, FALLBACK, Mode, PROXY, Rule, RuleKind, RuntimeOpt
 use kova_core::subscription::{self, Format};
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
-use tokio::sync::{Mutex, broadcast};
+use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
 
 use crate::cores::{self, CoreStatus};
@@ -198,6 +198,9 @@ pub struct Engine {
     on_mobile: std::sync::atomic::AtomicBool,
     /// A restart after the network came back is under way.
     network_restarting: std::sync::atomic::AtomicBool,
+    /// When (unix seconds) the last routing-data update failed, 0 if none has: the
+    /// background updater waits an hour before trying again (see `geodata_due`).
+    geodata_failed: std::sync::atomic::AtomicI64,
     /// Numbers latency tests, so a newer one replaces an older one still running.
     delay_run: std::sync::atomic::AtomicU64,
     /// Android: the DNS servers of the network the phone is on (see `set_network_dns`).
@@ -205,6 +208,13 @@ pub struct Engine {
     /// The kill switch is holding: the connection dropped and the system proxy stays on
     /// until it is back or the user disconnects.
     holding: std::sync::atomic::AtomicBool,
+    /// Counts disconnects (`stop`). A connect or reconnect in progress watches it and
+    /// gives up when it changes, so Disconnect never waits for one to finish (see
+    /// `start_with`).
+    stops: watch::Sender<u64>,
+    /// A launch asked the Kova service to start Mihomo; set before the request goes out,
+    /// so a cancelled start knows to undo it.
+    service_started: std::sync::atomic::AtomicBool,
     events: broadcast::Sender<Event>,
     me: Weak<Engine>,
 }
@@ -214,8 +224,81 @@ fn next_run_id() -> u64 {
     NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").and_then(|l| l.local_addr()).map(|a| a.port()).unwrap_or(0)
+fn free_port() -> Result<u16> {
+    std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .map(|a| a.port())
+        .map_err(|e| Error::Other(format!("Could not find a free local port ({e}). Security software may be blocking Kova")))
+}
+
+/// How old the routing data files are (the older of the two), `None` if one is missing.
+fn geodata_age(dir: &Path, now: i64) -> Option<i64> {
+    let mut oldest = 0;
+    for f in crate::geodata::FILES {
+        let modified = std::fs::metadata(dir.join(f)).ok()?.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?;
+        oldest = oldest.max(now - modified.as_secs() as i64);
+    }
+    Some(oldest)
+}
+
+/// Whether the routing data should be fetched. Without a marker (the files that came with
+/// Xray, never updated by Kova) the default source is judged by the age of the files, so
+/// it is refreshed too; any other source is wanted at once. Missing files are always due.
+/// After a failure (`failed`, the time it happened) nothing is tried for an hour.
+fn geodata_due_at(source: &kova_core::options::GeoSource, marker: Option<&crate::geodata::Marker>, age: Option<i64>, now: i64, failed: i64) -> bool {
+    if failed != 0 && now - failed < 3600 {
+        return false;
+    }
+    let max_age = crate::geodata::max_age(source);
+    match marker {
+        None => *source != kova_core::options::GeoSource::Default || age.is_none_or(|a| a > max_age),
+        Some(m) => age.is_none() || m.source != source.id() || now - m.updated_at > max_age,
+    }
+}
+
+/// Aborts a task when dropped, so a connect that is cancelled doesn't leave it running.
+struct AbortOnDrop(Option<tokio::task::AbortHandle>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        if let Some(h) = self.0.take() {
+            h.abort();
+        }
+    }
+}
+
+/// The host of a provider address, lower case, when Kova may download from it. None for
+/// a host that is only this computer or an unusable address (`localhost`, loopback,
+/// link-local and unspecified addresses): a subscription must not make Kova probe those.
+/// Addresses on a LAN stay allowed (a home server).
+fn provider_host(url: &str) -> Option<String> {
+    let host = reqwest::Url::parse(url).ok()?.host_str()?.trim_matches(['[', ']']).trim_end_matches('.').to_ascii_lowercase();
+    if host.is_empty() || host == "localhost" || host.ends_with(".localhost") {
+        return None;
+    }
+    if host.parse::<std::net::IpAddr>().is_ok_and(fetch::is_local_address) {
+        return None;
+    }
+    Some(host)
+}
+
+/// What a refused provider's file holds: one server that can't connect. An empty list
+/// would make Mihomo give a group that only uses the provider a built-in DIRECT, which
+/// sends its traffic around the proxy.
+const REFUSED_PROVIDER: &str = "proxies:\n  - {name: refused-provider, type: socks5, server: 127.0.0.1, port: 1}\n";
+
+/// Whether Kova may download the provider at `url` (or follow a redirect to it). `sub_url`
+/// is the address of the Remote subscription it belongs to; None (a local profile, the
+/// user's own config) refuses nothing. A provider on the subscription's own host is
+/// allowed even when that host is this computer (a local converter).
+fn provider_allowed(url: &str, sub_url: Option<&str>) -> bool {
+    let Some(sub) = sub_url else { return true };
+    provider_host(url).is_some() || url_host(url).is_some_and(|h| url_host(sub) == Some(h))
+}
+
+/// The host of an address as `provider_host` writes it, without refusing any.
+fn url_host(url: &str) -> Option<String> {
+    Some(reqwest::Url::parse(url).ok()?.host_str()?.trim_matches(['[', ']']).trim_end_matches('.').to_ascii_lowercase())
 }
 
 impl Engine {
@@ -266,7 +349,7 @@ async fn resolve_servers<'a>(servers: impl Iterator<Item = (&'a str, u16)>) -> V
 /// answer gets no pin, and Xray then checks its certificate normally.
 async fn cert_pins<'a>(nodes: impl Iterator<Item = &'a Node>, fragment: bool) -> HashMap<String, String> {
     let probes = nodes.filter(|n| n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none() && t.pin.is_none())).map(|n| async move {
-        let name = n.tls.as_ref().and_then(|t| t.sni.clone()).filter(|s| !s.is_empty()).unwrap_or_else(|| n.server.clone());
+        let name = n.tls.as_ref().map_or_else(|| n.server.clone(), |t| t.server_name(&n.server));
         let addr = tokio::net::lookup_host((n.server.as_str(), n.port)).await.ok()?.next()?;
         let pin = crate::tls_probe::leaf_sha256(addr, &name, fragment, Duration::from_secs(6)).await?;
         Some((n.name.clone(), pin))
@@ -276,9 +359,89 @@ async fn cert_pins<'a>(nodes: impl Iterator<Item = &'a Node>, fragment: bool) ->
 
 /// Fail early with a clear message instead of letting a core start without its listener.
 fn port_available(addr: &str, port: u16) -> Result<()> {
-    std::net::TcpListener::bind((addr, port)).map(drop).map_err(|_| {
-        Error::Other(format!("Port {port} is already used by another program. Close it or choose another port in Settings"))
+    std::net::TcpListener::bind((addr, port)).map(drop).map_err(|e| {
+        // Name the program only when the port really is taken; any other failure (an
+        // excluded port range, say) is not that program's doing.
+        let by = (e.kind() == std::io::ErrorKind::AddrInUse).then(|| port_owner(addr, port)).flatten();
+        let by = by.unwrap_or_else(|| "another program".into());
+        Error::Other(format!("Port {port} is already used by {by}. Close it or choose another port in Settings"))
     })
+}
+
+/// File name of the program listening on `addr:port` (never a full path), if it can be found.
+#[cfg(windows)]
+fn port_owner(addr: &str, port: u16) -> Option<String> {
+    let pid = listener_pid(addr.parse().ok()?, port)?;
+    let path = crate::programs::path_of(pid)?;
+    Path::new(&path).file_name().map(|n| n.to_string_lossy().into_owned())
+}
+
+#[cfg(not(windows))]
+fn port_owner(_addr: &str, _port: u16) -> Option<String> {
+    None
+}
+
+/// Whether four table words hold the address `b` (they are its bytes in memory).
+#[cfg(windows)]
+fn same_v6(words: &[u32], b: std::net::Ipv6Addr) -> bool {
+    let o = b.octets();
+    (0..4).all(|i| words[i] == u32::from_ne_bytes([o[4 * i], o[4 * i + 1], o[4 * i + 2], o[4 * i + 3]]))
+}
+
+/// The process whose TCP listener conflicts with binding `bind:port`. None for the System
+/// process (0, 4), when nothing conflicts, and when the table can't be read.
+#[cfg(windows)]
+fn listener_pid(bind: std::net::IpAddr, port: u16) -> Option<u32> {
+    use std::net::IpAddr;
+    use windows_sys::Win32::Foundation::ERROR_INSUFFICIENT_BUFFER;
+    use windows_sys::Win32::NetworkManagement::IpHelper::{GetExtendedTcpTable, TCP_TABLE_OWNER_PID_LISTENER};
+    use windows_sys::Win32::Networking::WinSock::{AF_INET, AF_INET6};
+    // (family, words per row, word index of the local port, word index of the owning pid)
+    for (family, row, port_at, pid_at) in [(AF_INET as u32, 6usize, 2usize, 5usize), (AF_INET6 as u32, 14, 5, 13)] {
+        // u32 words keep the buffer aligned; the table is read word by word.
+        let mut buf: Vec<u32> = Vec::new();
+        let mut size = 0u32;
+        let mut rc = ERROR_INSUFFICIENT_BUFFER;
+        // The first call only asks for the size; the table can grow before the next one.
+        for _ in 0..8 {
+            let ptr = if buf.is_empty() { std::ptr::null_mut() } else { buf.as_mut_ptr().cast() };
+            // SAFETY: `ptr` is null (size query) or points to at least `size` writable bytes.
+            rc = unsafe { GetExtendedTcpTable(ptr, &mut size, 0, family, TCP_TABLE_OWNER_PID_LISTENER, 0) };
+            if rc != ERROR_INSUFFICIENT_BUFFER {
+                break;
+            }
+            buf = vec![0u32; (size as usize).div_ceil(4)];
+        }
+        if rc != 0 || buf.is_empty() {
+            continue;
+        }
+        let rows = (buf[0] as usize).min((buf.len() - 1) / row);
+        for r in buf[1..].chunks_exact(row).take(rows) {
+            // The port is in network byte order in the low 16 bits.
+            if u16::from_be(r[port_at] as u16) != port || matches!(r[pid_at], 0 | 4) {
+                continue;
+            }
+            let conflicts = if family == AF_INET as u32 {
+                // r[1] is the address as its bytes in memory.
+                match bind {
+                    IpAddr::V4(b) => b.is_unspecified() || r[1] == 0 || r[1] == u32::from_ne_bytes(b.octets()),
+                    IpAddr::V6(_) => false,
+                }
+            } else {
+                let unspecified = r[..4].iter().all(|w| *w == 0);
+                match bind {
+                    // Best effort: a listener on `::` may also take IPv4 (dual stack), and the
+                    // table doesn't say whether it does, so it counts as a conflict.
+                    IpAddr::V4(_) => unspecified,
+                    IpAddr::V6(b) => b.is_unspecified() || unspecified || same_v6(&r[..4], b),
+                }
+            };
+            if conflicts {
+                return Some(r[pid_at]);
+            }
+        }
+    }
+    None
 }
 
 fn host_of(url: &str) -> String {
@@ -337,9 +500,12 @@ impl Engine {
             quiet: Default::default(),
             on_mobile: Default::default(),
             network_restarting: Default::default(),
+            geodata_failed: Default::default(),
             delay_run: Default::default(),
             network_dns: Default::default(),
             holding: Default::default(),
+            stops: watch::channel(0).0,
+            service_started: Default::default(),
             events,
             me: me.clone(),
         }))
@@ -479,6 +645,11 @@ impl Engine {
         if cfg!(target_os = "android") {
             return Ok(());
         }
+        // Tests make engines that never set the proxy: leave the developer's alone.
+        #[cfg(test)]
+        if !self.paths.proxy_marker().exists() {
+            return Ok(());
+        }
         sysproxy::release(&self.paths.proxy_marker(), &format!("127.0.0.1:{}", self.settings().core.mixed_port))
     }
 
@@ -504,11 +675,18 @@ impl Engine {
     /// server that answers with an error is not asked again.
     async fn fetch_subscription(&self, url: &str, user_agent: Option<&str>, headers: &[crate::store::Header], via_proxy: bool) -> Result<fetch::Subscription> {
         let device = self.settings().device_id;
-        let first = fetch::subscription(url, user_agent, headers, self.fetch_proxy(via_proxy).as_deref(), &device).await;
+        self.fetch_subscription_as(url, user_agent, headers, via_proxy, &device, &fetch::Guard::OPEN).await
+    }
+
+    /// Like `fetch_subscription`, with the device id to send (empty: none), and `allow`
+    /// held to `guard` (see [`fetch::subscription_guarded`]).
+    async fn fetch_subscription_as(&self, url: &str, user_agent: Option<&str>, headers: &[crate::store::Header], via_proxy: bool, device: &str, guard: &fetch::Guard<'_>) -> Result<fetch::Subscription> {
+        let device = device.to_string();
+        let first = fetch::subscription_guarded(url, user_agent, headers, self.fetch_proxy(via_proxy).as_deref(), &device, guard).await;
         match first {
             Err(e @ Error::Net(_)) if self.status().running => {
                 let other = if via_proxy { None } else { self.proxy_url() };
-                match fetch::subscription(url, user_agent, headers, other.as_deref(), &device).await {
+                match fetch::subscription_guarded(url, user_agent, headers, other.as_deref(), &device, guard).await {
                     Ok(sub) => {
                         let how = if via_proxy { "directly" } else { "through the proxy" };
                         self.emit(Event::Log { source: "kova".into(), level: "info".into(), message: format!("the subscription was downloaded {how}, the usual way failed: {e}") });
@@ -748,7 +926,13 @@ impl Engine {
             .into_iter()
             .map(|p| crate::backup::BackupProfile { body: self.paths.read_body(&p.id).unwrap_or_default(), profile: p })
             .collect();
-        let b = crate::backup::Backup { kova: env!("CARGO_PKG_VERSION").into(), created: now(), settings: self.settings(), profiles };
+        // The install's own secrets stay out of a file that gets passed around; an import
+        // never takes them (see `import_backup`).
+        let mut settings = self.settings();
+        settings.core.secret.clear();
+        settings.core.local_password.clear();
+        settings.device_id.clear();
+        let b = crate::backup::Backup { kova: env!("CARGO_PKG_VERSION").into(), created: now(), settings, profiles };
         crate::backup::write(&b, password)
     }
 
@@ -826,21 +1010,43 @@ impl Engine {
     /// the servers don't depend on Mihomo reaching the provider (its download goes through
     /// the profile's own `proxy:`, which may not exist yet or may be unreachable from
     /// inside the VPN). A provider that can't be downloaded keeps the copy from the last
-    /// run, and with none, stays as it was for Mihomo to try.
+    /// run, and with none, stays as it was for Mihomo to try. `sub_url` is the address of
+    /// the Remote subscription the config came from (None for a local profile, the user's
+    /// own config, where nothing is refused). The device id goes only to a provider on the
+    /// subscription's own host, and a provider that points to this computer (loopback and
+    /// the like) is refused unless the subscription itself is on that host (a converter
+    /// running here): its file holds one server that can't connect, so the groups that
+    /// use it have no way out around the proxy and Mihomo doesn't fetch the address.
     ///
     /// Returns the config and the files it now reads, as (name in Mihomo's folder,
     /// content): a Mihomo that runs elsewhere (in the Kova service) needs them too.
-    async fn localize_providers(&self, body: &str, home: &std::path::Path, via_proxy: bool) -> (String, Vec<(String, String)>) {
+    async fn localize_providers(&self, body: &str, home: &std::path::Path, via_proxy: bool, sub_url: Option<&str>) -> (String, Vec<(String, String)>) {
         let providers = gen_mihomo::http_providers(body);
         if providers.is_empty() {
             return (body.to_string(), Vec::new());
         }
         let ua = gen_mihomo::global_ua(body);
         let mut ready = Vec::new();
+        let sub_host = sub_url.and_then(url_host);
+        let mut refused = Vec::new();
         for (name, url) in providers {
             let file = home.join(gen_mihomo::provider_file(&name));
-            let fetched = self.fetch_subscription(&url, Some(ua.as_deref().unwrap_or("clash.meta")), &[], via_proxy).await;
+            if !provider_allowed(&url, sub_url) {
+                self.refuse_provider(&name, &file, &mut ready, &mut refused);
+                continue;
+            }
+            let device = if sub_host.is_some() && url_host(&url) == sub_host { self.settings().device_id } else { String::new() };
+            // A local profile is the user's own config: no limits. Otherwise every address
+            // is checked, and a name that leads to this computer is refused.
+            let allow = |u: &str| provider_allowed(u, sub_url);
+            let guard = fetch::Guard { allow: &allow, local_dns_except: sub_url.map(|_| sub_host.as_deref().unwrap_or_default()) };
+            let fetched = self.fetch_subscription_as(&url, Some(ua.as_deref().unwrap_or("clash.meta")), &[], via_proxy, &device, &guard).await;
             match fetched {
+                // Redirected or resolved to this computer: Mihomo must not fetch it either.
+                Err(Error::Refused(_)) => {
+                    self.refuse_provider(&name, &file, &mut ready, &mut refused);
+                    continue;
+                }
                 Ok(sub) if gen_mihomo::provider_has_servers(&sub.body) => {
                     if let Some(dir) = file.parent() {
                         let _ = std::fs::create_dir_all(dir);
@@ -858,12 +1064,27 @@ impl Engine {
                 ready.push(name);
             }
         }
-        match gen_mihomo::localize_providers(body, &ready) {
+        // If this fails the config is not usable as it is either, and `merge_clash` says
+        // so; a refused provider never reaches Mihomo with its address.
+        match gen_mihomo::localize_providers_closed(body, &ready, &refused) {
             Ok(localized) => {
                 let files = ready.iter().map(|name| gen_mihomo::provider_file(name)).filter_map(|f| std::fs::read_to_string(home.join(&f)).ok().map(|text| (f, text))).collect();
                 (localized, files)
             }
             Err(_) => (body.to_string(), Vec::new()),
+        }
+    }
+
+    /// A provider that may not be downloaded gets the fail-closed file and is read from it.
+    fn refuse_provider(&self, name: &str, file: &Path, ready: &mut Vec<String>, refused: &mut Vec<String>) {
+        self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("the provider {name} was skipped: its address points to this computer") });
+        tracing::warn!("provider {name} skipped: its address points to this computer");
+        if let Some(dir) = file.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        if std::fs::write(file, REFUSED_PROVIDER).is_ok() {
+            ready.push(name.to_string());
+            refused.push(name.to_string());
         }
     }
 
@@ -980,19 +1201,88 @@ impl Engine {
     // ------------------------------------------------------------------ running
 
     pub async fn start(&self) -> Result<()> {
+        self.start_at(self.stop_epoch()).await
+    }
+
+    /// The number of disconnects so far; read it before an action that a disconnect
+    /// must cancel, and hand it to `start_at` / `restart_at`.
+    pub fn stop_epoch(&self) -> u64 {
+        *self.stops.borrow()
+    }
+
+    /// The id of the connection that is up, if any.
+    async fn run_id(&self) -> Option<u64> {
+        self.run.lock().await.as_ref().map(|r| r.id)
+    }
+
+    /// Connect, unless `stop` ran since `epoch` was read: then the user disconnected and
+    /// nothing is started, which is not an error.
+    pub async fn start_at(&self, epoch: u64) -> Result<()> {
+        self.start_with(epoch, |opts| self.launch(Purpose::Main, opts)).await
+    }
+
+    /// The body of `start_at`, with the launch passed in. `stop` raises the epoch before
+    /// it waits for the `run` lock this holds, and the launch is raced against that: when
+    /// it changes, the launch future is dropped (the cores it started are killed on drop,
+    /// the Kova service is asked to stop what it may have started), the lock is let go and
+    /// the status goes back to disconnected without an error. An uncancelled start runs as
+    /// it always did.
+    async fn start_with<F, Fut>(&self, epoch: u64, launch: F) -> Result<()>
+    where
+        F: FnOnce(RuntimeOptions) -> Fut,
+        Fut: std::future::Future<Output = Result<(Running, Plan)>>,
+    {
         let mut run = self.run.lock().await;
-        if run.is_some() {
+        let mut cancel = self.stops.subscribe();
+        if run.is_some() || *cancel.borrow_and_update() != epoch {
             return Ok(());
         }
         self.set_status(|s| {
             s.busy = true;
             s.error = None;
         });
+        self.service_started.store(false, std::sync::atomic::Ordering::Relaxed);
         let opts = self.settings().core;
-        match self.launch(Purpose::Main, opts.clone()).await {
+        let launched = tokio::select! {
+            r = launch(opts.clone()) => Some(r),
+            _ = async { let _ = cancel.wait_for(|e| *e != epoch).await; } => None,
+        };
+        let Some(launched) = launched else {
+            if self.service_started.swap(false, std::sync::atomic::Ordering::Relaxed) {
+                // The lock is held here and a disconnect waits for it: a service that
+                // doesn't answer must not keep it for long.
+                let undo = async {
+                    crate::service::stop_remote().await;
+                    // A service that doesn't know about cancelled starts may finish the
+                    // Start anyway: look again for a moment, and stop what turns up.
+                    for _ in 0..3 {
+                        tokio::time::sleep(Duration::from_millis(700)).await;
+                        if crate::service::call(&crate::service::Request::Status, Duration::from_secs(2)).await.is_ok_and(|r| r.running) {
+                            crate::service::stop_remote().await;
+                        }
+                    }
+                };
+                if tokio::time::timeout(Duration::from_secs(5), undo).await.is_err() {
+                    tracing::warn!("the Kova service did not answer in time while a connect was cancelled");
+                }
+            }
+            // Cores dropped with the launch are still quitting (Unix).
+            crate::process::finish_dropped().await;
+            self.set_status(|s| {
+                s.busy = false;
+                s.running = false;
+                s.core = None;
+                s.since = None;
+                s.tun_active = false;
+                s.error = None;
+            });
+            return Ok(());
+        };
+        match launched {
             Ok((r, plan)) => {
                 self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
                 let kind = r.front_kind;
+                let run_id = r.id;
                 let sidecar = r.sidecar.is_some();
                 let api = r.api.clone();
                 let main_group = r.main_group.clone();
@@ -1002,7 +1292,7 @@ impl Engine {
                 let tun_active = r.tun_active && tun_error.is_none();
                 let warning = tun_error.or_else(|| r.warning.clone());
                 *run = Some(r);
-                drop(run);
+                // Under the lock, so a disconnect can't finish before this and be undone.
                 self.set_status(|s| {
                     s.running = true;
                     s.busy = false;
@@ -1015,7 +1305,10 @@ impl Engine {
                     s.tun_active = tun_active;
                     s.warning = warning;
                 });
-                if let Some(api) = api {
+                drop(run);
+                // A disconnect from here on has taken the connection down (or will): leave
+                // it alone, and don't set the system proxy for it.
+                if let Some(api) = api.filter(|_| self.stop_epoch() == epoch) {
                     // Mihomo's GLOBAL group starts on DIRECT, so Global mode would bypass the
                     // proxy. Point it at the main group; a choice the user made in GLOBAL is
                     // restored right after and wins.
@@ -1027,11 +1320,19 @@ impl Engine {
                             let _ = api.select(&main_group, &server).await;
                         }
                 }
-                if let Err(e) = self.apply_system_proxy() {
-                    self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("could not set the system proxy: {e}") });
+                {
+                    // The lock again: a disconnect that comes after this check waits for the
+                    // proxy to be set, then releases it.
+                    let run = self.run.lock().await;
+                    if self.stop_epoch() != epoch || run.as_ref().map(|r| r.id) != Some(run_id) {
+                        return Ok(());
+                    }
+                    if let Err(e) = self.apply_system_proxy() {
+                        self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("could not set the system proxy: {e}") });
+                    }
                 }
                 if !self.has_geodata() {
-                    self.fetch_geodata_through_proxy();
+                    self.fetch_geodata_through_proxy(epoch, run_id);
                 }
                 Ok(())
             }
@@ -1055,10 +1356,20 @@ impl Engine {
         }
     }
 
+    /// Make a connect in progress give up, without disconnecting. For a caller that must
+    /// wait its turn before it can call `stop` (Android serializes connect and disconnect).
+    pub fn cancel_start(&self) {
+        self.stops.send_modify(|e| *e = e.wrapping_add(1));
+    }
+
     pub async fn stop(&self) -> Result<()> {
         // Disconnecting lifts the kill switch.
         self.holding.store(false, std::sync::atomic::Ordering::Relaxed);
-        let taken = self.run.lock().await.take();
+        // Before waiting for the lock: a connect that holds it gives up on seeing this.
+        self.cancel_start();
+        // The lock stays held through the shutdown, so a connect can't overlap it.
+        let mut run = self.run.lock().await;
+        let taken = run.take();
         self.set_status(|s| s.busy = true);
         let proxy = self.release_proxy();
         if let Some(r) = taken {
@@ -1074,6 +1385,7 @@ impl Engine {
             s.tun_active = false;
             s.warning = None;
         });
+        drop(run);
         self.emit(Event::Traffic { up: 0, down: 0, up_total: 0, down_total: 0 });
         proxy
     }
@@ -1095,11 +1407,18 @@ impl Engine {
 
     /// Re-apply config. The system proxy stays pointed at us across the short gap.
     pub async fn restart(&self) -> Result<()> {
-        if let Some(r) = self.run.lock().await.take() {
-            r.shutdown().await;
-        }
+        self.restart_at(self.stop_epoch()).await
+    }
+
+    /// `restart`, unless `stop` ran since `epoch` was read: a disconnect during the gap
+    /// between the shutdown and the new start is not undone.
+    async fn restart_at(&self, epoch: u64) -> Result<()> {
+        let taken = self.run.lock().await.take();
+        // Nothing was running (a disconnect got there first): nothing to start over.
+        let Some(r) = taken else { return Ok(()) };
+        r.shutdown().await;
         self.set_status(|s| s.running = false);
-        self.start().await
+        self.start_at(epoch).await
     }
 
     /// Give a Mihomo home the installed geodata, so a start doesn't depend on Mihomo
@@ -1112,19 +1431,23 @@ impl Engine {
 
     /// Connected without the routing data: download it through the connection, which
     /// works where GitHub itself is blocked, then reconnect with every rule. Tries a few
-    /// times with growing pauses while the connection stays up.
-    fn fetch_geodata_through_proxy(&self) {
+    /// times with growing pauses while this same connection (`run_id`, started at stop
+    /// count `epoch`) stays up; a disconnect or a new connection ends it.
+    fn fetch_geodata_through_proxy(&self, epoch: u64, run_id: u64) {
         let me = self.me.clone();
         tokio::spawn(async move {
             for attempt in 1..=5u64 {
                 let Some(e) = me.upgrade() else { return };
-                if !e.status().running {
+                if e.stop_epoch() != epoch || e.run_id().await != Some(run_id) {
                     return;
                 }
                 match e.refresh_geodata_files(false).await {
                     Ok(_) => {
-                        let _ = e.restart().await;
-                        e.emit(Event::Notice { text: "Routing data downloaded through the server; every rule works now".into() });
+                        // The download can take minutes: look again before reconnecting.
+                        if e.stop_epoch() == epoch && e.run_id().await == Some(run_id) {
+                            let _ = e.restart_at(epoch).await;
+                            e.emit(Event::Notice { text: "Routing data downloaded through the server; every rule works now".into() });
+                        }
                         return;
                     }
                     Err(err) => tracing::warn!("routing data through the proxy, attempt {attempt}: {err}"),
@@ -1150,6 +1473,12 @@ impl Engine {
     /// Without `force`, a current cached copy is reused instead of downloading again.
     /// Running cores keep their loaded copy until they restart.
     pub async fn refresh_geodata_files(&self, force: bool) -> Result<crate::geodata::Marker> {
+        let done = self.refresh_geodata_inner(force).await;
+        self.geodata_failed.store(if done.is_err() { now() } else { 0 }, std::sync::atomic::Ordering::Relaxed);
+        done
+    }
+
+    async fn refresh_geodata_inner(&self, force: bool) -> Result<crate::geodata::Marker> {
         let _one_at_a_time = self.geodata_lock.lock().await;
         let source = self.settings().core.geodata;
         let (dir, proxy) = (self.paths.cores_dir(), self.fetch_proxy(true));
@@ -1179,12 +1508,9 @@ impl Engine {
     /// Whether the background updater should fetch routing data now.
     pub fn geodata_due(&self) -> bool {
         let source = self.settings().core.geodata;
-        let max_age = crate::geodata::max_age(&source);
-        match crate::geodata::marker(&self.paths.cores_dir()) {
-            // Files that shipped with Xray are fine for the default source.
-            None => source != kova_core::options::GeoSource::Default,
-            Some(m) => m.source != source.id() || now() - m.updated_at > max_age,
-        }
+        let dir = self.paths.cores_dir();
+        let failed = self.geodata_failed.load(std::sync::atomic::Ordering::Relaxed);
+        geodata_due_at(&source, crate::geodata::marker(&dir).as_ref(), geodata_age(&dir, now()), now(), failed)
     }
 
     fn note_tun_failure(&self, message: &str) {
@@ -1224,14 +1550,12 @@ impl Engine {
         let quiet = purpose == Purpose::Tester;
         // Internal ports are picked fresh each run so they can't collide with other clients
         // (Clash Verge also defaults its controller to 9097) or with a leftover core.
-        opts.controller_port = free_port();
-        opts.xray_metrics_port = free_port();
-        // On a phone Kova's own verified updates are the only ones.
-        opts.kova_updates_geodata = cfg!(target_os = "android");
+        opts.controller_port = free_port()?;
+        opts.xray_metrics_port = free_port()?;
         let mut warning = None;
         if quiet {
             // Only latency tests use it: servers without rules or routing data start fastest.
-            opts.mixed_port = free_port();
+            opts.mixed_port = free_port()?;
             opts.tun.enabled = false;
             opts.mode = Mode::Global;
             opts.without_geodata = true;
@@ -1278,6 +1602,10 @@ impl Engine {
         }
         #[allow(unused_mut)]
         let mut mihomo_bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
+        // Mihomo is the Linux copy with network rights: it needs the same care as one
+        // running with root rights.
+        #[allow(unused_mut)]
+        let mut has_net_rights = false;
         let asset_env: [(&str, &Path); 1] = [("XRAY_LOCATION_ASSET", cores_dir.as_path())];
 
         if plan.front == CoreKind::Xray {
@@ -1352,7 +1680,10 @@ impl Engine {
             #[cfg(target_os = "linux")]
             match crate::tun_linux::granted() {
                 // The copy of Mihomo with network rights runs TUN.
-                Some(granted) if !quiet => mihomo_bin = granted,
+                Some(granted) if !quiet => {
+                    mihomo_bin = granted;
+                    has_net_rights = true;
+                }
                 _ => {
                     opts.tun.enabled = false;
                     warning = Some("TUN mode needs network rights once. Allow them in Settings, TUN mode".to_string());
@@ -1386,12 +1717,12 @@ impl Engine {
                     plan.dropped.push((b, "needs Xray, which is not installed".into()));
                 }
             } else {
-                let bridged: Vec<(&Node, u16)> = nodes.iter().filter(|n| plan.bridged.contains(&n.name)).map(|n| (n, free_port())).collect();
+                let bridged: Vec<(&Node, u16)> = nodes.iter().filter(|n| plan.bridged.contains(&n.name)).map(|n| Ok((n, free_port()?))).collect::<Result<_>>()?;
                 for (n, port) in &bridged {
                     bridges.insert(n.name.clone(), *port);
                 }
                 if anti_dpi {
-                    opts.anti_dpi_port = Some(free_port());
+                    opts.anti_dpi_port = Some(free_port()?);
                 }
                 // In TUN mode Xray's own connections to the servers would be captured and
                 // routed back into it, and TUN would also undo Anti-DPI's small pieces.
@@ -1434,7 +1765,7 @@ impl Engine {
                     plan.dropped.push((n, why.into()));
                 }
             } else {
-                let served: Vec<(&Node, u16)> = nodes.iter().filter(|n| plan.shoes.contains(&n.name)).map(|n| (n, free_port())).collect();
+                let served: Vec<(&Node, u16)> = nodes.iter().filter(|n| plan.shoes.contains(&n.name)).map(|n| Ok((n, free_port()?))).collect::<Result<_>>()?;
                 for (n, port) in &served {
                     bridges.insert(n.name.clone(), *port);
                 }
@@ -1463,7 +1794,7 @@ impl Engine {
             let profile_rules = opts.smart_profile_rules && profile.format == Format::Clash;
             let scope = gen_mihomo::smart_scope(&opts, profile_rules);
             let password = opts.local_password.clone();
-            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port(), proxy_port: free_port(), password, scope });
+            opts.smart = Some(SmartRuntime { lists_url, direct_port: free_port()?, proxy_port: free_port()?, password, scope });
         }
         let home = run_dir.join("mihomo");
         std::fs::create_dir_all(&home)?;
@@ -1475,28 +1806,37 @@ impl Engine {
         }
         let mut provider_files = Vec::new();
         let yaml = if profile.format == Format::Clash {
-            let (body, files) = self.localize_providers(&body, &home, matches!(profile.source, Source::Remote { via_proxy: true, .. })).await;
+            let (sub_url, via_proxy) = match &profile.source {
+                Source::Remote { url, via_proxy, .. } => (Some(url.as_str()), *via_proxy),
+                _ => (None, false),
+            };
+            let (body, files) = self.localize_providers(&body, &home, via_proxy, sub_url).await;
             provider_files = files;
             gen_mihomo::merge_clash(&body, &opts).map_err(|e| Error::Config(e.to_string()))?
         } else {
             gen_mihomo::from_nodes(&nodes, &plan, &bridges, &opts)
         };
         // Kova itself has administrator or root rights (TUN on macOS, or started that
-        // way), and so will the Mihomo it starts: its config, which a subscription may
-        // have written, gets the care the Kova service gives every config.
-        let yaml = if !via_service && crate::process::is_elevated() { gen_mihomo::sanitize_for_service(&yaml).map_err(|e| Error::Config(e.to_string()))? } else { yaml };
+        // way), or the Mihomo it starts has network rights (the Linux TUN copy): its
+        // config, which a subscription may have written, gets the care the Kova service
+        // gives every config.
+        let yaml = if !via_service && (crate::process::is_elevated() || has_net_rights) { gen_mihomo::sanitize_for_service(&yaml).map_err(|e| Error::Config(e.to_string()))? } else { yaml };
         let cfg = home.join("config.yaml");
         std::fs::write(&cfg, &yaml)?;
         let (h, c) = (home.to_string_lossy().to_string(), cfg.to_string_lossy().to_string());
         let mut log_poller = None;
+        // Ends the log poller if this launch is dropped half way (a cancelled connect).
+        let mut poller_guard = AbortOnDrop(None);
         let mut front = if via_service {
             use crate::service::{Request, call};
             // Only show log lines from this run.
             let since = call(&Request::Status, Duration::from_secs(5)).await?.log_seq;
             let tail = Arc::new(std::sync::Mutex::new(Vec::new()));
             log_poller = Some(self.spawn_service_logs(since, tail.clone()));
+            poller_guard.0 = log_poller.as_ref().map(|p| p.abort_handle());
             // The first start may download Mihomo and the routing data into the service.
             let start = Request::Start { config: yaml, geodata: opts.geodata.clone(), owner_pid: std::process::id(), files: provider_files };
+            self.service_started.store(true, std::sync::atomic::Ordering::Relaxed);
             if let Err(e) = call(&start, Duration::from_secs(600)).await {
                 if let Some(p) = log_poller {
                     p.abort();
@@ -1544,6 +1884,7 @@ impl Engine {
             }
             tokio::time::sleep(Duration::from_millis(150)).await;
         }
+        poller_guard.0 = None;
         let mut r = Running {
             id: next_run_id(),
             front,
@@ -1713,8 +2054,8 @@ impl Engine {
                             .stream("/traffic", |v| {
                                 let up = v["up"].as_u64().unwrap_or(0);
                                 let down = v["down"].as_u64().unwrap_or(0);
-                                up_total = v["upTotal"].as_u64().unwrap_or(up_total + up);
-                                down_total = v["downTotal"].as_u64().unwrap_or(down_total + down);
+                                up_total = v["upTotal"].as_u64().unwrap_or(up_total.saturating_add(up));
+                                down_total = v["downTotal"].as_u64().unwrap_or(down_total.saturating_add(down));
                                 match me.upgrade() {
                                     Some(e) => {
                                         e.emit(Event::Traffic { up, down, up_total, down_total });
@@ -1758,7 +2099,7 @@ impl Engine {
                 let Ok(v) = http.get(&url).send().await else { continue };
                 let Ok(v) = v.json::<serde_json::Value>().await else { continue };
                 let sum = |dir: &str| -> u64 {
-                    v["stats"]["inbound"].as_object().map(|m| m.values().map(|x| x[dir].as_u64().unwrap_or(0)).sum()).unwrap_or(0)
+                    v["stats"]["inbound"].as_object().map(|m| m.values().map(|x| x[dir].as_u64().unwrap_or(0)).fold(0u64, u64::saturating_add)).unwrap_or(0)
                 };
                 let (up_total, down_total) = (sum("uplink"), sum("downlink"));
                 let up = last_up.map(|l| up_total.saturating_sub(l)).unwrap_or(0);
@@ -1852,10 +2193,13 @@ impl Engine {
         use std::sync::atomic::Ordering::Relaxed;
         for wait in [2, 5, 10] {
             tokio::time::sleep(Duration::from_secs(wait)).await;
+            // The count first: a disconnect after this makes the start give up.
+            let epoch = self.stop_epoch();
             if !self.holding.load(Relaxed) || self.status().running {
                 return;
             }
-            if self.start().await.is_ok() {
+            // A start cancelled by a disconnect also returns Ok, with nothing running.
+            if self.start_at(epoch).await.is_ok() && self.status().running {
                 let text = if holds_proxy {
                     "The connection dropped and is back; the kill switch kept apps offline meanwhile"
                 } else {
@@ -2365,6 +2709,40 @@ impl Engine {
 mod tests {
     use super::{Engine, parse_log};
 
+    #[cfg(windows)]
+    #[test]
+    fn the_program_holding_a_port_is_named() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let pid = super::listener_pid("127.0.0.1".parse().unwrap(), port).expect("this process listens on the port");
+        assert_eq!(pid, std::process::id());
+        // A wildcard bind conflicts with a listener on any IPv4 address.
+        assert_eq!(super::listener_pid("0.0.0.0".parse().unwrap(), port), Some(pid));
+        let me = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(super::port_owner("127.0.0.1", port), Some(me));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn an_ipv6_listener_is_found() {
+        // Skipped quietly where IPv6 is switched off.
+        let Ok(l) = std::net::TcpListener::bind("[::]:0") else { return };
+        let port = l.local_addr().unwrap().port();
+        assert_eq!(super::listener_pid("::".parse().unwrap(), port), Some(std::process::id()));
+        let me = std::env::current_exe().unwrap().file_name().unwrap().to_string_lossy().into_owned();
+        assert_eq!(super::port_owner("::", port), Some(me));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_listener_on_another_address_is_not_a_conflict() {
+        // Skipped quietly where 127.0.0.2 can't be bound.
+        let Ok(l) = std::net::TcpListener::bind("127.0.0.2:0") else { return };
+        let port = l.local_addr().unwrap().port();
+        assert_eq!(super::listener_pid("127.0.0.1".parse().unwrap(), port), None);
+        assert_eq!(super::listener_pid("127.0.0.2".parse().unwrap(), port), Some(std::process::id()));
+    }
+
     #[test]
     fn tun_failure_from_log_is_reported() {
         let dir = tempfile::tempdir().unwrap();
@@ -2391,6 +2769,210 @@ mod tests {
         let (l, m) = parse_log("xray", "2026/10/20 12:00:00.123456 from 127.0.0.1:5000 accepted tcp:a.example:443 [http-in -> X]");
         assert_eq!(l, "info");
         assert!(m.starts_with("from 127.0.0.1"));
+    }
+
+    #[test]
+    fn providers_on_this_computer_are_refused() {
+        use super::provider_host;
+        for url in [
+            "http://localhost/sub",
+            "http://LOCALHOST./sub",
+            "http://app.localhost:8080/sub",
+            "http://127.0.0.1/sub",
+            "http://127.9.8.7:81/sub",
+            "http://[::1]/sub",
+            "http://[::ffff:127.0.0.1]/sub",
+            "http://169.254.169.254/latest/meta-data",
+            "http://[fe80::1]/sub",
+            "http://0.0.0.0/sub",
+            "http://[::]/sub",
+            "not a url",
+        ] {
+            assert_eq!(provider_host(url), None, "{url}");
+        }
+        // LAN addresses and names are allowed (a server at home), and the host is lower case.
+        assert_eq!(provider_host("http://192.168.1.5:8080/sub").as_deref(), Some("192.168.1.5"));
+        assert_eq!(provider_host("https://10.0.0.2/sub").as_deref(), Some("10.0.0.2"));
+        assert_eq!(provider_host("https://Sub.Example.com/x?y=1").as_deref(), Some("sub.example.com"));
+        assert_eq!(super::url_host("https://Sub.Example.com:8443/x").as_deref(), Some("sub.example.com"));
+    }
+
+    #[test]
+    fn a_provider_on_this_computer_needs_a_subscription_there_too() {
+        use super::provider_allowed;
+        // A subscription on a public host: a provider on this computer is refused.
+        assert!(!provider_allowed("http://127.0.0.1:9/p", Some("https://sub.example.com/s")));
+        assert!(provider_allowed("https://sub.example.com/p", Some("https://sub.example.com/s")));
+        assert!(provider_allowed("https://other.example.org/p", Some("https://sub.example.com/s")));
+        // A converter running here: its own host is fine, another local address is not.
+        assert!(provider_allowed("http://127.0.0.1:25500/p", Some("http://127.0.0.1:25500/sub?x=1")));
+        assert!(!provider_allowed("http://localhost:25500/p", Some("http://127.0.0.1:25500/sub")));
+        // A local profile is the user's own config: nothing is refused.
+        assert!(provider_allowed("http://127.0.0.1:25500/p", None));
+    }
+
+    /// A refused provider's file is a list Kova reads as having a server.
+    #[test]
+    fn a_refused_providers_file_has_a_server() {
+        assert!(kova_core::gen_mihomo::provider_has_servers(super::REFUSED_PROVIDER));
+    }
+
+    #[tokio::test]
+    async fn a_refused_provider_is_replaced_by_a_server_that_cannot_connect() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        let home = dir.path().join("home");
+        let body = "proxy-providers:
+  Mine: {type: http, url: 'http://127.0.0.1:9/sub', interval: 3600}
+proxy-groups:
+  - {name: Sel, type: select, use: [Mine]}
+rules:
+  - MATCH,Sel
+";
+        let (out, files) = e.localize_providers(body, &home, false, Some("https://sub.example.com/s")).await;
+        assert!(!out.contains("127.0.0.1") && !out.contains("http"), "{out}");
+        assert!(out.contains("type: file") && out.contains("use:"), "{out}");
+        let file = super::gen_mihomo::provider_file("Mine");
+        assert_eq!(files, [(file.clone(), super::REFUSED_PROVIDER.to_string())]);
+        assert_eq!(std::fs::read_to_string(home.join(file)).unwrap(), super::REFUSED_PROVIDER);
+    }
+
+    #[test]
+    fn routing_data_is_due_by_age_without_a_marker_and_not_again_after_a_failure() {
+        use super::{geodata_age, geodata_due_at};
+        use kova_core::options::GeoSource;
+        let day = 86_400;
+        let now = 1_000 * day;
+        let marker = |source: &GeoSource, age_days: i64| crate::geodata::Marker { source: source.id().to_string(), verified: true, updated_at: now - age_days * day };
+        let d = GeoSource::Default;
+        // The files that came with Xray, no marker: due by age, not before.
+        assert!(!geodata_due_at(&d, None, Some(2 * day), now, 0));
+        assert!(geodata_due_at(&d, None, Some(30 * day), now, 0));
+        // Missing files are due, and another source than the default is wanted at once.
+        assert!(geodata_due_at(&d, None, None, now, 0));
+        assert!(geodata_due_at(&GeoSource::Runetfreedom, None, Some(day / 24), now, 0));
+        // With a marker: by its age, its source, and the files being there.
+        assert!(!geodata_due_at(&d, Some(&marker(&d, 1)), Some(day), now, 0));
+        assert!(geodata_due_at(&d, Some(&marker(&d, 30)), Some(day), now, 0));
+        assert!(geodata_due_at(&d, Some(&marker(&GeoSource::Runetfreedom, 0)), Some(0), now, 0));
+        assert!(geodata_due_at(&d, Some(&marker(&d, 1)), None, now, 0));
+        // After a failure, an hour's pause.
+        assert!(!geodata_due_at(&d, None, None, now, now - 600));
+        assert!(geodata_due_at(&d, None, None, now, now - 3_700));
+
+        // The age is the older file's; a missing file is None.
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(geodata_age(dir.path(), now), None);
+        let t = |days: u64| std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(now as u64 - days * 86_400);
+        for (f, days) in [("geoip.dat", 3), ("geosite.dat", 10)] {
+            let file = std::fs::File::create(dir.path().join(f)).unwrap();
+            file.set_modified(t(days)).unwrap();
+        }
+        assert_eq!(geodata_age(dir.path(), now), Some(10 * day));
+    }
+
+    /// A provider that redirects to this computer fails closed like one that starts there:
+    /// Mihomo must not be left to fetch the address itself.
+    #[tokio::test]
+    async fn a_provider_redirected_to_this_computer_fails_closed() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let host = l.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0; 4096];
+            let _ = s.read(&mut buf).await;
+            let _ = s.write_all(b"HTTP/1.1 302 Found\r\nlocation: http://localhost:1/x\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await;
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        let home = dir.path().join("home");
+        let body = format!("proxy-providers:\n  Mine: {{type: http, url: 'http://{host}/p', interval: 3600}}\nproxy-groups:\n  - {{name: Sel, type: select, use: [Mine]}}\nrules:\n  - MATCH,Sel\n");
+        // The subscription is on that same host (a converter here): the provider itself is allowed.
+        let (out, files) = e.localize_providers(&body, &home, false, Some(&format!("http://{host}/sub"))).await;
+        assert!(out.contains("type: file") && !out.contains("http://"), "{out}");
+        assert_eq!(files, [(super::gen_mihomo::provider_file("Mine"), super::REFUSED_PROVIDER.to_string())]);
+    }
+
+    #[test]
+    fn a_backup_leaves_out_the_installs_secrets() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        let s = e.settings();
+        assert!(!s.core.secret.is_empty() && !s.core.local_password.is_empty() && !s.device_id.is_empty());
+        let text = e.export_backup(None).unwrap();
+        for v in [&s.core.secret, &s.core.local_password, &s.device_id] {
+            assert!(!text.contains(v.as_str()));
+        }
+        let b = crate::backup::read(&text, None).unwrap();
+        assert!(b.settings.core.secret.is_empty() && b.settings.core.local_password.is_empty() && b.settings.device_id.is_empty());
+    }
+
+    /// Backups made before the secrets were left out carry them; both kinds import, and
+    /// this install keeps its own.
+    #[tokio::test]
+    async fn importing_a_backup_keeps_the_installs_secrets() {
+        for with_secrets in [true, false] {
+            let dir = tempfile::tempdir().unwrap();
+            let e = Engine::new(dir.path()).unwrap();
+            let before = e.settings();
+            let mut settings = crate::store::Settings { system_proxy: false, ..Default::default() };
+            if with_secrets {
+                settings.core.secret = "old-secret".into();
+                settings.core.local_password = "old-password".into();
+                settings.device_id = "old-device".into();
+            }
+            let b = crate::backup::Backup { kova: "0.0.0".into(), created: 1, settings, profiles: vec![] };
+            let text = crate::backup::write(&b, None).unwrap();
+            e.import_backup(crate::backup::read(&text, None).unwrap(), true).await.unwrap();
+            let after = e.settings();
+            assert_eq!(after.core.secret, before.core.secret);
+            assert_eq!(after.core.local_password, before.core.local_password);
+            assert_eq!(after.device_id, before.device_id);
+        }
+    }
+
+    /// Disconnect does not wait for a connect that is stuck: the connect gives up quietly.
+    #[tokio::test]
+    async fn a_disconnect_cancels_a_connect_in_progress() {
+        use std::time::Duration;
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        let task = tokio::spawn({
+            let e = e.clone();
+            async move { e.start_with(e.stop_epoch(), |_| std::future::pending::<crate::Result<(super::Running, super::Plan)>>()).await }
+        });
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !e.status().busy {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("the connect begins");
+        tokio::time::timeout(Duration::from_secs(5), e.stop()).await.expect("disconnect does not wait").unwrap();
+        tokio::time::timeout(Duration::from_secs(5), task).await.expect("the connect ends").unwrap().expect("quietly");
+        let st = e.status();
+        assert!(!st.busy && !st.running && st.error.is_none(), "{st:?}");
+        assert!(e.run.lock().await.is_none());
+    }
+
+    /// A connect that began before a disconnect does not run after it (this is what keeps a
+    /// disconnect in a restart's gap from being undone: `restart_at` hands its epoch to
+    /// `start_at`), and a restart with nothing running starts nothing. A real restart
+    /// needs a running core, so the gap itself is not exercised here.
+    #[tokio::test]
+    async fn a_connect_that_began_before_a_disconnect_does_not_run_after_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let e = Engine::new(dir.path()).unwrap();
+        // Without a profile any real start would fail with an error, so Ok means none began.
+        let epoch = e.stop_epoch();
+        e.stop().await.unwrap();
+        e.restart_at(epoch).await.expect("no start, no error");
+        e.start_at(epoch).await.expect("no start, no error");
+        let st = e.status();
+        assert!(!st.busy && !st.running && st.error.is_none(), "{st:?}");
+        // From the current count on, a start really starts (and fails: no profile).
+        assert!(e.start().await.is_err());
     }
 }
 

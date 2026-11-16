@@ -28,7 +28,9 @@ export function fmtAgo(unixSecs: number): string {
 }
 
 export function fmtDate(unixSecs: number): string {
-  return new Date(unixSecs * 1000).toISOString().slice(0, 10);
+  // A date out of range (a provider's odd number) would make toISOString throw.
+  const d = new Date(unixSecs * 1000);
+  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
 }
 
 export const daysUntil = (unixSecs: number) => Math.ceil((unixSecs * 1000 - Date.now()) / 86400000);

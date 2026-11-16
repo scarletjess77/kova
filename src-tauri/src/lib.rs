@@ -730,14 +730,57 @@ fn percent_decode(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-/// Read a user-chosen config file for import (size-capped).
+/// Why a path may not be read for import, if it may not: the kinds of file the import
+/// dialog offers (or none, as some config files have no extension), and on Windows no
+/// network share or device path (`\server\share`, `\.\`, `\?\`): merely looking
+/// at one makes Windows send the user's network login. The Windows dialog does return
+/// such a path when the user browses to Network; it is refused on purpose, and the
+/// message says to copy the file to a local folder.
+fn import_path_problem(path: &str, windows: bool) -> Option<&'static str> {
+    if windows && (path.starts_with("\\\\") || path.starts_with("//")) {
+        return Some("Network and device paths can't be imported; copy the file to a local folder first");
+    }
+    let ext = std::path::Path::new(path).extension().and_then(|e| e.to_str());
+    if ext.is_some_and(|e| !["yaml", "yml", "json", "txt", "conf"].iter().any(|k| e.eq_ignore_ascii_case(k))) {
+        return Some("Choose a .yaml, .yml, .json, .txt or .conf file, or one without an extension");
+    }
+    None
+}
+
+/// Read a user-chosen config file for import (size-capped). Only a regular file: a pipe or
+/// a device (`/dev/zero`) would hang the read or fill the memory. The paths come from the
+/// window's own file dialog, which Kova can't see, so only the kind of path is checked.
 #[tauri::command]
 fn read_text_file(path: String) -> R<String> {
-    let meta = std::fs::metadata(&path)?;
-    if meta.len() > 8 * 1024 * 1024 {
+    use std::io::Read as _;
+    const LIMIT: u64 = 8 * 1024 * 1024;
+    if let Some(problem) = import_path_problem(&path, cfg!(windows)) {
+        return Err(Error::Other(problem.into()));
+    }
+    // Opened first and checked on the open file, so the file can't be swapped in between.
+    // On unix without waiting: a pipe with no writer would block the open.
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt as _;
+        options.custom_flags(libc::O_NONBLOCK);
+    }
+    let file = options.open(&path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(Error::Other("That is not a regular file".into()));
+    }
+    if meta.len() > LIMIT {
         return Err(Error::Other("That file is larger than 8 MB; it is unlikely to be a config".into()));
     }
-    Ok(std::fs::read_to_string(&path)?)
+    // Capped again while reading, in case the file grows after the check.
+    let mut text = String::new();
+    file.take(LIMIT + 1).read_to_string(&mut text)?;
+    if text.len() as u64 > LIMIT {
+        return Err(Error::Other("That file is larger than 8 MB; it is unlikely to be a config".into()));
+    }
+    Ok(text)
 }
 
 #[tauri::command]
@@ -888,12 +931,12 @@ fn warn_subscriptions(app: &AppHandle, engine: &Arc<Engine>) {
     let now = kova_engine::store::now();
     for p in engine.profiles() {
         let Some(u) = p.usage else { continue };
-        let left_days = u.expire.map(|e| (e - now) as f64 / 86400.0);
+        let left_days = u.expire.map(|e| e.saturating_sub(now) as f64 / 86400.0);
         let text = match left_days {
             Some(d) if d < 0.0 => Some(tr(l, "{} has expired", &[&p.name])),
             Some(d) if d <= 3.0 => Some(tr(l, "{} ends in {} days", &[&p.name, &(d.ceil() as i64).max(1).to_string()])),
-            _ if u.total > 0 && (u.upload + u.download) as f64 >= u.total as f64 * 0.9 => {
-                let pct = ((u.upload + u.download) as f64 / u.total as f64 * 100.0).min(100.0) as i64;
+            _ if u.total > 0 && u.upload.saturating_add(u.download) as f64 >= u.total as f64 * 0.9 => {
+                let pct = (u.upload.saturating_add(u.download) as f64 / u.total as f64 * 100.0).min(100.0) as i64;
                 Some(tr(l, "{} has used {}% of its traffic", &[&p.name, &pct.to_string()]))
             }
             _ => None,
@@ -1162,6 +1205,30 @@ mod look_picture_tests {
         for path in [r"C:\Users\me\Start Menu\Programs\Startup\x.bat", "theme.kovatheme.exe", "png", "/home/me/.bashrc", ""] {
             assert!(!has_extension(path, &["png", "kovatheme", "json"]), "{path}");
         }
+    }
+
+    #[test]
+    fn only_config_like_files_on_local_paths_are_imported() {
+        use super::import_path_problem as problem;
+        for path in [r"C:\Users\me\sub.yaml", "/home/me/a.YML", "x.json", "x.txt", "x.conf", "/home/me/subscription", "/home/me/.config"] {
+            assert!(problem(path, true).is_none() && problem(path, false).is_none(), "{path}");
+        }
+        for path in ["x.exe", "x.pem", "/etc/shadow.bak", "x.yaml.exe"] {
+            assert!(problem(path, false).is_some(), "{path}");
+        }
+        for path in [r"\\server\share\a.yaml", r"\\.\PhysicalDrive0", r"\\?\C:\a.yaml", "//server/share/a.yaml"] {
+            assert!(problem(path, true).is_some(), "{path}");
+        }
+        assert!(problem("//usr/x.yaml", false).is_none(), "a double slash is fine elsewhere");
+    }
+
+    #[test]
+    fn a_pipe_or_a_folder_is_not_read() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(super::read_text_file(dir.path().to_string_lossy().into_owned()).is_err());
+        let f = dir.path().join("a.txt");
+        std::fs::write(&f, "hello").unwrap();
+        assert_eq!(super::read_text_file(f.to_string_lossy().into_owned()).unwrap(), "hello");
     }
 
     #[test]

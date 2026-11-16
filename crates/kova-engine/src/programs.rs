@@ -13,6 +13,12 @@ pub fn running() -> Vec<String> {
     names
 }
 
+/// The full path of process `pid`, if this user may look at it.
+#[cfg(windows)]
+pub(crate) fn path_of(pid: u32) -> Option<String> {
+    imp::path_of(pid)
+}
+
 #[cfg(windows)]
 mod imp {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -20,7 +26,7 @@ mod imp {
     use windows_sys::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
 
     /// The full path of process `pid`, if this user may look at it.
-    fn path_of(pid: u32) -> Option<String> {
+    pub fn path_of(pid: u32) -> Option<String> {
         // SAFETY: a handle opened here and closed below; the buffer outlives the call.
         unsafe {
             let h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);

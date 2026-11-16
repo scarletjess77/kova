@@ -87,6 +87,12 @@ struct Service {
     home: PathBuf,
     /// Start requests are handled one at a time.
     starting: Mutex<()>,
+    /// Held for the short moment a Start stores the core it made, and by a Stop while it
+    /// bumps `stops` and cleans up, so the two can't interleave.
+    commit: Mutex<()>,
+    /// Counts Stop requests. A Start that began before one gives up instead of storing
+    /// the core it made: its app disconnected (hung up) while it was still working.
+    stops: std::sync::atomic::AtomicU64,
     core: Mutex<Option<CoreProcess>>,
     owner: Mutex<Option<Owner>>,
     /// The gate in front of Mihomo's controller (see [`crate::gate`]), while it runs.
@@ -101,6 +107,11 @@ impl Service {
     }
     fn run_dir(&self) -> PathBuf {
         self.home.join("run")
+    }
+
+    /// A Stop came in since `seen` was read.
+    fn stopped_since(&self, seen: u64) -> bool {
+        self.stops.load(std::sync::atomic::Ordering::SeqCst) != seen
     }
 
     fn log(&self, line: &str) {
@@ -146,6 +157,8 @@ impl Service {
                 Err(e) => Response::err(e),
             },
             Request::Stop => {
+                let _commit = self.commit.lock().await;
+                self.stops.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 self.stop_core(None).await;
                 Response::ok()
             }
@@ -168,11 +181,12 @@ impl Service {
     }
 
     async fn start_one(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32, files: &[(String, String)]) -> Result<(), String> {
+        let seen = self.stops.load(std::sync::atomic::Ordering::SeqCst);
         let _one_at_a_time = self.starting.lock().await;
-        self.start(config, source, owner_pid, files).await
+        self.start(config, source, owner_pid, files, seen).await
     }
 
-    async fn start(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32, files: &[(String, String)]) -> Result<(), String> {
+    async fn start(&self, config: &str, source: &kova_core::options::GeoSource, owner_pid: u32, files: &[(String, String)], seen: u64) -> Result<(), String> {
         // Only the providers' lists, under the names Kova gives them: nothing the app
         // sends may be written anywhere else with the service's rights.
         if let Some((name, _)) = files.iter().find(|(name, _)| !kova_core::gen_mihomo::is_provider_file(name)) {
@@ -200,9 +214,13 @@ impl Service {
             let tag = cores::install_pinned(&cores_dir, CoreKind::Mihomo).await.map_err(|e| e.to_string())?;
             self.log(&format!("Mihomo {tag} installed"));
         }
-        // Routing data: our own verified copy of the app's chosen source. Downloaded only
-        // when missing or when the source changed, so connecting is never held up by a
-        // refresh; Mihomo's own geo-auto-update keeps the copy current.
+        // Routing data: our own verified copy of the app's chosen source. Downloaded here
+        // only when missing or when the source changed, so connecting is never held up by a
+        // refresh. Mihomo never updates it itself (its files are links to this copy), so an
+        // old copy is refreshed in the background: see `refresh_geodata_later`.
+        // The lock keeps a refresh from installing another copy until this run has linked
+        // its files (see `refresh_geodata_later`).
+        let geo = GEO.lock().await;
         match geodata::ensure(&cores_dir, source, None).await {
             Ok((_, true)) => self.log("Downloaded routing data for the Kova service"),
             Ok((_, false)) => {}
@@ -219,6 +237,7 @@ impl Service {
             lock_down(&run).map_err(|e| format!("could not protect Mihomo's folder: {e}"))?;
         }
         geodata::seed_mihomo_home(&cores_dir, &run);
+        drop(geo);
         // This run's lists only: one left from another profile is never read again.
         let providers = run.join("providers");
         let _ = std::fs::remove_dir_all(&providers);
@@ -236,16 +255,78 @@ impl Service {
         let logs = self.logs.clone();
         let sink: kova_engine::process::LineSink = Arc::new(move |_core: &str, line: &str| push_log(&logs, line));
         let (h, c) = (run.to_string_lossy().to_string(), cfg.to_string_lossy().to_string());
+        if self.stopped_since(seen) {
+            return Err("stopped before it started".into());
+        }
         let mut proc = CoreProcess::spawn("mihomo", &bin, &["-d", &h, "-f", &c], &run, &[], sink).map_err(|e| e.to_string())?;
         tokio::time::sleep(Duration::from_millis(300)).await;
         if let Some(msg) = proc.exited() {
             return Err(msg);
         }
+        self.commit_start(seen, proc, tokio::spawn(gate::serve(listener, Arc::new(keys))), owner).await?;
+        // Now that the new core is up: a refresh downloads outside any tunnel of the old one.
+        refresh_geodata_later(cores_dir, source.clone(), self.logs.clone());
+        Ok(())
+    }
+
+    /// Keep the core a Start made, unless a Stop came in since `seen` (the app hung up and
+    /// sent Stop while this was working, and that Stop found no core yet): then it is
+    /// ended instead. The check and the stores are under `commit`, which a Stop also holds.
+    async fn commit_start(&self, seen: u64, proc: CoreProcess, gate: tokio::task::JoinHandle<()>, owner: Owner) -> Result<(), String> {
+        let _commit = self.commit.lock().await;
+        if self.stopped_since(seen) {
+            gate.abort();
+            proc.stop().await;
+            return Err("stopped while it was starting".into());
+        }
         *self.core.lock().await = Some(proc);
-        *self.gate.lock().await = Some(tokio::spawn(gate::serve(listener, Arc::new(keys))));
+        *self.gate.lock().await = Some(gate);
         *self.owner.lock().await = Some(owner);
         Ok(())
     }
+}
+
+/// Held while the routing data is changed or linked into a run folder.
+static GEO: Mutex<()> = Mutex::const_new(());
+
+/// When the routing data is older than its source allows, download it again in the
+/// background: no lock is held and nothing waits for it, so neither a Start nor a Stop is
+/// held up. The new files replace the old ones atomically (a new file, so the run folder's
+/// links keep the old data) and Mihomo reads them from the next Start, whose
+/// `seed_mihomo_home` links the current files into its folder. One refresh at a time, and
+/// after a failed one the next try is an hour later.
+fn refresh_geodata_later(cores_dir: PathBuf, source: kova_core::options::GeoSource, logs: Arc<StdMutex<Logs>>) {
+    use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+    static BUSY: AtomicBool = AtomicBool::new(false);
+    static LAST_TRY: AtomicI64 = AtomicI64::new(0);
+    let now = kova_engine::store::now();
+    let due = geodata::marker(&cores_dir).is_some_and(|m| m.source == source.id() && now - m.updated_at > geodata::max_age(&source));
+    if !due || now - LAST_TRY.load(Ordering::SeqCst) < 3600 || BUSY.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    LAST_TRY.store(now, Ordering::SeqCst);
+    tokio::spawn(async move {
+        // Downloaded outside the lock; installed under it, and only if this is still the
+        // source in use (a Start may have switched it meanwhile). Given up after 30 minutes
+        // so BUSY can't stay set.
+        let refresh = async {
+            geodata::download(&cores_dir, &source, None).await?;
+            let _geo = GEO.lock().await;
+            if geodata::marker(&cores_dir).is_some_and(|m| m.source == source.id()) {
+                geodata::install_downloaded(&cores_dir, &source).map(|_| true)
+            } else {
+                Ok(false)
+            }
+        };
+        let done = tokio::time::timeout(Duration::from_secs(30 * 60), refresh).await;
+        BUSY.store(false, Ordering::SeqCst);
+        match done {
+            Ok(Ok(true)) => push_log(&logs, "Refreshed the routing data for the Kova service; it applies from the next start"),
+            Ok(Ok(false)) => push_log(&logs, "The routing data source changed meanwhile; the refresh was dropped"),
+            Ok(Err(e)) => push_log(&logs, &format!("routing data refresh failed: {e}")),
+            Err(_) => push_log(&logs, "routing data refresh took too long and was given up"),
+        }
+    });
 }
 
 /// Let only SYSTEM and administrators into `dir`, also what is already in it. Mihomo's
@@ -370,17 +451,26 @@ async fn serve_connection(mut conn: NamedPipeServer, svc: Arc<Service>) {
     let mut line = String::new();
     // A client that connects and never writes must not hold a task forever.
     let read = tokio::time::timeout(Duration::from_secs(10), BufReader::new(r.take(MAX_REQUEST)).read_line(&mut line)).await;
+    let mut started = false;
     let resp = match read {
         Err(_) | Ok(Ok(0)) | Ok(Err(_)) => return,
         Ok(Ok(_)) => match serde_json::from_str::<Request>(&line) {
-            Ok(req) => svc.handle(req).await,
+            Ok(req) => {
+                started = matches!(req, Request::Start { .. });
+                svc.handle(req).await
+            }
             Err(e) => Response::err(format!("bad request: {e}")),
         },
     };
     let mut out = serde_json::to_string(&resp).expect("json");
     out.push('\n');
-    let _ = w.write_all(out.as_bytes()).await;
-    let _ = w.flush().await;
+    let sent = w.write_all(out.as_bytes()).await.is_ok() && w.flush().await.is_ok();
+    // A Start that worked but whose app has gone (it hung up before the answer): nobody
+    // will stop that Mihomo, so it is stopped here.
+    if started && resp.ok && !sent {
+        let _commit = svc.commit.lock().await;
+        svc.stop_core(None).await;
+    }
 }
 
 /// Serve requests on `pipe` until `shutdown` resolves, then stop Mihomo.
@@ -390,6 +480,8 @@ pub async fn serve(pipe: String, home: PathBuf, shutdown: impl std::future::Futu
     let svc = Arc::new(Service {
         home,
         starting: Mutex::new(()),
+        commit: Mutex::new(()),
+        stops: Default::default(),
         core: Mutex::new(None),
         owner: Mutex::new(None),
         gate: Mutex::new(None),
@@ -692,6 +784,49 @@ mod tests {
         let client = ClientOptions::new().open(name).unwrap();
         server.connect().await.unwrap();
         (server, client)
+    }
+
+    fn service(home: &Path) -> Service {
+        Service {
+            home: home.to_path_buf(),
+            starting: Mutex::new(()),
+            commit: Mutex::new(()),
+            stops: Default::default(),
+            core: Mutex::new(None),
+            owner: Mutex::new(None),
+            gate: Mutex::new(None),
+            exit: StdMutex::new(None),
+            logs: Default::default(),
+        }
+    }
+
+    /// A harmless program that keeps running until it is ended.
+    fn idle_core(dir: &Path) -> CoreProcess {
+        let ping = Path::new(&std::env::var_os("SystemRoot").unwrap()).join("System32").join("PING.EXE");
+        let sink: kova_engine::process::LineSink = Arc::new(|_, _| {});
+        CoreProcess::spawn("mihomo", &ping, &["-n", "60", "127.0.0.1"], dir, &[], sink).unwrap()
+    }
+
+    /// The step where a Start keeps what it made: a Stop that came in after the Start
+    /// read the counter ends the new core instead, and one that didn't leaves it kept.
+    #[tokio::test]
+    async fn a_start_that_a_stop_overtook_is_ended_not_kept() {
+        let home = tempfile::tempdir().unwrap();
+        let svc = service(home.path());
+        let owner = || Owner::open(std::process::id()).unwrap();
+
+        let seen = svc.stops.load(std::sync::atomic::Ordering::SeqCst);
+        assert!(svc.handle(Request::Stop).await.ok);
+        let err = svc.commit_start(seen, idle_core(home.path()), tokio::spawn(async {}), owner()).await.unwrap_err();
+        assert!(err.contains("stopped"), "{err}");
+        assert!(svc.core.lock().await.is_none() && svc.owner.lock().await.is_none() && svc.gate.lock().await.is_none());
+
+        // A Start that read the counter after that Stop is kept.
+        let seen = svc.stops.load(std::sync::atomic::Ordering::SeqCst);
+        svc.commit_start(seen, idle_core(home.path()), tokio::spawn(async {}), owner()).await.unwrap();
+        assert!(svc.core.lock().await.is_some() && svc.owner.lock().await.is_some());
+        svc.stop_core(None).await;
+        assert!(svc.core.lock().await.is_none());
     }
 
     #[tokio::test]

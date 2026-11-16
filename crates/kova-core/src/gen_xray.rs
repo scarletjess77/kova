@@ -46,7 +46,8 @@ fn stream(n: &Node) -> Value {
             s.insert("security".into(), "none".into());
         }
         Some(t) => {
-            let sni = t.sni.clone().unwrap_or_else(|| n.server.clone());
+            // An empty name must not reach Xray: with a pinned certificate it then skips the hostname check.
+            let sni = t.server_name(&n.server);
             match &t.reality {
                 Some(r) => {
                     s.insert("security".into(), "reality".into());
@@ -470,6 +471,31 @@ mod tests {
 
     use super::*;
     use crate::links::parse_link;
+
+    #[test]
+    fn blank_sni_gives_the_server_name() {
+        let mut n = parse_link("vless://u@203.0.113.42:443?security=tls&sni=a.example#T").unwrap();
+        let t = n.tls.as_mut().unwrap();
+        assert_eq!(t.server_name("s"), "a.example");
+        for blank in [None, Some(""), Some(" 	")] {
+            t.sni = blank.map(Into::into);
+            assert_eq!(t.server_name("s"), "s");
+        }
+    }
+
+    #[test]
+    fn empty_sni_falls_back_to_the_server_address() {
+        for link in ["vless://u@203.0.113.42:443?security=tls&sni=a.example#T", "vless://u@203.0.113.42:443?flow=xtls-rprx-vision&security=reality&sni=a.example&fp=chrome&pbk=KEY&sid=ab#R"] {
+            for blank in ["", "  "] {
+                let mut n = parse_link(link).unwrap();
+                n.tls.as_mut().unwrap().sni = Some(blank.into());
+                let o = outbound(&n).unwrap();
+                let s = &o["streamSettings"];
+                let name = if s["security"] == "reality" { &s["realitySettings"]["serverName"] } else { &s["tlsSettings"]["serverName"] };
+                assert_eq!(name, "203.0.113.42", "{o}");
+            }
+        }
+    }
 
     #[test]
     fn reality_vision_outbound() {

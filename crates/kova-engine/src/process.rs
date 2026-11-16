@@ -63,7 +63,8 @@ pub type LineSink = Arc<dyn Fn(&str, &str) + Send + Sync>;
 
 pub struct CoreProcess {
     pub name: &'static str,
-    child: Child,
+    /// None once `stop` has taken it (or, on Unix, `drop` has handed it on).
+    child: Option<Child>,
     tail: Arc<Mutex<Vec<String>>>,
     /// `<name>.pid` in the core's folder, so a Kova that crashed can be followed by one
     /// that ends its cores (see [`end_leftovers`]).
@@ -136,13 +137,13 @@ impl CoreProcess {
                 }
             });
         }
-        Ok(Self { name, child, tail, pid_file })
+        Ok(Self { name, child: Some(child), tail, pid_file })
     }
 
     /// `Some(message)` if the process has already exited.
     pub fn exited(&mut self) -> Option<String> {
-        match self.child.try_wait() {
-            Ok(Some(status)) => Some(format!("{} stopped ({status}). {}", self.name, self.last_error())),
+        match self.child.as_mut().map(Child::try_wait) {
+            Some(Ok(Some(status))) => Some(format!("{} stopped ({status}). {}", self.name, self.last_error())),
             _ => None,
         }
     }
@@ -161,9 +162,64 @@ impl CoreProcess {
             .unwrap_or_default()
     }
 
+    /// End the process. On Unix it is asked to quit first (SIGTERM) and given about three
+    /// seconds to close its listeners and the TUN device; then it is killed. Windows
+    /// kills at once.
     pub async fn stop(mut self) {
-        let _ = self.child.kill().await;
+        if let Some(mut child) = self.child.take() {
+            #[cfg(unix)]
+            if let Some(pid) = child.id() {
+                // SAFETY: plain signal to our own child, which has not been waited for yet.
+                unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+                if tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await.is_ok() {
+                    let _ = std::fs::remove_file(&self.pid_file);
+                    return;
+                }
+            }
+            let _ = child.kill().await;
+        }
         let _ = std::fs::remove_file(&self.pid_file);
+    }
+}
+
+/// Unix: a core dropped without `stop` (a connect that was cancelled or failed) is still
+/// asked to quit, so it can take down what it set up (TUN routes and firewall rules),
+/// and killed after three seconds. `finish_dropped` waits for those.
+#[cfg(unix)]
+impl Drop for CoreProcess {
+    fn drop(&mut self) {
+        let Some(mut child) = self.child.take() else { return };
+        let (Some(pid), Ok(rt)) = (child.id(), tokio::runtime::Handle::try_current()) else { return };
+        // SAFETY: plain signal to our own child, which has not been waited for yet.
+        unsafe { libc::kill(pid as libc::pid_t, libc::SIGTERM) };
+        let _ = std::fs::remove_file(&self.pid_file);
+        let task = rt.spawn(async move {
+            if tokio::time::timeout(std::time::Duration::from_secs(3), child.wait()).await.is_err() {
+                let _ = child.kill().await;
+            }
+        });
+        let mut pending = dropped().lock().unwrap();
+        pending.retain(|t| !t.is_finished());
+        pending.push(task);
+    }
+}
+
+#[cfg(unix)]
+fn dropped() -> &'static Mutex<Vec<tokio::task::JoinHandle<()>>> {
+    static DROPPED: Mutex<Vec<tokio::task::JoinHandle<()>>> = Mutex::new(Vec::new());
+    &DROPPED
+}
+
+/// Wait until the cores `drop` is ending (Unix) are gone, so a connect that follows a
+/// cancelled one doesn't find their ports taken. Nothing to wait for on Windows, where
+/// a dropped core is killed at once.
+pub async fn finish_dropped() {
+    #[cfg(unix)]
+    {
+        let tasks = std::mem::take(&mut *dropped().lock().unwrap());
+        for t in tasks {
+            let _ = t.await;
+        }
     }
 }
 
@@ -229,7 +285,10 @@ pub async fn check_config(bin: &Path, args: &[&str], cwd: &Path, envs: &[(&str, 
         c.env(k, v);
     }
     hide_window(&mut c);
-    let out = Command::from(c).output().await.map_err(|e| Error::Core(e.to_string()))?;
+    let mut cmd = Command::from(c);
+    // A check that is cancelled half way (a connect given up) must not outlive it.
+    cmd.kill_on_drop(true);
+    let out = cmd.output().await.map_err(|e| Error::Core(e.to_string()))?;
     if out.status.success() {
         return Ok(());
     }
@@ -301,6 +360,22 @@ mod job {
 
 #[cfg(test)]
 mod tests {
+    /// A core is asked to quit and is gone once `stop` returns.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_stopped_core_is_gone() {
+        let dir = tempfile::tempdir().unwrap();
+        let sink: super::LineSink = std::sync::Arc::new(|_, _| {});
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let Some(sleep) = std::env::split_paths(&path).map(|d| d.join("sleep")).find(|p| p.is_file()) else { return };
+        let p = super::CoreProcess::spawn("sleeper", &sleep, &["30"], dir.path(), &[], sink).unwrap();
+        let pid = p.child.as_ref().unwrap().id().unwrap() as libc::pid_t;
+        tokio::time::timeout(std::time::Duration::from_secs(10), p.stop()).await.expect("stops promptly");
+        // SAFETY: signal 0 only checks that the process exists.
+        assert_eq!(unsafe { libc::kill(pid, 0) }, -1, "the process is gone");
+        assert!(!dir.path().join("sleeper.pid").exists());
+    }
+
     /// A core a crashed Kova left behind is ended; its pid file goes either way.
     #[test]
     fn leftover_cores_are_ended() {

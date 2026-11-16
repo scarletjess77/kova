@@ -295,6 +295,14 @@ pub struct Reality {
     pub spider_x: Option<String>,
 }
 
+impl Tls {
+    /// The name to check the server's certificate against: the SNI, or the server address
+    /// when it is missing or blank. A blank name makes Xray skip the hostname check.
+    pub fn server_name(&self, server: &str) -> String {
+        self.sni.clone().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| server.to_string())
+    }
+}
+
 impl Node {
     /// Short protocol name for the UI.
     pub fn protocol_label(&self) -> String {

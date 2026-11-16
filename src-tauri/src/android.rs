@@ -101,6 +101,9 @@ static SESSION: AtomicU64 = AtomicU64::new(0);
 static LAST_NODE: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
 
 pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
+    // Read before anything slow (the permission dialog, the interface): a Disconnect after
+    // this makes the connect give up at the next step instead of letting the VPN flash on.
+    let epoch = engine.stop_epoch();
     let _one = BUSY.lock().await;
     if engine.status().running {
         return Ok(());
@@ -108,6 +111,9 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
     let g: Granted = call(app, "prepare", ()).await?;
     if !g.granted {
         return Err(Error::Other("Kova needs permission to set up a VPN to connect".into()));
+    }
+    if engine.stop_epoch() != epoch {
+        return Ok(());
     }
     let s = engine.settings();
     let mode = match s.vpn_apps.mode {
@@ -123,10 +129,20 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
         close_fd(old);
     }
     engine.set_tun_fd(Some(t.fd));
+    if engine.stop_epoch() != epoch {
+        close(app, engine).await;
+        return Ok(());
+    }
     engine.set_network_dns(t.dns).await;
-    if let Err(e) = engine.start().await {
+    if let Err(e) = engine.start_at(epoch).await {
         close(app, engine).await;
         return Err(e);
+    }
+    // Disconnect asked while this was connecting: the engine gave up and is not running.
+    // The interface set up above goes, and no watcher starts.
+    if !engine.status().running {
+        close(app, engine).await;
+        return Ok(());
     }
     // Mihomo takes up the interface a moment after it starts. Should that fail, the
     // VPN would hold all traffic with nothing behind it: disconnect and say why.
@@ -143,6 +159,8 @@ pub async fn connect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error>
 }
 
 pub async fn disconnect(app: &AppHandle, engine: &Arc<Engine>) -> Result<(), Error> {
+    // Before waiting for a connect that holds BUSY: it gives up, then lets go.
+    engine.cancel_start();
     let _one = BUSY.lock().await;
     shutdown(app, engine).await
 }

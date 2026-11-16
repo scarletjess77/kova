@@ -40,6 +40,9 @@ pub enum Error {
     Parse(#[from] kova_core::subscription::ParseError),
     #[error("{0}")]
     Other(String),
+    /// A download was refused: its address, or where a name leads, is this computer's own.
+    #[error("{0}")]
+    Refused(String),
 }
 
 /// A subscription's address is its access key, and reqwest names the address in its

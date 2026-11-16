@@ -50,7 +50,9 @@ fn base(opts: &RuntimeOptions) -> Value {
         // Phones and TV boxes: read the routing data from disk instead of holding all of
         // it (some 90 MB for the Russian lists) in memory.
         "geodata-loader": if opts.tun_fd.is_some() { "memconservative" } else { "standard" },
-        "geo-auto-update": !opts.without_geodata && !opts.kova_updates_geodata,
+        // Never Mihomo's own download: its files are links to Kova's verified shared ones,
+        // which the app (and the Kova service) refresh themselves.
+        "geo-auto-update": false,
         "geo-update-interval": 24,
         "geox-url": geox_url(opts),
         "profile": { "store-selected": true, "store-fake-ip": true },
@@ -332,30 +334,92 @@ fn confine_inbounds(doc: &mut Mapping, allow_lan: bool) {
     }
 }
 
+/// Files in Mihomo's folder that must never be a provider's download: the routing data is
+/// linked to Kova's shared copies, and a download writes into the linked file.
+const PROTECTED_FILES: [&str; 7] = ["geoip.dat", "geosite.dat", "country.mmdb", "geoip.metadb", "asn.mmdb", "geolite2-asn.mmdb", "config.yaml"];
+
+/// Whether a provider `path` ends in one of the [`PROTECTED_FILES`] (or in no file name at
+/// all), whatever the case, separators, `..` or trailing dots and spaces Windows ignores.
+fn is_protected_path(path: &str) -> bool {
+    let last = path.rsplit(['/', '\\']).next().unwrap_or_default().trim_end_matches(['.', ' ']).to_ascii_lowercase();
+    last.is_empty() || PROTECTED_FILES.contains(&last.as_str())
+}
+
+/// A profile's providers must not be able to write over Kova's files. An `http` provider
+/// loses its `path`, so Mihomo names the download itself (a hash of the address); any
+/// provider whose path names the routing data or the config loses it too.
+///
+/// Mihomo matches a provider's keys without regard to case, so `Path:` and `TYPE:` count
+/// here too; a provider with no type, an odd one, or two that disagree is taken as `http`.
+fn confine_provider_paths(doc: &mut Mapping) {
+    let is_key = |k: &Yaml, name: &str| k.as_str().is_some_and(|k| k.eq_ignore_ascii_case(name));
+    for section in ["rule-providers", "proxy-providers"] {
+        let Some(Yaml::Mapping(providers)) = doc.get_mut(section) else { continue };
+        for (_, p) in providers.iter_mut() {
+            let Yaml::Mapping(p) = p else { continue };
+            let types: Vec<&Yaml> = p.iter().filter(|(k, _)| is_key(k, "type")).map(|(_, v)| v).collect();
+            let http = types.is_empty() || types.iter().any(|t| !t.as_str().is_some_and(|t| t.eq_ignore_ascii_case("file") || t.eq_ignore_ascii_case("inline")));
+            let bad = p.iter().any(|(k, v)| is_key(k, "path") && v.as_str().is_some_and(is_protected_path));
+            if http || bad {
+                p.retain(|k, _| !is_key(k, "path"));
+            }
+        }
+    }
+}
+
+/// Whether a `<<` merge key is left anywhere in `v`.
+fn has_merge_key(v: &Yaml) -> bool {
+    match v {
+        Yaml::Mapping(m) => m.iter().any(|(k, v)| k.as_str() == Some("<<") || has_merge_key(v)),
+        Yaml::Sequence(s) => s.iter().any(has_merge_key),
+        Yaml::Tagged(t) => has_merge_key(&t.value),
+        _ => false,
+    }
+}
+
+/// Resolve the YAML merge keys (`<<`) the way Mihomo's parser does, so that what is
+/// checked here is what Mihomo reads. `apply_merge` does one level at a time, so it is
+/// repeated; a profile that still has a merge key after that (or that can't be merged at
+/// all) is refused.
+fn resolve_merges(doc: &mut Yaml) -> Result<(), GenError> {
+    for _ in 0..8 {
+        doc.apply_merge().map_err(|e| GenError::Yaml(format!("the profile's merge keys (<<) can't be used: {e}")))?;
+        if !has_merge_key(doc) {
+            return Ok(());
+        }
+    }
+    Err(GenError::Yaml("the profile nests merge keys (<<) too deeply".into()))
+}
+
 /// Take an imported Clash config and apply app-controlled settings on top.
 pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError> {
-    let mut doc: Mapping = serde_yaml_ng::from_str(raw).map_err(|e| GenError::Yaml(e.to_string()))?;
+    let mut parsed: Yaml = serde_yaml_ng::from_str(raw).map_err(|e| GenError::Yaml(e.to_string()))?;
+    resolve_merges(&mut parsed)?;
+    let Yaml::Mapping(mut doc) = parsed else { return Err(GenError::Yaml("the profile is not a mapping".into())) };
     for k in STRIP {
         doc.remove(*k);
     }
     confine_inbounds(&mut doc, opts.allow_lan);
+    // Before Kova adds its own providers, which keep the paths they are given.
+    confine_provider_paths(&mut doc);
     let set = |doc: &mut Mapping, k: &str, v: Value| {
         doc.insert(Yaml::String(k.into()), serde_yaml_ng::to_value(v).expect("json to yaml"));
     };
     if let Value::Object(b) = base(opts) {
         for (k, v) in b {
-            // Keep the profile's own geodata choices, unless the user picked a source.
+            // Keep the profile's own geodata mode, unless the user picked a source. Its
+            // download address and update settings never stay: see below.
             let user_picked_source = opts.geodata != GeoSource::Default;
-            if !user_picked_source && matches!(k.as_str(), "geodata-mode" | "geox-url" | "geo-auto-update" | "geo-update-interval") && doc.contains_key(k.as_str()) {
+            if !user_picked_source && k == "geodata-mode" && doc.contains_key(k.as_str()) {
                 continue;
             }
             set(&mut doc, &k, v);
         }
     }
-    // Also when the profile asks for it: its download would land on Kova's files.
-    if opts.kova_updates_geodata {
-        set(&mut doc, "geo-auto-update", json!(false));
-    }
+    // Always, and whatever the profile asks for: Mihomo's routing data files are links to
+    // Kova's shared ones, so its own update could replace them for every profile and for
+    // Xray. Kova updates the data itself. The profile's download address was replaced above.
+    set(&mut doc, "geo-auto-update", json!(false));
     set(&mut doc, "tun", tun(opts));
     if opts.dns.override_profile || !doc.contains_key("dns") {
         set(&mut doc, "dns", dns(opts));
@@ -664,8 +728,17 @@ pub fn provider_has_servers(text: &str) -> bool {
 /// provider that can't be reached from inside the VPN (or at start, before it is up)
 /// can't leave every group empty. Filter, override and health-check stay as they were.
 pub fn localize_providers(raw: &str, names: &[String]) -> Result<String, GenError> {
+    localize_providers_closed(raw, names, &[])
+}
+
+/// [`localize_providers`], where the providers in `refused` (a subset of `names`) read a
+/// file that holds one server that can't connect. They must fail closed: a group left with
+/// no server gets Mihomo's built-in DIRECT, so nothing may filter that server away. Their
+/// `filter`, `exclude-filter`, `exclude-type` and `override` go, and a group that uses
+/// only refused providers gets `REJECT` as a server of its own.
+pub fn localize_providers_closed(raw: &str, names: &[String], refused: &[String]) -> Result<String, GenError> {
     let mut doc: Yaml = serde_yaml_ng::from_str(raw).map_err(|e| GenError::Yaml(e.to_string()))?;
-    doc.apply_merge().map_err(|e| GenError::Yaml(e.to_string()))?;
+    resolve_merges(&mut doc)?;
     if let Some(Yaml::Mapping(providers)) = doc.get_mut("proxy-providers") {
         for (k, v) in providers.iter_mut() {
             let (Some(name), Yaml::Mapping(m)) = (k.as_str(), v) else { continue };
@@ -675,8 +748,35 @@ pub fn localize_providers(raw: &str, names: &[String]) -> Result<String, GenErro
             for key in ["url", "proxy", "header", "interval", "size-limit"] {
                 m.remove(key);
             }
+            if refused.iter().any(|n| n == name) {
+                m.retain(|k, _| !k.as_str().is_some_and(|k| ["filter", "exclude-filter", "exclude-type", "override"].iter().any(|f| k.eq_ignore_ascii_case(f))));
+            }
             m.insert(Yaml::String("type".into()), Yaml::String("file".into()));
             m.insert(Yaml::String("path".into()), Yaml::String(format!("./{}", provider_file(name))));
+        }
+    }
+    if !refused.is_empty()
+        && let Some(Yaml::Sequence(groups)) = doc.get_mut("proxy-groups")
+    {
+        for g in groups.iter_mut() {
+            let Yaml::Mapping(g) = g else { continue };
+            let uses: Vec<String> = match g.get("use") {
+                Some(Yaml::Sequence(u)) => u.iter().filter_map(|u| u.as_str().map(String::from)).collect(),
+                _ => Vec::new(),
+            };
+            if uses.is_empty() || !uses.iter().all(|u| refused.contains(u)) {
+                continue;
+            }
+            match g.get_mut("proxies") {
+                Some(Yaml::Sequence(p)) => {
+                    if !p.iter().any(|x| x.as_str() == Some("REJECT")) {
+                        p.push(Yaml::String("REJECT".into()));
+                    }
+                }
+                _ => {
+                    g.insert(Yaml::String("proxies".into()), Yaml::Sequence(vec![Yaml::String("REJECT".into())]));
+                }
+            }
         }
     }
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
@@ -1163,7 +1263,7 @@ rules:
     }
 
     #[test]
-    fn mihomo_leaves_the_routing_data_alone_where_kova_updates_it() {
+    fn mihomo_never_updates_the_routing_data_itself() {
         let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
         let p = plan(&nodes, CorePreference::Auto);
         let from_links = |o: &RuntimeOptions| -> Value { serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), o)).unwrap() };
@@ -1179,12 +1279,151 @@ rules:
 ";
         let from_clash = |o: &RuntimeOptions| -> Value { serde_yaml_ng::from_str(&merge_clash(raw, o).unwrap()).unwrap() };
 
-        let mut o = opts();
-        assert_eq!(from_links(&o)["geo-auto-update"], true);
-        assert_eq!(from_clash(&o)["geo-auto-update"], true, "the profile's own choice");
-        o.kova_updates_geodata = true;
+        let o = opts();
         assert_eq!(from_links(&o)["geo-auto-update"], false);
-        assert_eq!(from_clash(&o)["geo-auto-update"], false);
+        assert_eq!(from_clash(&o)["geo-auto-update"], false, "a profile can't turn it on");
+    }
+
+    #[test]
+    fn a_profile_cannot_point_a_provider_at_kovas_files() {
+        let raw = "proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+proxy-providers:
+  p1: {type: http, url: 'https://e.example/p', path: ./GeoSite.dat}
+  p2: {type: http, url: 'https://e.example/q', path: sub/../geosite.dat}
+  p3: {type: http, url: 'https://e.example/r', path: ./ok.yaml}
+  p4: {type: file, path: ./providers/GeoIP.DAT.}
+  p5: {type: file, path: ./providers/kova-0123456789abcdef.yaml}
+rule-providers:
+  r1: {type: http, behavior: domain, url: 'https://e.example/s', path: 'sub\\country.mmdb'}
+  r2: {type: http, behavior: domain, url: 'https://e.example/t', path: ./config.yaml}
+  r3: {type: http, behavior: domain, url: 'https://e.example/u', path: ./rules.txt}
+rules:
+  - MATCH,Sel
+";
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &opts()).unwrap()).unwrap();
+        for (section, name) in [("proxy-providers", "p1"), ("proxy-providers", "p2"), ("proxy-providers", "p3"), ("proxy-providers", "p4"), ("rule-providers", "r1"), ("rule-providers", "r2"), ("rule-providers", "r3")] {
+            assert!(doc[section][name].get("path").is_none(), "{name}: {}", doc[section][name]);
+        }
+        assert_eq!(doc["proxy-providers"]["p5"]["path"], "./providers/kova-0123456789abcdef.yaml", "a local file keeps its path");
+        assert_eq!(doc["proxy-providers"]["p3"]["url"], "https://e.example/r");
+    }
+
+    /// Merge keys (`<<`) are resolved before the paths are checked, as Mihomo reads them.
+    #[test]
+    fn merge_keys_do_not_hide_a_provider_path() {
+        let head = "proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+rules:
+  - MATCH,Sel
+";
+        let entry = "{type: http, behavior: domain, url: 'https://e.example/s', path: ./GeoSite.dat}";
+        let cases = [
+            ("an entry", format!("{head}rule-providers:\n  r1: {{<<: {entry}}}\n")),
+            ("the section", format!("{head}rule-providers:\n  <<: {{r1: {entry}}}\n")),
+            ("the root", format!("<<: {{rule-providers: {{r1: {entry}}}}}\n{head}")),
+            ("nested", format!("{head}rule-providers:\n  r1: {{<<: {{<<: {entry}}}}}\n")),
+            ("an anchor", format!("{head}x-base: &b {entry}\nrule-providers:\n  r1: {{<<: *b}}\n")),
+            ("a capital P", format!("{head}proxy-providers:\n  r1: {{type: file, Path: ./GeoSite.dat}}\n")),
+            ("a capital type", format!("{head}proxy-providers:\n  r1: {{TYPE: HTTP, url: 'https://e.example/s', PATH: ./config.yaml}}\n")),
+            ("two types", format!("{head}proxy-providers:\n  r1: {{type: file, Type: http, url: 'https://e.example/s', path: ./x.yaml}}\n")),
+        ];
+        for (what, raw) in cases {
+            let out = merge_clash(&raw, &opts()).unwrap_or_else(|e| panic!("{what}: {e}"));
+            let doc: Yaml = serde_yaml_ng::from_str(&out).unwrap();
+            for section in ["rule-providers", "proxy-providers"] {
+                for (name, p) in doc.get(section).and_then(Yaml::as_mapping).into_iter().flatten() {
+                    let has_path = p.as_mapping().is_some_and(|m| m.keys().any(|k| k.as_str().is_some_and(|k| k.eq_ignore_ascii_case("path"))));
+                    assert!(!has_path, "{what}: {name:?}: {out}");
+                }
+            }
+            assert!(!out.contains("<<"), "{what}: {out}");
+        }
+        // Merge keys that can't be resolved refuse the profile rather than slip through.
+        let tagged = format!("{head}rule-providers:\n  r1: {{<<: !custom {entry}}}\n");
+        assert!(merge_clash(&tagged, &opts()).is_err());
+        // An ordinary use of a merge key still works.
+        let plain = "proxies:
+  - &base {name: A, type: trojan, server: a, port: 443, password: x}
+  - {<<: *base, name: B}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A, B]}
+rules:
+  - MATCH,Sel
+";
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(plain, &opts()).unwrap()).unwrap();
+        assert_eq!(doc["proxies"][1]["server"], "a");
+    }
+
+    /// A provider that may not be fetched stays a server that can't connect: nothing
+    /// filters it away, and a group that uses only refused providers can fall back to REJECT.
+    #[test]
+    fn a_refused_provider_cannot_be_filtered_away() {
+        let raw = "proxy-providers:
+  Bad: {type: http, url: 'http://127.0.0.1:9/p', filter: 'HK', exclude-filter: 'x', exclude-type: socks5, override: {udp: false}, health-check: {enable: true, url: 'http://x.example', interval: 300}}
+  Good: {type: http, url: 'https://e.example/p'}
+proxy-groups:
+  - {name: OnlyBad, type: select, use: [Bad], filter: 'HK|US'}
+  - {name: Mixed, type: select, use: [Bad, Good]}
+  - {name: Plain, type: select, proxies: [OnlyBad], use: [Bad]}
+rules:
+  - MATCH,OnlyBad
+";
+        let out = localize_providers_closed(raw, &["Bad".into(), "Good".into()], &["Bad".into()]).unwrap();
+        let doc: Value = serde_yaml_ng::from_str(&out).unwrap();
+        let bad = &doc["proxy-providers"]["Bad"];
+        for k in ["filter", "exclude-filter", "exclude-type", "override", "url"] {
+            assert!(bad.get(k).is_none(), "{k}: {bad}");
+        }
+        assert_eq!(bad["type"], "file");
+        assert!(bad.get("health-check").is_some());
+        assert!(doc["proxy-providers"]["Good"].get("filter").is_none() && doc["proxy-providers"]["Good"]["type"] == "file");
+        assert_eq!(doc["proxy-groups"][0]["proxies"], serde_yaml_ng::from_str::<Value>("[REJECT]").unwrap());
+        assert!(doc["proxy-groups"][1].get("proxies").is_none(), "a group with a good provider keeps its default");
+        assert_eq!(doc["proxy-groups"][2]["proxies"], serde_yaml_ng::from_str::<Value>("[OnlyBad, REJECT]").unwrap());
+    }
+
+    #[test]
+    fn smart_routing_providers_keep_their_paths() {
+        let raw = "proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+rule-providers:
+  kova-learned-direct: {type: http, behavior: domain, url: 'https://e.example/s', path: ./GeoSite.dat}
+rules:
+  - MATCH,Sel
+";
+        let mut o = opts();
+        o.apply_rules_to_clash_profiles = true;
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        assert_eq!(doc["rule-providers"]["kova-learned-direct"]["path"], "./kova-learned-direct.txt");
+        assert_eq!(doc["rule-providers"]["kova-learned-direct"]["url"], "http://127.0.0.1:5000/t/kova-learned-direct.txt");
+    }
+
+    #[test]
+    fn a_profile_cannot_set_where_mihomo_downloads_routing_data_from() {
+        let raw = "geo-auto-update: true
+geo-update-interval: 1
+geox-url: {geoip: 'https://evil.example/geoip.dat', geosite: 'https://evil.example/geosite.dat', mmdb: 'https://evil.example/c.mmdb'}
+proxies:
+  - {name: A, type: trojan, server: a, port: 443, password: x}
+proxy-groups:
+  - {name: Sel, type: select, proxies: [A]}
+rules:
+  - MATCH,Sel
+";
+        let o = opts();
+        assert_eq!(o.geodata, GeoSource::Default);
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        assert_eq!(doc["geo-auto-update"], false);
+        assert!(!doc.to_string().contains("evil.example"), "{doc}");
+        assert_eq!(doc["geox-url"], geox_url(&o), "Kova's own address");
     }
 
     #[test]

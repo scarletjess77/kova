@@ -274,6 +274,17 @@ pub async fn switch_to(cores_dir: &Path, source: &GeoSource, proxy: Option<&str>
     Ok((update(cores_dir, source, proxy).await?, true))
 }
 
+/// The first half of [`update`]: download `source` into its cache and verify it, without
+/// touching the active copy. [`install_downloaded`] makes it active.
+pub async fn download(cores_dir: &Path, source: &GeoSource, proxy: Option<&str>) -> Result<Marker, Error> {
+    download_into(&cache_dir(cores_dir, source), source, proxy).await
+}
+
+/// The second half of [`update`]: make the copy [`download`] fetched the active one.
+pub fn install_downloaded(cores_dir: &Path, source: &GeoSource) -> Result<Marker, Error> {
+    install(&cache_dir(cores_dir, source), cores_dir)
+}
+
 /// Make sure `source`'s data is installed, downloading only when it is missing or came
 /// from another source. Unlike [`switch_to`] an old copy is kept: used when a download
 /// would hold up connecting, while regular refreshes happen elsewhere.
@@ -283,6 +294,21 @@ pub async fn ensure(cores_dir: &Path, source: &GeoSource, proxy: Option<&str>) -
             return Ok((m, false));
         }
     switch_to(cores_dir, source, proxy).await
+}
+
+/// How long a download may go without receiving a single byte before it is given up.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Client for the big files (the Russian lists are ~70 MB): no overall timeout, only a
+/// connect timeout and one for silence, so a server that stalls mid-file can't hang the
+/// download (and the geodata lock with it).
+fn big_client(proxy: Option<&str>, read_timeout: std::time::Duration) -> Result<reqwest::Client, Error> {
+    let big = fetch::builder().user_agent(fetch::APP_UA).connect_timeout(std::time::Duration::from_secs(15)).read_timeout(read_timeout);
+    let big = match proxy {
+        Some(p) => big.proxy(reqwest::Proxy::all(p)?),
+        None => big.no_proxy(),
+    };
+    Ok(big.build()?)
 }
 
 /// Download both files from `source` into `dir`, verifying and validating them. Nothing
@@ -306,13 +332,7 @@ async fn download_into(dir: &Path, source: &GeoSource, proxy: Option<&str>) -> R
     if geoip_url.is_empty() || geosite_url.is_empty() {
         return Err(Error::Other("Enter both download addresses for the custom routing data".into()));
     }
-    // Big files (the Russian lists are ~70 MB): no overall timeout, only a connect timeout.
-    let big = fetch::builder().user_agent(fetch::APP_UA).connect_timeout(std::time::Duration::from_secs(15));
-    let big = match proxy {
-        Some(p) => big.proxy(reqwest::Proxy::all(p)?),
-        None => big.no_proxy(),
-    }
-    .build()?;
+    let big = big_client(proxy, READ_TIMEOUT)?;
     let mut downloaded = Vec::new();
     for (name, url) in [("geoip.dat", geoip_url), ("geosite.dat", geosite_url)] {
         let data = big.get(&url).send().await?.error_for_status()?.bytes().await?;
@@ -356,6 +376,49 @@ pub fn seed_mihomo_home(cores_dir: &Path, home: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn a_stalled_download_times_out() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/geoip.dat", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            // Read the request before answering it.
+            let _ = tokio::io::AsyncReadExt::read(&mut s, &mut [0u8; 1024]).await.unwrap();
+            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nabc").await.unwrap();
+            // Then go quiet, keeping the connection open.
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        let client = big_client(None, std::time::Duration::from_millis(500)).unwrap();
+        let started = std::time::Instant::now();
+        let r = async { client.get(&url).send().await?.bytes().await }.await;
+        let e = r.expect_err("a stalled body must fail");
+        assert!(e.is_timeout(), "{e:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    #[tokio::test]
+    async fn a_slow_but_steady_download_is_not_cut_off() {
+        use tokio::io::AsyncWriteExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/geoip.dat", listener.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            // Read the request before answering it.
+            let _ = tokio::io::AsyncReadExt::read(&mut s, &mut [0u8; 1024]).await.unwrap();
+            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\n").await.unwrap();
+            for _ in 0..10 {
+                s.write_all(b"x").await.unwrap();
+                s.flush().await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        });
+        // Longer overall than the read timeout, but never silent for that long.
+        let client = big_client(None, std::time::Duration::from_millis(500)).unwrap();
+        let data = client.get(&url).send().await.unwrap().bytes().await.unwrap();
+        assert_eq!(data.len(), 10);
+    }
 
     fn fake_install(dir: &Path, source: &GeoSource, age_secs: i64) {
         // A minimal valid geodata file: one entry named "private".
