@@ -55,6 +55,8 @@ No accounts, ads or telemetry. Kova contacts other services only for these featu
 ## Documentation
 
 - [User guide](https://scarletjess77.github.io/kova/guide.html), in English, Russian, Persian and Chinese.
+- [Options reference](docs/reference.md): every page, setting and toggle, with defaults and what each one affects.
+- [FAQ](docs/faq.md): short answers to common questions.
 - [How it works](docs/how-it-works.md): the two cores, TUN mode and the Kova service, routing data, smart routing, Android, and notes for VPN providers (`kova://` import links).
 - [Building and testing](docs/building.md): desktop and Android builds, tests, releases.
 - [Security policy](SECURITY.md): how to report a vulnerability.
