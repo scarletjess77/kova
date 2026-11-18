@@ -129,7 +129,7 @@ function cleanLayout(v: unknown): Layout | undefined {
   if (status) out.status = status as Layout['status'];
   if (isObj(v.proxies)) {
     const p = v.proxies;
-    out.proxies = Object.fromEntries((['compact', 'protocol', 'transport', 'cores'] as const).filter((k) => typeof p[k] === 'boolean').map((k) => [k, p[k]]));
+    out.proxies = Object.fromEntries((['compact', 'protocol', 'transport', 'cores', 'address'] as const).filter((k) => typeof p[k] === 'boolean').map((k) => [k, p[k]]));
   }
   return out;
 }

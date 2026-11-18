@@ -1,4 +1,4 @@
-//! HTTP downloads: subscriptions and release metadata.
+//! HTTP downloads: subscriptions, release metadata and the big files (cores).
 
 use std::time::Duration;
 
@@ -86,6 +86,87 @@ fn build_client(proxy: Option<&str>, user_agent: &str, redirect: reqwest::redire
         None => b.no_proxy(),
     };
     Ok(b.build()?)
+}
+
+/// Time limits for a download of a big file (a core is up to ~60 MB).
+///
+/// The normal client's 60 s limit covers the whole request including the body, which
+/// cuts off a download that is slow but still moving. Here only silence is limited: no
+/// connection within `connect`, or no byte for `idle`. `ceiling` is a last resort for a
+/// server that trickles bytes forever or a link throttled to a crawl that still moves
+/// (which never trips the idle limit). The default is 10 minutes (about 100 KB/s for
+/// 60 MB); a direct attempt with Kova's proxy as the next route gets 4 minutes, so the
+/// fallback starts sooner; callers that someone waits on (connecting, the service's
+/// install) use [`BigLimits::QUICK`], 5 minutes.
+#[derive(Debug, Clone, Copy)]
+pub struct BigLimits {
+    pub connect: Duration,
+    pub idle: Duration,
+    pub ceiling: Duration,
+}
+
+impl BigLimits {
+    pub const DEFAULT: BigLimits = BigLimits { connect: Duration::from_secs(10), idle: Duration::from_secs(30), ceiling: Duration::from_secs(10 * 60) };
+    /// For installs a person or the app is waiting on: the app waits 600 s for the
+    /// service, and connecting must not hang for longer than a few minutes.
+    pub const QUICK: BigLimits = BigLimits { connect: Duration::from_secs(10), idle: Duration::from_secs(30), ceiling: Duration::from_secs(5 * 60) };
+    /// The ceiling of a direct attempt that has Kova's proxy to fall back on.
+    pub const DIRECT_BEFORE_PROXY: Duration = Duration::from_secs(4 * 60);
+
+    /// The limits of one attempt. A direct attempt (`direct`) that is followed by a try
+    /// through Kova's proxy (`has_fallback`) gets the shorter ceiling, never a longer one
+    /// than `self` already has; every other attempt keeps `self`.
+    pub fn for_attempt(self, direct: bool, has_fallback: bool) -> BigLimits {
+        if direct && has_fallback { BigLimits { ceiling: self.ceiling.min(Self::DIRECT_BEFORE_PROXY), ..self } } else { self }
+    }
+}
+
+/// A client for big files, see [`BigLimits`].
+pub fn big_client(proxy: Option<&str>, limits: BigLimits) -> Result<reqwest::Client, Error> {
+    let mut b = builder().user_agent(APP_UA).connect_timeout(limits.connect).read_timeout(limits.idle).timeout(limits.ceiling);
+    b = match proxy {
+        Some(p) => b.proxy(reqwest::Proxy::all(p)?),
+        None => b.no_proxy(),
+    };
+    Ok(b.build()?)
+}
+
+/// Downloads `url` whole, through `proxy` or directly. An error status is an error.
+pub async fn download_big(url: &str, proxy: Option<&str>, limits: BigLimits) -> Result<Vec<u8>, Error> {
+    let c = big_client(proxy, limits)?;
+    // `Vec::from` reuses the buffer when it is the only owner, instead of copying ~60 MB.
+    Ok(Vec::from(c.get(url).send().await?.error_for_status()?.bytes().await?))
+}
+
+/// Whether `e` says the server could not be reached or went silent (timeout, connect,
+/// DNS, reset) rather than answering with a refusal: only then is another route worth a try.
+pub fn is_connection_error(e: &Error) -> bool {
+    match e {
+        Error::Net(r) => r.is_timeout() || r.is_connect() || r.is_request() || r.is_body(),
+        _ => false,
+    }
+}
+
+/// Runs `attempt(None)` (direct); when it fails to reach the server and Kova's own proxy
+/// is up (`proxy`), runs `attempt(Some(proxy))` once. Never more than two tries. The error
+/// of a failed second try names both, so the user can tell a blocked site from a broken
+/// connection. Without a proxy the first error is returned as it is.
+pub async fn with_proxy_fallback<T, F, Fut>(proxy: Option<&str>, what: &str, mut attempt: F) -> Result<T, Error>
+where
+    F: FnMut(Option<String>) -> Fut,
+    Fut: std::future::Future<Output = Result<T, Error>>,
+{
+    let first = attempt(None).await;
+    match (first, proxy) {
+        (Err(e), Some(p)) if is_connection_error(&e) => match attempt(Some(p.to_string())).await {
+            Ok(v) => {
+                tracing::info!("{what} was downloaded through Kova's proxy, the direct download failed: {e}");
+                Ok(v)
+            }
+            Err(e2) => Err(Error::Core(format!("{what} could not be downloaded, neither directly ({e}) nor through Kova's own proxy ({e2})"))),
+        },
+        (r, _) => r,
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -559,6 +640,26 @@ connection: close
     }
 
     #[test]
+    fn download_limits_are_chosen_per_attempt() {
+        use super::BigLimits as L;
+        use std::time::Duration;
+        let min = |n: u64| Duration::from_secs(n * 60);
+        assert_eq!(L::DEFAULT.ceiling, min(10));
+        assert_eq!(L::QUICK.ceiling, min(5));
+        // A direct try with Kova's proxy behind it gives up after 4 minutes.
+        assert_eq!(L::DEFAULT.for_attempt(true, true).ceiling, min(4));
+        assert_eq!(L::QUICK.for_attempt(true, true).ceiling, min(4));
+        // No proxy to fall back on, or the try through the proxy itself: the full ceiling.
+        assert_eq!(L::DEFAULT.for_attempt(true, false).ceiling, min(10));
+        assert_eq!(L::DEFAULT.for_attempt(false, true).ceiling, min(10));
+        assert_eq!(L::QUICK.for_attempt(false, false).ceiling, min(5));
+        // A caller's own shorter ceiling is never raised, and the rest is kept.
+        let short = L { ceiling: Duration::from_secs(20), ..L::DEFAULT };
+        assert_eq!(short.for_attempt(true, true).ceiling, Duration::from_secs(20));
+        assert_eq!(short.for_attempt(true, true).idle, L::DEFAULT.idle);
+    }
+
+    #[test]
     fn body_comments_may_end_lines_with_crlf_and_are_limited_in_size() {
         let s = super::assemble(&headers(&[]), format!("#profile-title: Windows
 #announce: Hi
@@ -575,6 +676,147 @@ connection: close
         let s = super::assemble(&headers(&[]), format!("{}#announce: in time
 {LINK}", filler.repeat(2)));
         assert_eq!(s.announce.as_deref(), Some("in time"));
+    }
+
+    fn limits(idle_ms: u64) -> super::BigLimits {
+        super::BigLimits { connect: std::time::Duration::from_secs(2), idle: std::time::Duration::from_millis(idle_ms), ceiling: std::time::Duration::from_secs(20) }
+    }
+
+    /// Answers one request with `n` bytes, one every `gap_ms`, then closes.
+    async fn serve_drip(n: usize, gap_ms: u64) -> String {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/core.zip", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let _ = s.read(&mut [0u8; 4096]).await.unwrap();
+            s.write_all(format!("HTTP/1.1 200 OK\r\ncontent-length: {n}\r\nconnection: close\r\n\r\n").as_bytes()).await.unwrap();
+            for _ in 0..n {
+                s.write_all(b"x").await.unwrap();
+                s.flush().await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(gap_ms)).await;
+            }
+        });
+        url
+    }
+
+    /// A body that takes longer in total than the idle limit, but is never silent for it.
+    #[tokio::test]
+    async fn a_slow_but_steady_big_download_is_not_cut() {
+        let url = serve_drip(12, 100).await;
+        let started = std::time::Instant::now();
+        let data = super::download_big(&url, None, limits(400)).await.unwrap();
+        assert_eq!(data.len(), 12);
+        assert!(started.elapsed() > std::time::Duration::from_millis(800), "took {:?}", started.elapsed());
+    }
+
+    #[tokio::test]
+    async fn a_stalled_big_download_is_cut_by_the_idle_limit() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/core.zip", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let _ = s.read(&mut [0u8; 4096]).await.unwrap();
+            s.write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 1000\r\n\r\nabc").await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+        });
+        let started = std::time::Instant::now();
+        let e = super::download_big(&url, None, limits(400)).await.expect_err("a stalled body must fail");
+        assert!(super::is_connection_error(&e), "{e:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    }
+
+    /// A tiny HTTP proxy: answers every request with `body`, whatever address was asked for.
+    async fn serve_proxy(body: &'static str) -> (String, tokio::task::JoinHandle<String>) {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = format!("http://{}", l.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let mut buf = vec![0; 8192];
+            let n = s.read(&mut buf).await.unwrap();
+            let resp = format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len());
+            s.write_all(resp.as_bytes()).await.unwrap();
+            String::from_utf8_lossy(&buf[..n]).to_string()
+        });
+        (addr, task)
+    }
+
+    /// An address nothing listens on.
+    async fn dead_url() -> String {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/core.zip", l.local_addr().unwrap());
+        drop(l);
+        url
+    }
+
+    #[tokio::test]
+    async fn a_failed_direct_download_is_retried_once_through_kovas_proxy() {
+        let url = dead_url().await;
+        let (proxy, task) = serve_proxy("core-bytes").await;
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let data = super::with_proxy_fallback(Some(&proxy), "the core", |p| {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let url = url.clone();
+            async move { super::download_big(&url, p.as_deref(), limits(1000)).await }
+        })
+        .await
+        .unwrap();
+        assert_eq!(data, b"core-bytes");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+        assert!(task.await.unwrap().starts_with("GET http://"), "the request went to the proxy");
+    }
+
+    #[tokio::test]
+    async fn without_a_proxy_the_direct_error_is_returned_and_nothing_is_retried() {
+        let url = dead_url().await;
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let e = super::with_proxy_fallback(None, "the core", |p| {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let url = url.clone();
+            async move { super::download_big(&url, p.as_deref(), limits(1000)).await }
+        })
+        .await
+        .expect_err("nothing listens");
+        assert!(matches!(e, crate::Error::Net(_)), "{e:?}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn when_the_proxy_fails_too_the_error_names_both_and_there_is_no_third_try() {
+        let url = dead_url().await;
+        let proxy = dead_url().await.replace("/core.zip", "");
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let e = super::with_proxy_fallback(Some(&proxy), "the core", |p| {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let url = url.clone();
+            async move { super::download_big(&url, p.as_deref(), limits(1000)).await }
+        })
+        .await
+        .expect_err("both fail");
+        let text = e.to_string();
+        assert!(text.contains("neither directly") && text.contains("Kova's own proxy"), "{text}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    /// A server that answers with a refusal is not a blocked route: no retry.
+    #[tokio::test]
+    async fn an_error_status_does_not_trigger_the_proxy() {
+        let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}/core.zip", l.local_addr().unwrap());
+        tokio::spawn(async move {
+            let (mut s, _) = l.accept().await.unwrap();
+            let _ = s.read(&mut [0u8; 4096]).await.unwrap();
+            s.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\nconnection: close\r\n\r\n").await.unwrap();
+        });
+        let tries = std::sync::atomic::AtomicUsize::new(0);
+        let e = super::with_proxy_fallback(Some("http://127.0.0.1:9"), "the core", |p| {
+            tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let url = url.clone();
+            async move { super::download_big(&url, p.as_deref(), limits(1000)).await }
+        })
+        .await
+        .expect_err("404");
+        assert!(!super::is_connection_error(&e), "{e:?}");
+        assert_eq!(tries.load(std::sync::atomic::Ordering::SeqCst), 1);
     }
 
     #[tokio::test]

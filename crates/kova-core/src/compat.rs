@@ -39,6 +39,13 @@ pub enum CorePreference {
 
 /// `None` if `core` can run `node`, otherwise a short reason for the UI.
 pub fn unsupported(core: CoreKind, node: &Node) -> Option<&'static str> {
+    // Xray can't build an outbound from anything but an object, and no other core can
+    // run one: the node would otherwise show up pointing at a port nothing listens on.
+    if let Protocol::XrayOutbound { raw, .. } = &node.protocol
+        && !raw.is_object()
+    {
+        return Some("its Xray configuration is not a JSON object");
+    }
     match core {
         CoreKind::Shoes => (!crate::gen_shoes::supports(node)).then_some("Shoes runs NaiveProxy servers only"),
         _ if matches!(node.protocol, Protocol::Naive { .. }) => Some("NaiveProxy needs the Shoes core"),
@@ -146,5 +153,33 @@ mod tests {
 
         let m = plan(&nodes, CorePreference::Mihomo);
         assert_eq!(m.dropped[0].0, "xh");
+    }
+
+    fn xray_node(name: &str, raw: serde_json::Value) -> Node {
+        Node {
+            name: name.into(),
+            server: "203.0.113.1".into(),
+            port: 443,
+            protocol: Protocol::XrayOutbound { kind: "masque".into(), raw },
+            transport: Transport::Tcp,
+            tls: None,
+            udp: true,
+            mux: None,
+        }
+    }
+
+    #[test]
+    fn an_xray_entry_that_is_not_an_object_is_dropped_with_the_reason() {
+        let nodes = vec![xray_node("bad", serde_json::json!("masque")), xray_node("good", serde_json::json!({ "protocol": "masque" })), parse_link("trojan://pw@c:443#tr").unwrap()];
+        let why = "its Xray configuration is not a JSON object";
+        for core in [CoreKind::Mihomo, CoreKind::Xray, CoreKind::Shoes] {
+            assert_eq!(unsupported(core, &nodes[0]), Some(why), "{core:?}");
+        }
+        assert!(supports(CoreKind::Xray, &nodes[1]), "an object is still Xray's");
+        for pref in [CorePreference::Auto, CorePreference::Mihomo, CorePreference::Xray] {
+            let p = plan(&nodes, pref);
+            assert!(p.dropped.contains(&("bad".to_string(), why.to_string())), "{pref:?}: {:?}", p.dropped);
+            assert!(!p.bridged.contains(&"bad".to_string()) && !p.shoes.contains(&"bad".to_string()), "{pref:?}");
+        }
     }
 }

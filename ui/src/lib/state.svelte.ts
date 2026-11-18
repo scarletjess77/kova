@@ -39,6 +39,8 @@ function readFlagsChoice(): boolean | null {
 class AppState {
   ready = $state(false);
   view = $state<View>('dashboard');
+  /** One-shot: the group the Proxies page opens on, set by a window that sends the user there. */
+  proxiesGroup = $state<string | null>(null);
   status = $state<Status>({ running: false, busy: false, core: null, sidecar: false, since: null, error: null, mixed_port: 7890, bridged: [], dropped: [], tun_active: false, warning: null });
   settings = $state<Settings | null>(null);
   /** Edits made on the Rules tab that are not applied yet, as the `core` settings they
@@ -646,9 +648,30 @@ class AppState {
     }
   }
 
-  async select(group: string, name: string) {
-    await this.run(() => api.selectProxy(group, name));
+  /** True when the core accepted the choice; a failure shows as a message. */
+  async select(group: string, name: string): Promise<boolean> {
+    const done = await this.run(async () => { await api.selectProxy(group, name); return true; });
     await this.refreshProxies();
+    return done === true;
+  }
+
+  /** Stars belong to the profile in use: the same server name in another profile is another server. */
+  favKey(name: string): string {
+    return `${this.settings?.active_profile ?? ''}/${name}`;
+  }
+
+  isFavorite(name: string): boolean {
+    return !!this.settings?.favorites?.includes(this.favKey(name));
+  }
+
+  /** Saving stars does not restart the connection. */
+  toggleFavorite(name: string) {
+    return this.saveSettings((x) => {
+      const key = this.favKey(name);
+      const now = new Set(x.favorites ?? []);
+      if (!now.delete(key)) now.add(key);
+      x.favorites = [...now];
+    });
   }
 
   /** Follow a group chain to the node that actually carries traffic. */

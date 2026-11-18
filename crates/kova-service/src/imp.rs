@@ -148,7 +148,7 @@ impl Service {
             },
             // The version Kova's builds ship and were tested with, never whatever is
             // newest: this Mihomo runs with system rights.
-            Request::InstallCore => match cores::install_pinned(&self.cores_dir(), CoreKind::Mihomo).await {
+            Request::InstallCore => match cores::install_pinned_with(&self.cores_dir(), CoreKind::Mihomo, kova_engine::fetch::BigLimits::QUICK).await {
                 Ok(tag) => Response { core_version: Some(tag), ..Response::ok() },
                 Err(e) => Response::err(e),
             },
@@ -211,7 +211,7 @@ impl Service {
         let bin = cores::binary_path(&cores_dir, CoreKind::Mihomo);
         if !bin.exists() {
             self.log("Downloading Mihomo for the Kova service…");
-            let tag = cores::install_pinned(&cores_dir, CoreKind::Mihomo).await.map_err(|e| e.to_string())?;
+            let tag = cores::install_pinned_with(&cores_dir, CoreKind::Mihomo, kova_engine::fetch::BigLimits::QUICK).await.map_err(|e| e.to_string())?;
             self.log(&format!("Mihomo {tag} installed"));
         }
         // Routing data: our own verified copy of the app's chosen source. Downloaded here

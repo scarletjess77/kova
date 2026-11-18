@@ -161,12 +161,12 @@ fn pinned_sha256(core: CoreKind, asset: &str) -> Option<String> {
 }
 
 async fn latest_release(core: CoreKind) -> Result<Release, Error> {
-    release(core, None).await
+    release(core, None, None).await
 }
 
-/// A release of `core`: the one tagged `tag`, or the latest.
-async fn release(core: CoreKind, tag: Option<&str>) -> Result<Release, Error> {
-    let c = fetch::client(None, fetch::APP_UA)?;
+/// A release of `core`: the one tagged `tag`, or the latest. Asked through `proxy` when given.
+async fn release(core: CoreKind, tag: Option<&str>, proxy: Option<&str>) -> Result<Release, Error> {
+    let c = fetch::client(proxy, fetch::APP_UA)?;
     let url = match tag {
         Some(t) => format!("https://api.github.com/repos/{}/releases/tags/{t}", repo(core)),
         None => format!("https://api.github.com/repos/{}/releases/latest", repo(core)),
@@ -248,16 +248,27 @@ pub async fn install_latest(cores_dir: &Path, core: CoreKind) -> Result<String, 
     install_latest_for(cores_dir, core, os_arch().1).await
 }
 
+/// [`install_latest`] that may fall back to Kova's own running proxy (`proxy`, a URL)
+/// when GitHub cannot be reached directly.
+pub async fn install_latest_via(cores_dir: &Path, core: CoreKind, proxy: Option<&str>) -> Result<String, Error> {
+    install_latest_via_with(cores_dir, core, proxy, fetch::BigLimits::DEFAULT).await
+}
+
+/// [`install_latest_via`] with its own download time limits.
+pub async fn install_latest_via_with(cores_dir: &Path, core: CoreKind, proxy: Option<&str>, limits: fetch::BigLimits) -> Result<String, Error> {
+    install_release(cores_dir, core, None, os_arch().1, proxy, limits).await
+}
+
 /// [`install_latest`] for another processor of this system (`"amd64"` or `"arm64"`):
 /// building the Intel Mac installer on an Apple-silicon machine.
 pub async fn install_latest_for(cores_dir: &Path, core: CoreKind, arch: &str) -> Result<String, Error> {
-    install_release(cores_dir, core, None, arch).await
+    install_release(cores_dir, core, None, arch, None, fetch::BigLimits::DEFAULT).await
 }
 
 /// Download, verify and install the version Kova's builds ship ([`pinned_tag`]), for
 /// `arch`: what the installers carry. Returns the installed tag.
 pub async fn install_pinned_for(cores_dir: &Path, core: CoreKind, arch: &str) -> Result<String, Error> {
-    install_release(cores_dir, core, Some(&pinned_tag(core)), arch).await
+    install_release(cores_dir, core, Some(&pinned_tag(core)), arch, None, fetch::BigLimits::DEFAULT).await
 }
 
 /// [`install_pinned_for`] for this system's processor.
@@ -265,26 +276,68 @@ pub async fn install_pinned(cores_dir: &Path, core: CoreKind) -> Result<String, 
     install_pinned_for(cores_dir, core, os_arch().1).await
 }
 
-async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, arch: &str) -> Result<String, Error> {
+/// [`install_pinned`] with its own download time limits, for callers that are waited on
+/// (the Windows service; see [`fetch::BigLimits::QUICK`]).
+pub async fn install_pinned_with(cores_dir: &Path, core: CoreKind, limits: fetch::BigLimits) -> Result<String, Error> {
+    install_release(cores_dir, core, Some(&pinned_tag(core)), os_arch().1, None, limits).await
+}
+
+/// [`install_pinned`] that may fall back to Kova's own running proxy, see [`install_latest_via`].
+pub async fn install_pinned_via(cores_dir: &Path, core: CoreKind, proxy: Option<&str>) -> Result<String, Error> {
+    install_pinned_via_with(cores_dir, core, proxy, fetch::BigLimits::DEFAULT).await
+}
+
+/// [`install_pinned_via`] with its own download time limits.
+pub async fn install_pinned_via_with(cores_dir: &Path, core: CoreKind, proxy: Option<&str>, limits: fetch::BigLimits) -> Result<String, Error> {
+    install_release(cores_dir, core, Some(&pinned_tag(core)), os_arch().1, proxy, limits).await
+}
+
+/// What one download pass brings: the release's tag, the chosen file, the checksum it
+/// should have and its bytes.
+struct Fetched {
+    tag: String,
+    asset_name: String,
+    expected: String,
+    data: Vec<u8>,
+}
+
+/// Everything that talks to the network when installing a core, as one pass that goes
+/// through `proxy` or directly, so a retry through Kova's proxy repeats all of it (GitHub's
+/// API may be blocked just like the file host). The file itself has no total time limit,
+/// only the idle one of `limits` and a ceiling of minutes (see [`fetch::BigLimits`]); a
+/// direct pass that has the proxy to fall back on (`has_fallback`) gets a shorter ceiling.
+async fn fetch_asset(core: CoreKind, tag: Option<&str>, arch: &str, proxy: Option<&str>, limits: fetch::BigLimits, has_fallback: bool) -> Result<Fetched, Error> {
+    let rel = release(core, tag, proxy).await?;
+    let asset = pick_asset(core, &rel, arch).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
+    let c = fetch::client(proxy, fetch::APP_UA)?;
+    let expected = expected_sha256(&c, &rel, asset).await?.ok_or_else(|| Error::Core(format!("{} has no published checksum; refusing to install it", asset.name)))?;
+    let data = fetch::download_big(&asset.browser_download_url, proxy, limits.for_attempt(proxy.is_none(), has_fallback)).await?;
+    Ok(Fetched { tag: rel.tag_name.clone(), asset_name: asset.name.clone(), expected, data })
+}
+
+async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, arch: &str, proxy: Option<&str>, limits: fetch::BigLimits) -> Result<String, Error> {
     if cfg!(target_os = "android") {
         return Err(Error::Core(format!("On Android, {} is updated together with Kova", core.label())));
     }
     if core == CoreKind::Shoes && !available(core) {
         return Err(Error::Core("Shoes has no Windows build yet; it runs on Linux and macOS".into()));
     }
-    let rel = release(core, tag).await?;
-    let asset = pick_asset(core, &rel, arch).ok_or_else(|| Error::Core(format!("no {} build for this system in {}", core.label(), rel.tag_name)))?;
-    let c = fetch::client(None, fetch::APP_UA)?;
-    let expected = expected_sha256(&c, &rel, asset).await?.ok_or_else(|| Error::Core(format!("{} has no published checksum; refusing to install it", asset.name)))?;
-    let data = c.get(&asset.browser_download_url).send().await?.error_for_status()?.bytes().await?;
+    let what = core.label().to_string();
+    let has_fallback = proxy.is_some();
+    let Fetched { tag: rel_tag, asset_name, expected, data } = fetch::with_proxy_fallback(proxy, &what, |p| {
+        let tag = tag.map(str::to_string);
+        let arch = arch.to_string();
+        async move { fetch_asset(core, tag.as_deref(), &arch, p.as_deref(), limits, has_fallback).await }
+    })
+    .await?;
     let actual = hex::encode(Sha256::digest(&data));
     if actual != expected {
-        return Err(Error::Core(format!("checksum mismatch for {}: expected {expected}, got {actual}", asset.name)));
+        return Err(Error::Core(format!("checksum mismatch for {asset_name}: expected {expected}, got {actual}")));
     }
     if tag.is_some() {
-        let pinned = pinned_sha256(core, &asset.name).ok_or_else(|| Error::Core(format!("{} has no pinned checksum; refusing to install it", asset.name)))?;
+        let pinned = pinned_sha256(core, &asset_name).ok_or_else(|| Error::Core(format!("{asset_name} has no pinned checksum; refusing to install it")))?;
         if actual != pinned {
-            return Err(Error::Core(format!("{} is not the file Kova pinned: expected {pinned}, got {actual}", asset.name)));
+            return Err(Error::Core(format!("{asset_name} is not the file Kova pinned: expected {pinned}, got {actual}")));
         }
     }
 
@@ -292,14 +345,13 @@ async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, ar
     let _ = std::fs::remove_dir_all(&staging);
     std::fs::create_dir_all(&staging)?;
     let bin_name = binary_name(core);
-    let data = data.to_vec();
     let staged_bin = staging.join(bin_name);
     let staging2 = staging.clone();
-    let asset_name = asset.name.clone();
+    let asset_name2 = asset_name.clone();
     let keep_geodata = crate::geodata::marker(cores_dir).is_some();
-    tokio::task::spawn_blocking(move || extract(&asset_name, &data, core, &staging2, keep_geodata)).await.expect("extract task")?;
+    tokio::task::spawn_blocking(move || extract(&asset_name2, &data, core, &staging2, keep_geodata)).await.expect("extract task")?;
     if !staged_bin.exists() {
-        return Err(Error::Core(format!("{} did not contain {bin_name}", asset.name)));
+        return Err(Error::Core(format!("{asset_name} did not contain {bin_name}")));
     }
     #[cfg(unix)]
     {
@@ -318,7 +370,7 @@ async fn install_release(cores_dir: &Path, core: CoreKind, tag: Option<&str>, ar
         std::fs::rename(entry.path(), &dest)?;
     }
     let _ = std::fs::remove_dir_all(&staging);
-    Ok(rel.tag_name)
+    Ok(rel_tag)
 }
 
 /// Copy the cores and routing data that came with the installer into `cores_dir`, for

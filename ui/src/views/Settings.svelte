@@ -19,6 +19,29 @@
   import { DEFAULT_DIM, TAB_VIEWS, isBackdrop, keepPicture, pictureStyle, removePicture, saveChosenFile, slotSize, templatePng, type Fit, type Picture, type Pos, type SlotId } from '../lib/pictures';
   import { save as saveDialog } from '@tauri-apps/plugin-dialog';
 
+  // The card order follows the layout on screen (DOM order = visual order). Wide is two
+  // columns that flow down then across; narrow is one column. Same 900 px of .main that
+  // the old container query used, so the order and the CSS cannot disagree.
+  type CardId = 'network' | 'geodata' | 'cores' | 'updates' | 'app' | 'servers' | 'vpn' | 'tun' | 'dns' | 'look' | 'contacts' | 'donate';
+  const WIDE_ORDER: CardId[] = ['network', 'geodata', 'cores', 'updates', 'app', 'servers', 'vpn', 'tun', 'dns', 'look', 'contacts', 'donate'];
+  const NARROW_ORDER: CardId[] = ['network', 'servers', 'vpn', 'tun', 'dns', 'geodata', 'cores', 'app', 'look', 'updates', 'contacts', 'donate'];
+  let setEl = $state<HTMLElement>();
+  let narrow = $state(false);
+  let order = $derived(narrow ? NARROW_ORDER : WIDE_ORDER);
+  $effect(() => {
+    const box = setEl?.closest('.main') ?? setEl?.parentElement;
+    if (!box) return;
+    // The query container's content width; measured at once so the first paint is right.
+    const content = () => {
+      const cs = getComputedStyle(box);
+      return box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    };
+    narrow = content() <= 900;
+    const ro = new ResizeObserver((e) => { narrow = (e[0]?.contentRect.width ?? content()) <= 900; });
+    ro.observe(box);
+    return () => ro.disconnect();
+  });
+
   let appVersion = $state('');
   // Members of the group traffic starts in ("Proxy", or an imported config's first
   // selector), for the server used on mobile data.
@@ -128,6 +151,7 @@
   let slotName = $derived(SLOTS.find(([id]) => id === slot)?.[1] ?? '');
   let pic = $derived<Picture | undefined>(look.pictures?.[slot]);
   let size = $derived(slotSize(slot));
+  const PREV_H = 124; // the preview box's height, the same for every slot
   let picUrl = $derived(app.pictureUrl(pic?.file));
   let picking = $state(false);
   let picInput = $state<HTMLInputElement>();
@@ -205,6 +229,11 @@
     void set((x) => (x.core.test_url = u), t('Saved'));
   }
   const toggle = (get: (x: Settings) => boolean, put: (x: Settings, v: boolean) => void) => set((x) => put(x, !get(x)));
+  const NEVER_SWITCH = 30000; // the engine's value for "never move to a faster server"
+  // How much faster another server must be before a Fastest server group moves; a value
+  // set some other way still shows.
+  let tol = $derived(Math.min(s?.core.auto_tolerance ?? 50, NEVER_SWITCH));
+  let tolerances = $derived([...new Set([10, 25, 50, 100, 200, NEVER_SWITCH, tol])].sort((a, b) => a - b));
   const list = (v: string) => v.split(/[,\n]/).map((x) => x.trim()).filter(Boolean);
 
   // Kova service (TUN without running the app as administrator)
@@ -293,9 +322,7 @@
 <div class="page-head"><h1>{t('Settings')}</h1><span class="sub">{t('Changes apply right away. A running connection restarts when needed.')}</span></div>
 
 {#if s}
-  <!-- The cards flow down one column and on into the next, in order, so folding one
-       pulls the rest up and both columns stay about the same height. -->
-  <div class="set">
+  {#snippet cardNetwork()}
       <FoldCard id="network" title={t('Network')}>
         <div class="form">
           <div class="fld full"><label for="st-port">{t('Proxy port (HTTP + SOCKS5)')}</label>
@@ -317,6 +344,11 @@
             <button class="switch" role="switch" aria-label={t('Allow connections from LAN')} aria-checked={s.core.allow_lan} onclick={() => toggle((x) => x.core.allow_lan, (x, v) => (x.core.allow_lan = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Switch away from a dead node')}</div><div class="d">{t('When the chosen node stops answering, move to the fastest one that works and say so')}</div></div>
             <button class="switch" role="switch" aria-label={t('Switch away from a dead node')} aria-checked={s.auto_switch} onclick={() => toggle((x) => x.auto_switch, (x, v) => (x.auto_switch = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Switch to a faster server')}</div><div class="d">{t('The Fastest server group stays on its current server unless another is faster by more than this. Lower follows the fastest closely, higher avoids switching.')}</div>
+            {#if tol >= NEVER_SWITCH}<div class="d">{t('Never: the group stays on the server it picked until that server stops answering.')}</div>{/if}</div>
+            <select class="input tol" aria-label={t('Switch to a faster server')} value={tol} onchange={(e) => set((x) => (x.core.auto_tolerance = Number(e.currentTarget.value)))}>
+              {#each tolerances as n (n)}<option value={n}>{n >= NEVER_SWITCH ? t('Never') : t('if faster by {n} ms', { n })}</option>{/each}
+            </select></div>
           <div class="row-sw"><div><div class="t">IPv6</div></div>
             <button class="switch" role="switch" aria-label="IPv6" aria-checked={s.core.ipv6} onclick={() => toggle((x) => x.core.ipv6, (x, v) => (x.core.ipv6 = v))}></button></div>
           <div class="row-sw"><div><div class="t">{t('Sniff domains')}</div><div class="d">{t('Reads TLS and HTTP hostnames so domain rules also work for raw IP connections')}</div></div>
@@ -329,7 +361,151 @@
             <button class="switch" role="switch" aria-label={t('Anti-DPI')} aria-checked={s.core.anti_dpi} onclick={() => toggle((x) => x.core.anti_dpi, (x, v) => (x.core.anti_dpi = v))}></button></div>
         </div>
       </FoldCard>
-
+  {/snippet}
+  {#snippet cardGeodata()}
+      <FoldCard id="geodata" title={t('Routing data')}>
+        {#snippet aside()}<span class="aside">{t('GeoIP and GeoSite lists used by rules')}</span>{/snippet}
+        <div class="seg" role="group" aria-label={t('Routing data source')}>
+          {#each [['default', t('Standard')], ['runetfreedom', t('Russia')], ['custom', t('Custom')]] as [v, l] (v)}
+            <button aria-pressed={geoKind === v} disabled={geoBusy} onclick={() => pickGeo(v)}>{l}</button>
+          {/each}
+        </div>
+        <p class="hint">
+          {#if geoKind === 'default'}{t('MetaCubeX lists: every country and the v2fly site categories. Updated weekly.')}
+          {:else if geoKind === 'runetfreedom'}{t('runetfreedom/russia-v2ray-rules-dat: the standard lists plus sites blocked in Russia. Needed for “Only blocked sites through the proxy”. About 90 MB, updated every 12 hours.')}
+          {:else}{t('Direct links to')} <span class="mono">geoip.dat</span> {t('and')} <span class="mono">geosite.dat</span> {t('in v2ray format. Kova checks that the files can be read, but can’t verify who published them.')}{/if}
+        </p>
+        {#if customOpen}
+          <div class="form gap">
+            <div class="fld full"><label for="geo-ip">{t('geoip.dat address')}</label><input id="geo-ip" class="input mono small" bind:value={draft.geoip} placeholder="https://…/geoip.dat" /></div>
+            <div class="fld full"><label for="geo-site">{t('geosite.dat address')}</label><input id="geo-site" class="input mono small" bind:value={draft.geosite} placeholder="https://…/geosite.dat" /></div>
+          </div>
+          <div class="actions gap">
+            <button class="btn primary" class:busy={geoBusy} disabled={geoBusy || !draft.geoip.trim() || !draft.geosite.trim()}
+              onclick={() => setGeo({ kind: 'custom', geoip: draft.geoip.trim(), geosite: draft.geosite.trim() }, t('Custom routing data downloaded'))}>{#if geoBusy}<Icon name="refresh" />{t('Downloading…')}{:else}{t('Download and use')}{/if}</button>
+            <button class="btn ghost" onclick={() => (customOpen = false)}>{t('Cancel')}</button>
+          </div>
+        {/if}
+        {#if geo}
+          <dl class="kv gap">
+            <dt>{t('Installed')}</dt>
+            <dd>{geo.installed ? `${geoSourceName(geo.installed.source)} · ${fmtAgo(geo.installed.updated_at)}` : geo.files.length ? t('Bundled with Xray') : t('Not downloaded yet')}</dd>
+            {#if geo.installed}<dt>{t('Checksum')}</dt><dd>{geo.installed.verified ? t('Verified against the publisher') : t('Not available for this source')}</dd>{/if}
+            {#each geo.files as f (f.name)}<dt class="mono">{f.name}</dt><dd>{fmtBytes(f.size)} · {tn(f.categories, '{n} category', '{n} categories')}</dd>{/each}
+          </dl>
+          {#if geo.missing.length}
+            <p class="hint warn-text">{t('Missing for your presets: {list}. Pick a source that has them or turn the preset off.', { list: geo.missing.join(', ') })}</p>
+          {/if}
+        {/if}
+        {#if !customOpen}
+          <div class="actions gap"><button class="btn" class:busy={geoBusy} disabled={geoBusy} onclick={updateGeo}><Icon name="refresh" />{geoBusy ? t('Downloading…') : t('Update now')}</button></div>
+        {/if}
+      </FoldCard>
+  {/snippet}
+  {#snippet cardCores()}
+      <FoldCard id="cores" title={t('Cores')}>
+        {#snippet aside()}{#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}{/snippet}
+        {#if !cores.length}
+          <!-- Same height as the rows to come, so nothing below moves when they do. -->
+          {#each ['mihomo', 'xray'] as k (k)}
+            <div class="core"><span class="ico">{CORE_NAMES[k as CoreKind][0]}</span><span class="t">{CORE_NAMES[k as CoreKind]}</span><span class="chip">…</span><span class="d">&nbsp;</span></div>
+          {/each}
+        {/if}
+        {#each cores as c (c.core)}
+          {@const name = CORE_NAMES[c.core]}
+          {@const update = c.latest && norm(c.latest) !== norm(c.installed)}
+          <div class="core">
+            <span class="ico">{name[0]}</span>
+            <span class="t">{name} {c.installed ?? ''}</span>
+            {#if !app.mobile && (!c.installed || update)}
+              <button class="btn primary" class:busy={installing === c.core} disabled={installing !== null} onclick={() => install(c.core)}>
+                {#if installing === c.core}<Icon name="refresh" />{t('Installing…')}{:else}{c.installed ? t('Update to {version}', { version: c.latest ?? '' }) : t('Install')}{/if}</button>
+            {:else}
+              <span class="chip">{c.latest ? t('Up to date') : t('Installed')}</span>
+            {/if}
+            <span class="d">{c.core === 'xray' ? t('XTLS/Xray-core · XHTTP, Reality, bridged nodes') : c.core === 'shoes' ? t('cfal/shoes · NaiveProxy servers; installed when a profile needs it') : t('MetaCubeX/mihomo · rules, groups, TUN, most protocols')}{!c.installed ? ` · ${t('not installed')}` : ''}</span>
+          </div>
+        {/each}
+        <p class="hint">{app.mobile ? t('Included with the app and updated together with it.') : t('Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.')}</p>
+      </FoldCard>
+  {/snippet}
+  {#snippet cardUpdates()}
+      <FoldCard id="updates" title={t('Updates')}>
+        {#snippet aside()}<span class="aside">Kova {appVersion}</span>{/snippet}
+        {#if app.update}
+          <div class="upd">
+            <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
+            {#if app.update.date}<div class="d">{t('Released {date}', { date: app.update.date.slice(0, 10) })}</div>{/if}
+            {#if app.update.body}<p class="notes">{@html notesHtml(app.update.body, 20000)}</p>{/if}
+            {#if app.updateProgress !== null}
+              <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
+              <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : app.mobile ? t('Opening Android’s installer') : t('Installing, Kova will restart')}</div>
+            {:else if app.mobile}
+              <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Download update')}</button></div>
+              <p class="hint">{t('Kova downloads and checks the update, then Android asks you to confirm the install. Your profiles and settings stay.')}</p>
+            {:else}
+              <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Install and restart')}</button></div>
+              <p class="hint">{t('Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.')}</p>
+            {/if}
+          </div>
+        {/if}
+        <div class="rows">
+          <div class="row-sw"><div><div class="t">{t('Check for updates on launch')}</div><div class="d">{t('Releases are signed; Kova only installs updates signed with its key')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Check for updates on launch')} aria-checked={s.check_updates} onclick={() => toggle((x) => x.check_updates, (x, v) => (x.check_updates = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Get beta versions')}</div><div class="d">{t('New features earlier, before they are fully tested. Kova updates to whichever is newer, beta or stable.')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Get beta versions')} aria-checked={s.beta_updates}
+              onclick={async () => { await set((x) => (x.beta_updates = !x.beta_updates)); void app.checkForUpdate(true); }}></button></div>
+        </div>
+        <div class="actions gap"><button class="btn" class:busy={app.checkingUpdate} disabled={app.checkingUpdate || app.updateProgress !== null} onclick={() => app.checkForUpdate()}><Icon name="refresh" />{t('Check now')}</button></div>
+      </FoldCard>
+  {/snippet}
+  {#snippet cardApp()}
+      <FoldCard id="app" title={t('App')}>
+        <div class="rows">
+          {#if !app.mobile}
+            <div class="row-sw"><div><div class="t">{t('Launch at sign-in')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Launch at sign-in')} aria-checked={s.launch_at_login} onclick={setAutostart}></button></div>
+            <div class="row-sw"><div><div class="t">{t('Start in the tray')}</div></div>
+              <button class="switch" role="switch" aria-label={t('Start in the tray')} aria-checked={s.start_minimized} onclick={() => toggle((x) => x.start_minimized, (x, v) => (x.start_minimized = v))}></button></div>
+          {/if}
+          <div class="row-sw"><div><div class="t">{t('Connect on launch')}</div></div>
+            <button class="switch" role="switch" aria-label={t('Connect on launch')} aria-checked={s.connect_on_launch} onclick={() => toggle((x) => x.connect_on_launch, (x, v) => (x.connect_on_launch = v))}></button></div>
+          <div class="row-sw"><div><div class="t">{t('Backup')}</div><div class="d">{t('All profiles and settings in one file, for another device or for safekeeping.')}</div></div>
+            <div class="actions"><button class="btn" onclick={() => (backup = 'save')}>{t('Save…')}</button><button class="btn" onclick={() => (backup = 'restore')}>{t('Restore…')}</button></div></div>
+        </div>
+        {#if backup}<BackupModal mode={backup} onclose={() => (backup = null)} />{/if}
+        <div class="form gap">
+          <div class="fld full"><span class="lbl">{t('Theme')}</span>
+            <ThemePicker /></div>
+          <div class="fld full"><span class="lbl">{t('Layout')}</span>
+            <div class="layout-row">
+              <div class="seg" role="group" aria-label={t('Layout preset')}>
+                {#each PRESETS as p (p)}<button aria-pressed={layoutPreset === p} onclick={() => app.applyPreset(p)}>{PRESET_NAME[p]}</button>{/each}
+              </div>
+              <button class="btn" onclick={() => { app.editingLayout = true; app.go('dashboard'); }}><Icon name="edit" />{t('Edit layout')}</button>
+            </div>
+            <small class="muted">{layoutPreset ? '' : t('Your own layout.') + ' '}{app.form === 'phone' ? t('Phones and computers each keep their own layout; this one is for the phone.') : t('Phones and computers each keep their own layout; this one is for this computer.')} {t('Hidden tabs still open from links to them, and Settings always stays.')}</small></div>
+          <div class="fld full"><span class="lbl">{t('Language')}</span>
+            <!-- Language names stay in their own language, so they can be found whatever is shown. -->
+            <div class="seg" role="group" aria-label={t('Language')}>
+              {#each [['system', t('Match system')], ['en', 'English'], ['ru', 'Русский'], ['fa', 'فارسی'], ['zh', '中文']] as [v, l] (v)}
+                <button aria-pressed={s.language === v} onclick={() => set((x) => (x.language = v))}>{l}</button>
+              {/each}
+            </div></div>
+          <div class="fld"><label for="st-log">{t('Core log level')}</label>
+            <select id="st-log" class="input" value={s.core.log_level} onchange={(e) => set((x) => (x.core.log_level = e.currentTarget.value as Settings['core']['log_level']))}>
+              <option value="debug">{t('Debug')}</option><option value="info">{t('Info')}</option><option value="warning">{t('Warning')}</option><option value="error">{t('Error')}</option><option value="silent">{t('Silent')}</option>
+            </select></div>
+        </div>
+        {#if !app.mobile}
+          <div class="row-sw data"><div><div class="t">{t('Data folder')}</div><div class="d mono selectable">{app.dataDir}</div></div>
+            <button class="btn" onclick={() => app.run(() => openPath(app.dataDir))}><Icon name="folder" />{t('Open')}</button></div>
+          <div class="row-sw"><div><div class="t">{t('Quit Kova')}</div><div class="d">{t('Disconnects and restores your system proxy')}</div></div>
+            <button class="btn danger" onclick={() => api.quit()}>{t('Quit')}</button></div>
+        {/if}
+      </FoldCard>
+  {/snippet}
+  {#snippet cardServers()}
       <FoldCard id="servers" title={t('Servers')}>
         <div class="form">
           <div class="fld full"><label for="st-test">{t('Latency test address')}</label>
@@ -360,7 +536,8 @@
           {/if}
         </div>
       </FoldCard>
-
+  {/snippet}
+  {#snippet cardVpn()}
       {#if app.mobile}
       <FoldCard id="vpn" title="VPN">
         <div class="rows">
@@ -395,7 +572,8 @@
       </FoldCard>
       {/if}
       {#if pickingApps}<AppPicker onclose={() => (pickingApps = false)} />{/if}
-
+  {/snippet}
+  {#snippet cardTun()}
       {#if !app.mobile}
       <FoldCard id="tun" title={t('TUN mode')}>
         {#snippet aside()}<button class="switch aside-sw" role="switch" aria-label={t('TUN mode')} aria-checked={s.core.tun.enabled} onclick={() => toggle((x) => x.core.tun.enabled, (x, v) => (x.core.tun.enabled = v))}></button>{/snippet}
@@ -451,7 +629,8 @@
         </div>
       </FoldCard>
       {/if}
-
+  {/snippet}
+  {#snippet cardDns()}
       <FoldCard id="dns" title="DNS">
         <div class="row-sw first"><div><div class="t">Fake-IP</div><div class="d">{t('Fastest. Turn off if an app needs real IP answers.')}</div></div>
           <button class="switch" role="switch" aria-label="Fake-IP" aria-checked={s.core.dns.fake_ip} onclick={() => toggle((x) => x.core.dns.fake_ip, (x, v) => (x.core.dns.fake_ip = v))}></button></div>
@@ -464,116 +643,8 @@
         <div class="row-sw"><div><div class="t">{t('Use these settings for Clash profiles too')}</div><div class="d">{t('Otherwise a Clash profile’s own DNS section is kept')}</div></div>
           <button class="switch" role="switch" aria-label={t('Use these settings for Clash profiles too')} aria-checked={s.core.dns.override_profile} onclick={() => toggle((x) => x.core.dns.override_profile, (x, v) => (x.core.dns.override_profile = v))}></button></div>
       </FoldCard>
-
-      <FoldCard id="geodata" title={t('Routing data')}>
-        {#snippet aside()}<span class="aside">{t('GeoIP and GeoSite lists used by rules')}</span>{/snippet}
-        <div class="seg" role="group" aria-label={t('Routing data source')}>
-          {#each [['default', t('Standard')], ['runetfreedom', t('Russia')], ['custom', t('Custom')]] as [v, l] (v)}
-            <button aria-pressed={geoKind === v} disabled={geoBusy} onclick={() => pickGeo(v)}>{l}</button>
-          {/each}
-        </div>
-        <p class="hint">
-          {#if geoKind === 'default'}{t('MetaCubeX lists: every country and the v2fly site categories. Updated weekly.')}
-          {:else if geoKind === 'runetfreedom'}{t('runetfreedom/russia-v2ray-rules-dat: the standard lists plus sites blocked in Russia. Needed for “Only blocked sites through the proxy”. About 90 MB, updated every 12 hours.')}
-          {:else}{t('Direct links to')} <span class="mono">geoip.dat</span> {t('and')} <span class="mono">geosite.dat</span> {t('in v2ray format. Kova checks that the files can be read, but can’t verify who published them.')}{/if}
-        </p>
-        {#if customOpen}
-          <div class="form gap">
-            <div class="fld full"><label for="geo-ip">{t('geoip.dat address')}</label><input id="geo-ip" class="input mono small" bind:value={draft.geoip} placeholder="https://…/geoip.dat" /></div>
-            <div class="fld full"><label for="geo-site">{t('geosite.dat address')}</label><input id="geo-site" class="input mono small" bind:value={draft.geosite} placeholder="https://…/geosite.dat" /></div>
-          </div>
-          <div class="actions gap">
-            <button class="btn primary" class:busy={geoBusy} disabled={geoBusy || !draft.geoip.trim() || !draft.geosite.trim()}
-              onclick={() => setGeo({ kind: 'custom', geoip: draft.geoip.trim(), geosite: draft.geosite.trim() }, t('Custom routing data downloaded'))}>{#if geoBusy}<Icon name="refresh" />{t('Downloading…')}{:else}{t('Download and use')}{/if}</button>
-            <button class="btn ghost" onclick={() => (customOpen = false)}>{t('Cancel')}</button>
-          </div>
-        {/if}
-        {#if geo}
-          <dl class="kv gap">
-            <dt>{t('Installed')}</dt>
-            <dd>{geo.installed ? `${geoSourceName(geo.installed.source)} · ${fmtAgo(geo.installed.updated_at)}` : geo.files.length ? t('Bundled with Xray') : t('Not downloaded yet')}</dd>
-            {#if geo.installed}<dt>{t('Checksum')}</dt><dd>{geo.installed.verified ? t('Verified against the publisher') : t('Not available for this source')}</dd>{/if}
-            {#each geo.files as f (f.name)}<dt class="mono">{f.name}</dt><dd>{fmtBytes(f.size)} · {tn(f.categories, '{n} category', '{n} categories')}</dd>{/each}
-          </dl>
-          {#if geo.missing.length}
-            <p class="hint warn-text">{t('Missing for your presets: {list}. Pick a source that has them or turn the preset off.', { list: geo.missing.join(', ') })}</p>
-          {/if}
-        {/if}
-        {#if !customOpen}
-          <div class="actions gap"><button class="btn" class:busy={geoBusy} disabled={geoBusy} onclick={updateGeo}><Icon name="refresh" />{geoBusy ? t('Downloading…') : t('Update now')}</button></div>
-        {/if}
-      </FoldCard>
-      <FoldCard id="cores" title={t('Cores')}>
-        {#snippet aside()}{#if !app.mobile}<button class="btn ghost aside-btn" class:busy={checking} onclick={() => loadCores(true)} disabled={checking}><Icon name="refresh" />{t('Check for updates')}</button>{/if}{/snippet}
-        {#if !cores.length}
-          <!-- Same height as the rows to come, so nothing below moves when they do. -->
-          {#each ['mihomo', 'xray'] as k (k)}
-            <div class="core"><span class="ico">{CORE_NAMES[k as CoreKind][0]}</span><span class="t">{CORE_NAMES[k as CoreKind]}</span><span class="chip">…</span><span class="d">&nbsp;</span></div>
-          {/each}
-        {/if}
-        {#each cores as c (c.core)}
-          {@const name = CORE_NAMES[c.core]}
-          {@const update = c.latest && norm(c.latest) !== norm(c.installed)}
-          <div class="core">
-            <span class="ico">{name[0]}</span>
-            <span class="t">{name} {c.installed ?? ''}</span>
-            {#if !app.mobile && (!c.installed || update)}
-              <button class="btn primary" class:busy={installing === c.core} disabled={installing !== null} onclick={() => install(c.core)}>
-                {#if installing === c.core}<Icon name="refresh" />{t('Installing…')}{:else}{c.installed ? t('Update to {version}', { version: c.latest ?? '' }) : t('Install')}{/if}</button>
-            {:else}
-              <span class="chip">{c.latest ? t('Up to date') : t('Installed')}</span>
-            {/if}
-            <span class="d">{c.core === 'xray' ? t('XTLS/Xray-core · XHTTP, Reality, bridged nodes') : c.core === 'shoes' ? t('cfal/shoes · NaiveProxy servers; installed when a profile needs it') : t('MetaCubeX/mihomo · rules, groups, TUN, most protocols')}{!c.installed ? ` · ${t('not installed')}` : ''}</span>
-          </div>
-        {/each}
-        <p class="hint">{app.mobile ? t('Included with the app and updated together with it.') : t('Downloaded from the official GitHub releases. Kova checks each file’s SHA-256 before installing it.')}</p>
-      </FoldCard>
-
-      <FoldCard id="app" title={t('App')}>
-        <div class="rows">
-          {#if !app.mobile}
-            <div class="row-sw"><div><div class="t">{t('Launch at sign-in')}</div></div>
-              <button class="switch" role="switch" aria-label={t('Launch at sign-in')} aria-checked={s.launch_at_login} onclick={setAutostart}></button></div>
-            <div class="row-sw"><div><div class="t">{t('Start in the tray')}</div></div>
-              <button class="switch" role="switch" aria-label={t('Start in the tray')} aria-checked={s.start_minimized} onclick={() => toggle((x) => x.start_minimized, (x, v) => (x.start_minimized = v))}></button></div>
-          {/if}
-          <div class="row-sw"><div><div class="t">{t('Connect on launch')}</div></div>
-            <button class="switch" role="switch" aria-label={t('Connect on launch')} aria-checked={s.connect_on_launch} onclick={() => toggle((x) => x.connect_on_launch, (x, v) => (x.connect_on_launch = v))}></button></div>
-          <div class="row-sw"><div><div class="t">{t('Backup')}</div><div class="d">{t('All profiles and settings in one file, for another device or for safekeeping.')}</div></div>
-            <div class="actions"><button class="btn" onclick={() => (backup = 'save')}>{t('Save…')}</button><button class="btn" onclick={() => (backup = 'restore')}>{t('Restore…')}</button></div></div>
-        </div>
-        {#if backup}<BackupModal mode={backup} onclose={() => (backup = null)} />{/if}
-        <div class="form gap">
-          <div class="fld full"><span class="lbl">{t('Theme')}</span>
-            <ThemePicker /></div>
-          <div class="fld full"><span class="lbl">{t('Layout')}</span>
-            <div class="layout-row">
-              <div class="seg" role="group" aria-label={t('Layout preset')}>
-                {#each PRESETS as p (p)}<button aria-pressed={layoutPreset === p} onclick={() => app.applyPreset(p)}>{PRESET_NAME[p]}</button>{/each}
-              </div>
-              <button class="btn" onclick={() => { app.editingLayout = true; app.go('dashboard'); }}><Icon name="edit" />{t('Edit layout')}</button>
-            </div>
-            <small class="muted">{layoutPreset ? '' : t('Your own layout.') + ' '}{app.form === 'phone' ? t('Phones and computers each keep their own layout; this one is for the phone.') : t('Phones and computers each keep their own layout; this one is for this computer.')} {t('Hidden tabs still open from links to them, and Settings always stays.')}</small></div>
-          <div class="fld full"><span class="lbl">{t('Language')}</span>
-            <!-- Language names stay in their own language, so they can be found whatever is shown. -->
-            <div class="seg" role="group" aria-label={t('Language')}>
-              {#each [['system', t('Match system')], ['en', 'English'], ['ru', 'Русский'], ['fa', 'فارسی'], ['zh', '中文']] as [v, l] (v)}
-                <button aria-pressed={s.language === v} onclick={() => set((x) => (x.language = v))}>{l}</button>
-              {/each}
-            </div></div>
-          <div class="fld"><label for="st-log">{t('Core log level')}</label>
-            <select id="st-log" class="input" value={s.core.log_level} onchange={(e) => set((x) => (x.core.log_level = e.currentTarget.value as Settings['core']['log_level']))}>
-              <option value="debug">{t('Debug')}</option><option value="info">{t('Info')}</option><option value="warning">{t('Warning')}</option><option value="error">{t('Error')}</option><option value="silent">{t('Silent')}</option>
-            </select></div>
-        </div>
-        {#if !app.mobile}
-          <div class="row-sw data"><div><div class="t">{t('Data folder')}</div><div class="d mono selectable">{app.dataDir}</div></div>
-            <button class="btn" onclick={() => app.run(() => openPath(app.dataDir))}><Icon name="folder" />{t('Open')}</button></div>
-          <div class="row-sw"><div><div class="t">{t('Quit Kova')}</div><div class="d">{t('Disconnects and restores your system proxy')}</div></div>
-            <button class="btn danger" onclick={() => api.quit()}>{t('Quit')}</button></div>
-        {/if}
-      </FoldCard>
-
+  {/snippet}
+  {#snippet cardLook()}
       <FoldCard id="look" title={t('Look')}>
         {#snippet aside()}
           <div class="look-tools">
@@ -633,40 +704,39 @@
               {#each SLOTS as [id, name] (id)}<option value={id}>{name}{look.pictures?.[id] ? ' ✓' : ''}</option>{/each}
             </select></div>
           <div class="pic-row">
-            <div class="pic-prev" style="aspect-ratio: {size[0]} / {size[1]}; {pic && picUrl ? pictureStyle(pic, picUrl) : ''}">{#if !pic}<span>{t('No picture')}</span>{/if}</div>
+            <!-- A box of one size for every slot; the picture's own shape sits letterboxed inside. -->
+            <div class="pic-prev"><div class="pic-fit" class:empty={!pic} style="aspect-ratio: {size[0]} / {size[1]}; width: min(100cqw, {(PREV_H * size[0] / size[1]).toFixed(1)}px); {pic && picUrl ? pictureStyle(pic, picUrl) : ''}">{#if !pic}<span>{t('No picture')}</span>{/if}</div></div>
             <div class="pic-side">
               <span class="d">{t('Best at {w} × {h}. PNG, JPG, WebP or animated GIF, up to 10 MB; Kova keeps its own copy.', { w: size[0], h: size[1] })}</span>
               <div class="actions">
                 <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden bind:this={picInput} onchange={(e) => choosePicture(e.currentTarget.files?.[0])} />
                 <button class="btn primary" class:busy={picking} disabled={picking} onclick={() => picInput?.click()}><Icon name="plus" />{pic ? t('Change picture') : t('Choose picture')}</button>
                 {#if !app.mobile}<button class="btn" onclick={saveTemplate}><Icon name="down" />{t('Save template')}</button>{/if}
-                {#if pic}<button class="btn ghost danger" onclick={dropPicture}><Icon name="trash" />{t('Remove')}</button>{/if}
+                <button class="btn ghost danger" disabled={!pic} onclick={dropPicture}><Icon name="trash" />{t('Remove')}</button>
               </div>
             </div>
           </div>
-          {#if pic}
-            <div class="form gap">
+          <!-- Always there, so the block is as tall for a slot with no picture as for one with. -->
+          <div class="form gap" class:off={!pic} inert={!pic}>
               <div class="fld"><span class="lbl">{t('Fit')}</span>
                 <div class="seg" role="group" aria-label={t('Fit')}>
                   {#each [['cover', t('Fill')], ['contain', t('Whole picture')], ['tile', t('Tile')]] as [v, l] (v)}
-                    <button aria-pressed={(pic.fit ?? 'cover') === v} onclick={() => setPic((p) => (p.fit = v as Fit))}>{l}</button>
+                    <button aria-pressed={(pic?.fit ?? 'cover') === v} onclick={() => setPic((p) => (p.fit = v as Fit))}>{l}</button>
                   {/each}
                 </div></div>
               <div class="fld"><label for="lk-pos">{t('Position')}</label>
-                <select id="lk-pos" class="input" value={pic.pos ?? 'center'} onchange={(e) => setPic((p) => (p.pos = e.currentTarget.value as Pos))}>
+                <select id="lk-pos" class="input" value={pic?.pos ?? 'center'} onchange={(e) => setPic((p) => (p.pos = e.currentTarget.value as Pos))}>
                   <option value="center">{t('Centre')}</option><option value="top">{t('Top')}</option><option value="bottom">{t('Bottom')}</option><option value="left">{t('Left')}</option><option value="right">{t('Right')}</option>
                 </select></div>
-              <div class="fld full"><label for="lk-dim">{t('Dim')} <span class="num val">{pic.dim ?? DEFAULT_DIM}%</span></label>
-                <input id="lk-dim" type="range" min="0" max="90" step="5" value={pic.dim ?? DEFAULT_DIM}
+              <div class="fld full"><label for="lk-dim">{t('Dim')} <span class="num val">{pic?.dim ?? DEFAULT_DIM}%</span></label>
+                <input id="lk-dim" type="range" min="0" max="90" step="5" value={pic?.dim ?? DEFAULT_DIM}
                   oninput={(e) => setPic((p) => (p.dim = Number(e.currentTarget.value)), false)} onchange={(e) => setPic((p) => (p.dim = Number(e.currentTarget.value)))} />
                 <small class="muted">{t('Covers the picture with the window colour, so text stays readable.')}</small></div>
-              {#if isBackdrop(slot)}
-                <div class="fld full"><label for="lk-blur">{t('Blur')} <span class="num val">{pic.blur ?? 0}px</span></label>
-                  <input id="lk-blur" type="range" min="0" max="20" step="1" value={pic.blur ?? 0}
+              <!-- Only a background can blur; for the other slots it keeps its room, unseen. -->
+              <div class="fld full" class:gone={!isBackdrop(slot)} aria-hidden={!isBackdrop(slot)}><label for="lk-blur">{t('Blur')} <span class="num val">{pic?.blur ?? 0}px</span></label>
+                  <input id="lk-blur" type="range" min="0" max="20" step="1" value={pic?.blur ?? 0} tabindex={isBackdrop(slot) ? undefined : -1}
                     oninput={(e) => setPic((p) => (p.blur = Number(e.currentTarget.value)), false)} onchange={(e) => setPic((p) => (p.blur = Number(e.currentTarget.value)))} /></div>
-              {/if}
             </div>
-          {/if}
         </div>
         <details class="adv" bind:open={cssOpen}>
           <summary>{t('Custom CSS')} <span class="muted">· {t('advanced')}</span></summary>
@@ -683,37 +753,8 @@
             <button class="switch" role="switch" aria-label={t('Card outlines')} aria-checked={look.borders !== false} onclick={() => app.saveLook((l) => { if (l.borders === false) delete l.borders; else l.borders = false; })}></button></div>
         </div>
       </FoldCard>
-
-
-      <FoldCard id="updates" title={t('Updates')}>
-        {#snippet aside()}<span class="aside">Kova {appVersion}</span>{/snippet}
-        {#if app.update}
-          <div class="upd">
-            <div class="t">{t('Kova {version} is available', { version: app.update.version })}</div>
-            {#if app.update.date}<div class="d">{t('Released {date}', { date: app.update.date.slice(0, 10) })}</div>{/if}
-            {#if app.update.body}<p class="notes">{@html notesHtml(app.update.body, 20000)}</p>{/if}
-            {#if app.updateProgress !== null}
-              <div class="bar"><i style="width:{Math.round(app.updateProgress * 100)}%"></i></div>
-              <div class="d">{app.updateProgress < 1 ? t('Downloading… {pct}%', { pct: Math.round(app.updateProgress * 100) }) : app.mobile ? t('Opening Android’s installer') : t('Installing, Kova will restart')}</div>
-            {:else if app.mobile}
-              <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Download update')}</button></div>
-              <p class="hint">{t('Kova downloads and checks the update, then Android asks you to confirm the install. Your profiles and settings stay.')}</p>
-            {:else}
-              <div class="actions gap"><button class="btn primary" onclick={() => app.installUpdate()}><Icon name="down" />{t('Install and restart')}</button></div>
-              <p class="hint">{t('Kova disconnects first. Windows asks for administrator approval because Kova is installed for all users.')}</p>
-            {/if}
-          </div>
-        {/if}
-        <div class="rows">
-          <div class="row-sw"><div><div class="t">{t('Check for updates on launch')}</div><div class="d">{t('Releases are signed; Kova only installs updates signed with its key')}</div></div>
-            <button class="switch" role="switch" aria-label={t('Check for updates on launch')} aria-checked={s.check_updates} onclick={() => toggle((x) => x.check_updates, (x, v) => (x.check_updates = v))}></button></div>
-          <div class="row-sw"><div><div class="t">{t('Get beta versions')}</div><div class="d">{t('New features earlier, before they are fully tested. Kova updates to whichever is newer, beta or stable.')}</div></div>
-            <button class="switch" role="switch" aria-label={t('Get beta versions')} aria-checked={s.beta_updates}
-              onclick={async () => { await set((x) => (x.beta_updates = !x.beta_updates)); void app.checkForUpdate(true); }}></button></div>
-        </div>
-        <div class="actions gap"><button class="btn" class:busy={app.checkingUpdate} disabled={app.checkingUpdate || app.updateProgress !== null} onclick={() => app.checkForUpdate()}><Icon name="refresh" />{t('Check now')}</button></div>
-      </FoldCard>
-
+  {/snippet}
+  {#snippet cardContacts()}
       <FoldCard id="contacts" title={t('What Kova connects to')} closed>
         <div class="contacts">
           <p class="hint">{t('Besides your servers, Kova contacts only these, and the last four only when you use that feature:')}</p>
@@ -729,12 +770,21 @@
           </dl>
         </div>
       </FoldCard>
-
+  {/snippet}
+  {#snippet cardDonate()}
       <FoldCard id="donate" anchor="donate" title={t('Support Kova')}>
         {#snippet aside()}<span class="aside">{t('by {author}', { author: 'scarletjess77' })}</span>{/snippet}
         <Donate />
         <p class="hint gap">{t('Country flags are drawn with the Twemoji Country Flags font; the Twemoji artwork is used under CC-BY 4.0.')}</p>
       </FoldCard>
+  {/snippet}
+  {@const cards = { network: cardNetwork, geodata: cardGeodata, cores: cardCores, updates: cardUpdates, app: cardApp, servers: cardServers, vpn: cardVpn, tun: cardTun, dns: cardDns, look: cardLook, contacts: cardContacts, donate: cardDonate }}
+
+  <!-- The cards flow down one column and on into the next, in order, so folding one
+       pulls the rest up and both columns stay about the same height. The markup is
+       rendered in the order shown on screen, so Tab and screen readers follow it. -->
+  <div class="set" class:narrow bind:this={setEl}>
+    {#each order as id (id)}{@render cards[id]()}{/each}
   </div>
 {/if}
 
@@ -744,7 +794,7 @@
   .contacts dd { margin: 0; color: var(--muted); }
   .set { columns: 2; column-gap: 14px; }
   .set > :global(.card) { break-inside: avoid; margin-bottom: 14px; }
-  @container (max-width: 900px) { .set { columns: 1; } }
+  .set.narrow { columns: auto; display: flex; flex-direction: column; }
   .aside-btn, .aside-sw { margin-inline-start: auto; }
   .core { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 2px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
   .core:first-of-type { border-top: 0; padding-top: 0; }
@@ -771,6 +821,7 @@
   .led { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); flex: none; }
   .led.on { background: var(--ok); box-shadow: 0 0 0 3px var(--ok-soft); }
   .mobile-server { max-width: 46%; }
+  .tol { width: auto; flex: none; }
   .rows > .t { font-weight: 500; }
   .rows > .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .countries { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
@@ -791,7 +842,11 @@
   .pics { display: flex; flex-direction: column; gap: 12px; margin-top: 16px; padding-top: 16px; border-top: 1px solid var(--line); }
   .pic-row { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 16px; align-items: start; }
   @container (max-width: 560px) { .pic-row { grid-template-columns: minmax(0, 1fr); } }
-  .pic-prev { width: 100%; max-height: 220px; border-radius: var(--r); border: 1px dashed var(--line-2); background-color: var(--sunk); display: grid; place-items: center; color: var(--faint); font-size: 12px; overflow: hidden; }
+  .pic-prev { container-type: size; width: 100%; height: 124px; border-radius: var(--r); background-color: var(--sunk); display: grid; place-items: center; overflow: hidden; }
+  .pic-fit { max-height: 100%; display: grid; place-items: center; color: var(--faint); font-size: 12px; }
+  .pic-fit.empty { border: 1px dashed var(--line-2); box-sizing: border-box; }
+  .pics .form.off { opacity: .45; }
+  .pics .gone { visibility: hidden; }
   .pic-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
   .pic-side .actions { display: flex; gap: 8px; flex-wrap: wrap; }
   .adv { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; }

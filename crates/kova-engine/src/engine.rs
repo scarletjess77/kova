@@ -572,6 +572,9 @@ impl Engine {
             new.active_profile = s.active_profile.clone();
             new.selections = s.selections.clone();
             new.xray_selection = s.xray_selection.clone();
+            // A save already in flight when a profile was removed still carries its favorites.
+            let ids: Vec<String> = self.profiles.read().unwrap().profiles.iter().map(|p| p.id.clone()).collect();
+            new.favorites = live_favorites(new.favorites, &ids);
             std::mem::replace(&mut *s, new)
         };
         let new = self.settings();
@@ -819,6 +822,16 @@ impl Engine {
             idx.profiles.retain(|p| p.id != id);
         }
         self.paths.remove_body(id);
+        // Favorites are keyed "<profile id>/<server>"; the profile's are of no use now. They
+        // go before the profile list is saved and sent, so a settings save the UI makes on
+        // seeing the new list can't bring them back.
+        let prefix = format!("{id}/");
+        if self.settings().favorites.iter().any(|k| k.starts_with(&prefix)) {
+            let mut s = self.settings();
+            s.favorites.retain(|k| !k.starts_with(&prefix));
+            *self.settings.write().unwrap() = s.clone();
+            s.save(&self.paths)?;
+        }
         self.save_profiles()?;
         if self.settings().active_profile.as_deref() == Some(id) {
             let next = self.profiles().first().map(|p| p.id.clone());
@@ -977,6 +990,24 @@ impl Engine {
             s.vpn_apps = here.vpn_apps.clone();
             let active = s.active_profile.take().and_then(|id| if id == COMBINED { Some(id) } else { ids.get(&id).cloned() });
             s.combined_skip = s.combined_skip.iter().filter_map(|id| ids.get(id).cloned()).collect();
+            // Favorites are "<profile id>/<server>": the id changed if the profile was added anew.
+            let mut favorites: Vec<String> = std::mem::take(&mut s.favorites)
+                .into_iter()
+                .filter_map(|key| {
+                    let (profile, name) = key.split_once('/')?;
+                    if profile == COMBINED {
+                        return Some(key);
+                    }
+                    Some(format!("{}/{name}", ids.get(profile)?))
+                })
+                .collect();
+            // Like the selections below: the favorites of this install stay, the imported ones join.
+            for key in &here.favorites {
+                if !favorites.contains(key) {
+                    favorites.push(key.clone());
+                }
+            }
+            s.favorites = favorites;
             let selections: HashMap<String, String> = std::mem::take(&mut s.selections)
                 .into_iter()
                 .filter_map(|(key, member)| {
@@ -1123,6 +1154,14 @@ impl Engine {
         }
         let body = self.profile_content(id)?;
         Ok(subscription::parse(&body)?.nodes.iter().map(NodeView::of).collect())
+    }
+
+    /// Everything known about one server of profile `id` (or of the combined list), for the
+    /// details view.
+    pub fn node_details(&self, id: &str, name: &str) -> Result<crate::node_details::NodeDetails> {
+        let nodes = if id == COMBINED { self.combined_nodes()? } else { subscription::parse(&self.profile_content(id)?)?.nodes };
+        let node = nodes.iter().find(|n| n.name == name).ok_or_else(|| Error::Other(format!("The server \"{name}\" is not in this profile any more")))?;
+        Ok(crate::node_details::details(node))
     }
 
     /// The profiles in the combined list, in the order of the profile list.
@@ -1755,14 +1794,28 @@ impl Engine {
         let mut shoes = None;
         if !plan.shoes.is_empty() {
             let shoes_bin = cores::binary_path(&cores_dir, CoreKind::Shoes);
-            if !shoes_bin.exists() && !quiet && cores::available(CoreKind::Shoes)
-                && let Err(e) = cores::install_pinned(&cores_dir, CoreKind::Shoes).await {
-                    tracing::warn!("could not install Shoes: {e}");
+            let mut install_failure: Option<String> = None;
+            if !shoes_bin.exists() && !quiet && cores::available(CoreKind::Shoes) {
+                // No proxy: nothing is connected yet, so Kova's own proxy port doesn't exist.
+                // The cap keeps a blocked GitHub from holding "Connecting" for minutes; the
+                // future is dropped with the connect when Disconnect cancels it.
+                let install = cores::install_pinned_via_with(&cores_dir, CoreKind::Shoes, None, crate::fetch::BigLimits::QUICK);
+                match tokio::time::timeout(Duration::from_secs(150), install).await {
+                    Ok(Ok(_)) => {}
+                    Ok(Err(e)) => {
+                        tracing::warn!("could not install Shoes: {e}");
+                        install_failure = Some(e.to_string());
+                    }
+                    Err(_) => {
+                        tracing::warn!("could not install Shoes: the download took too long");
+                        install_failure = Some("the download took too long".into());
+                    }
                 }
+            }
             if !shoes_bin.exists() {
-                let why = if cores::available(CoreKind::Shoes) { "needs the Shoes core, which could not be installed" } else { "needs the Shoes core, which has no build for this system yet" };
+                let why = shoes_drop_reason(cores::available(CoreKind::Shoes), install_failure.as_deref());
                 for n in std::mem::take(&mut plan.shoes) {
-                    plan.dropped.push((n, why.into()));
+                    plan.dropped.push((n, why.clone()));
                 }
             } else {
                 let served: Vec<(&Node, u16)> = nodes.iter().filter(|n| plan.shoes.contains(&n.name)).map(|n| Ok((n, free_port()?))).collect::<Result<_>>()?;
@@ -2356,6 +2409,7 @@ impl Engine {
                 (r.api.clone().expect("tester runs mihomo"), Some(r))
             }
         };
+        let full_test = names.is_none();
         let names = match names {
             Some(n) => n,
             None => {
@@ -2412,12 +2466,45 @@ impl Engine {
             let why = api.delay_failure(first, &test_url, 5000).await;
             self.emit(Event::Log { source: "kova".into(), level: "warning".into(), message: format!("none of {} servers answered {test_url} within 5 s; {first}: {why}", map.len()) });
         }
+        let on_main_core = tester.is_none();
         if let Some(t) = tester {
             t.shutdown().await;
         }
         if !batch.is_empty() {
             self.delays.write().unwrap().extend(batch.clone());
             self.emit(Event::Delays { delays: batch });
+        }
+        // A Fastest-server group keeps its pick until its own interval runs out, however
+        // fresh the per-server numbers are: ask Kova's own groups (Auto and the per-country
+        // ones) to check their members now, so they move to the best one at once. Only
+        // after a full test, on the connection in use (not the short-lived tester), and
+        // only if no newer test took over. Imported profiles' own groups are left alone:
+        // they use their own test address. It runs detached, after the results above went
+        // out, so neither the command's return nor the "testing" state waits for it
+        // (each group check can take up to 5 s), and two groups at a time keep it from
+        // probing every member of every group at once.
+        if full_test && on_main_core && current() && let Ok(snap) = api.proxies().await {
+            let groups: Vec<String> = snap
+                .groups
+                .iter()
+                .filter(|g| g.kind == "URLTest" && (g.name == AUTO || g.name.ends_with(" · fastest")))
+                .map(|g| g.name.clone())
+                .collect();
+            if !groups.is_empty() {
+                tokio::spawn(async move {
+                    futures_util::stream::iter(groups)
+                        .map(|g| {
+                            let api = api.clone();
+                            let test_url = test_url.clone();
+                            async move {
+                                let _ = api.group_delay(&g, &test_url, 5000).await;
+                            }
+                        })
+                        .buffer_unordered(2)
+                        .for_each(|_| std::future::ready(()))
+                        .await;
+                });
+            }
         }
         Ok(map)
     }
@@ -2668,7 +2755,7 @@ impl Engine {
     /// Install or update a core to its newest release, as the user asks in Settings.
     /// Restarts the connection if that core is in use.
     pub async fn install_core(&self, core: CoreKind) -> Result<String> {
-        let tag = cores::install_latest(&self.paths.cores_dir(), core).await?;
+        let tag = cores::install_latest_via(&self.paths.cores_dir(), core, self.proxy_url().as_deref()).await?;
         self.core_replaced(core).await?;
         Ok(tag)
     }
@@ -2677,7 +2764,7 @@ impl Engine {
     /// AppImage carries none): the version this Kova was tested with, checked against
     /// its pinned checksum, not whatever is newest that day.
     pub async fn install_shipped_core(&self, core: CoreKind) -> Result<String> {
-        let tag = cores::install_pinned(&self.paths.cores_dir(), core).await?;
+        let tag = cores::install_pinned_via(&self.paths.cores_dir(), core, self.proxy_url().as_deref()).await?;
         self.core_replaced(core).await?;
         Ok(tag)
     }
@@ -2705,9 +2792,32 @@ impl Engine {
     }
 }
 
+/// Keeps the favorites whose profile still exists (keys are "<profile id>/<server>").
+fn live_favorites(favorites: Vec<String>, profile_ids: &[String]) -> Vec<String> {
+    favorites
+        .into_iter()
+        .filter(|k| {
+            let id = k.split('/').next().unwrap_or("");
+            id == COMBINED || profile_ids.iter().any(|p| p == id)
+        })
+        .collect()
+}
+
+/// Why servers that need Shoes were left out; the sentence stays the same and the real
+/// cause follows when the install was tried and failed.
+fn shoes_drop_reason(available: bool, failure: Option<&str>) -> String {
+    if !available {
+        return "needs the Shoes core, which has no build for this system yet".into();
+    }
+    match failure {
+        Some(f) => format!("needs the Shoes core, which could not be installed ({f})"),
+        None => "needs the Shoes core, which could not be installed".into(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{Engine, parse_log};
+    use super::{Engine, parse_log, live_favorites, shoes_drop_reason};
 
     #[cfg(windows)]
     #[test]
@@ -2741,6 +2851,68 @@ mod tests {
         let port = l.local_addr().unwrap().port();
         assert_eq!(super::listener_pid("127.0.0.1".parse().unwrap(), port), None);
         assert_eq!(super::listener_pid("127.0.0.2".parse().unwrap(), port), Some(std::process::id()));
+    }
+
+    #[tokio::test]
+    async fn removing_a_profile_drops_its_favorites() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::new(dir.path()).unwrap();
+        let a = engine.add_profile("trojan://pw@a.example:443#A", Some("one".into())).await.unwrap();
+        let b = engine.add_profile("trojan://pw@b.example:443#B", Some("two".into())).await.unwrap();
+        let mut s = engine.settings();
+        s.favorites = vec![format!("{}/A", a.id), format!("{}/B", b.id), format!("{}/A2", a.id)];
+        *engine.settings.write().unwrap() = s.clone();
+        s.save(&engine.paths).unwrap();
+        engine.remove_profile(&a.id).await.unwrap();
+        let kept = vec![format!("{}/B", b.id)];
+        assert_eq!(engine.settings().favorites, kept);
+        // Saved too, not only in memory.
+        let reopened = Engine::new(dir.path()).unwrap();
+        assert_eq!(reopened.settings().favorites, kept);
+    }
+
+    #[tokio::test]
+    async fn removing_a_profile_keeps_favorites_of_one_whose_id_starts_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::new(dir.path()).unwrap();
+        engine.add_profile("trojan://pw@a.example:443#A", Some("one".into())).await.unwrap();
+        engine.add_profile("trojan://pw@b.example:443#B", Some("two".into())).await.unwrap();
+        {
+            let mut idx = engine.profiles.write().unwrap();
+            idx.profiles[0].id = "p1".into();
+            idx.profiles[1].id = "p10".into();
+        }
+        let mut s = engine.settings();
+        s.favorites = vec!["p1/A".into(), "p10/B".into()];
+        *engine.settings.write().unwrap() = s;
+        engine.remove_profile("p1").await.unwrap();
+        assert_eq!(engine.settings().favorites, vec!["p10/B".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn a_settings_save_drops_favorites_of_missing_profiles() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::new(dir.path()).unwrap();
+        let a = engine.add_profile("trojan://pw@a.example:443#A", Some("one".into())).await.unwrap();
+        let mut s = engine.settings();
+        s.favorites = vec![format!("{}/A", a.id), "gone/B".into(), format!("{}/C", super::COMBINED)];
+        engine.update_settings(s).await.unwrap();
+        assert_eq!(engine.settings().favorites, vec![format!("{}/A", a.id), format!("{}/C", super::COMBINED)]);
+    }
+
+    #[test]
+    fn the_shoes_drop_reason_names_the_cause() {
+        assert_eq!(shoes_drop_reason(true, None), "needs the Shoes core, which could not be installed");
+        let r = shoes_drop_reason(true, Some("the download took too long"));
+        assert!(r.starts_with("needs the Shoes core, which could not be installed") && r.contains("took too long"), "{r}");
+        assert!(shoes_drop_reason(false, Some("x")).contains("no build for this system"));
+    }
+
+    #[test]
+    fn live_favorites_match_the_whole_profile_id() {
+        let ids = vec!["p10".to_string()];
+        let kept = live_favorites(vec!["p1/A".into(), "p10/B".into(), "combined/C".into()], &ids);
+        assert_eq!(kept, vec!["p10/B".to_string(), "combined/C".to_string()]);
     }
 
     #[test]

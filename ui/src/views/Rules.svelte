@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { api, type Learned, type Preset, type Rule, type RuleKind, type Suggestion } from '../lib/api';
+  import { api, type Learned, type Preset, type Rule, type RuleKind, type Suggestion, type TorrentRoute } from '../lib/api';
   import { countryCode, fmtAgo } from '../lib/format';
   import { t } from '../lib/i18n.svelte';
   import { app } from '../lib/state.svelte';
@@ -64,6 +64,10 @@
       x.core.presets = x.core.presets.includes(p) ? x.core.presets.filter((y) => y !== p) : [...x.core.presets, p];
     });
   }
+
+  // null leaves torrent clients to the other rules.
+  let TORRENT = $derived<[TorrentRoute | null, string][]>([[null, t('Not set')], ['proxy', t('Through the proxy')], ['direct', t('Direct')], ['block', t('Block')]]);
+  const setTorrent = (v: TorrentRoute | null) => app.stageRules((x) => (x.core.torrent = v));
 
   function add() {
     const v = value.trim();
@@ -274,6 +278,24 @@
     {/each}
   </div>
 
+  {#if !app.mobile}
+    <section class="card torrent">
+      <div class="card-h"><h2>{t('Torrent clients')}</h2></div>
+      <div class="seg" role="group" aria-label={t('Torrent clients')}>
+        {#each TORRENT as [v, l] (v ?? 'none')}
+          <button aria-pressed={(s.core.torrent ?? null) === v} onclick={() => setTorrent(v)}>{l}</button>
+        {/each}
+      </div>
+      <p class="hint">{t('Matches the programs by name (qBittorrent, uTorrent, Transmission, Deluge and others). It works for programs whose traffic goes through Kova: with TUN on, with the system proxy, or when the program is pointed at Kova’s port.')}</p>
+      {#if s.core.torrent && isClash && !s.core.apply_rules_to_clash_profiles}
+        <p class="hint warn-text">{t('The torrent choice is ignored for the active Clash profile. Turn on “Apply to imported Clash profiles” below.')}</p>
+      {/if}
+      {#if s.core.torrent === 'proxy'}
+        <p class="hint warn-text">{t('Many providers forbid torrents on their servers. This can get your account blocked.')}</p>
+      {/if}
+    </section>
+  {/if}
+
   <section class="card">
     <div class="card-h"><h2>{t('Your rules')}</h2><span class="aside">{t('checked before presets')}</span>
       {#if !app.mobile}<button class="btn ghost" onclick={() => (routingApps = true)}><Icon name="monitor" />{t('Route an app…')}</button>{/if}</div>
@@ -402,7 +424,7 @@
     {/if}
   </section>
 
-  <p class="hint order">{t('Order: your rules → presets → local network goes direct → everything else uses')} <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. {t('Global and Direct modes skip rules entirely.')}</p>
+  <p class="hint order">{t('Order: your rules → torrent clients → presets → local network goes direct → everything else uses')} <b>{s.core.presets.includes('proxy-blocked-ru') ? 'DIRECT' : 'Proxy'}</b>. {t('Global and Direct modes skip rules entirely.')}</p>
 {/if}
 
 
@@ -436,6 +458,8 @@
   .hint :global(.inline-grip) { width: 13px; height: 13px; stroke-width: 3; vertical-align: -2px; }
   .apply { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   .order { margin-top: 14px; }
+  .torrent { margin-bottom: 12px; }
+  .warn-text { color: var(--warn); }
   .smart { margin-top: 12px; }
   .profile-rules { margin: 4px 0 6px; }
   .sugg-h { margin: 6px 0 8px; }

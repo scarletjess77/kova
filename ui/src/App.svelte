@@ -51,7 +51,6 @@
     {#if failed}
       <div class="empty"><b>{t('Kova could not start')}</b><span class="selectable">{failed}</span></div>
     {:else if app.ready}
-      {#if app.editingLayout}<LayoutBar />{/if}
       {#if app.view === 'dashboard'}<Dashboard />
       {:else if app.view === 'proxies'}<Proxies />
       {:else if app.view === 'profiles'}<Profiles />
@@ -60,6 +59,8 @@
       {:else if app.view === 'check'}<SiteCheck />
       {:else if app.view === 'logs'}<Logs />
       {:else}<SettingsView />{/if}
+      <!-- After the page, so editing does not push it down; it sticks to the bottom edge. -->
+      {#if app.editingLayout}<LayoutBar />{/if}
     {/if}
   </main>
   {#if !app.mobile}<StatusBar />{/if}

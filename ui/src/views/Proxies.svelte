@@ -5,6 +5,7 @@
   import { app } from '../lib/state.svelte';
   import Icon from '../components/Icon.svelte';
   import Latency from '../components/Latency.svelte';
+  import NodeModal from '../components/NodeModal.svelte';
 
   const KIND: Record<string, string> = { Selector: 'select', URLTest: 'url-test', Fallback: 'fallback', LoadBalance: 'load-balance', Relay: 'relay' };
   let NOTE = $derived<Record<string, string>>({
@@ -17,9 +18,11 @@
   // How servers show, kept with the layout for this device.
   let view = $derived(app.layout.proxies!);
   let viewOpen = $state(false);
-  const setView = (k: 'compact' | 'protocol' | 'transport' | 'cores') => app.saveLayout({ ...app.layout, proxies: { ...view, [k]: !view[k] } });
+  const setView = (k: 'compact' | 'protocol' | 'transport' | 'cores' | 'address') => app.saveLayout({ ...app.layout, proxies: { ...view, [k]: !view[k] } });
 
-  let groupName = $state<string | null>(null);
+  // A window that sent the user here names the group it was showing; it counts once.
+  let groupName = $state<string | null>(app.proxiesGroup);
+  app.proxiesGroup = null;
   // One column (a phone held upright): only the chosen group shows, so its servers are not
   // pushed below a list of every group. Tapping it opens the list.
   let groupsOpen = $state(false);
@@ -28,6 +31,14 @@
   // The chosen order is kept between visits and restarts.
   let sort = $state<Sort>((() => { try { const v = localStorage.getItem('kova.proxySort'); return v === 'latency' || v === 'name' ? v : 'profile'; } catch { return 'profile'; } })());
   $effect(() => { try { localStorage.setItem('kova.proxySort', sort); } catch { /* back to the default next time */ } });
+
+  // Only the starred servers, kept between visits like the order.
+  let favOnly = $state((() => { try { return localStorage.getItem('kova.proxyFav') === '1'; } catch { return false; } })());
+  $effect(() => { try { localStorage.setItem('kova.proxyFav', favOnly ? '1' : '0'); } catch { /* shows all next time */ } });
+  // The server that opens in the details window.
+  let detailsOf = $state<string | null>(null);
+  /** `host:port`, with an IPv6 host in brackets. */
+  const address = (host: string, port: number) => `${host.includes(':') && !host.startsWith('[') ? `[${host}]` : host}:${port}`;
 
   let groups = $derived(app.proxies.groups.filter((g) => g.name !== 'GLOBAL' || app.settings?.core.mode === 'global'));
   let group = $derived(groups.find((g) => g.name === groupName) ?? groups[0]);
@@ -47,6 +58,9 @@
     });
     if (sort === 'latency') list = [...list].sort((a, b) => Number(isGroup(b)) - Number(isGroup(a)) || (app.delayOf(a) ?? 1e9) - (app.delayOf(b) ?? 1e9));
     if (sort === 'name') list = [...list].sort((a, b) => displayName(a).localeCompare(displayName(b)));
+    // Starred servers first in every order (the sorts above are stable, so each keeps its own order inside).
+    const starred = (n: string) => app.isFavorite(n);
+    list = [...list.filter(starred), ...(favOnly ? [] : list.filter((n) => !starred(n)))];
     return list;
   });
 
@@ -81,6 +95,7 @@
       <option value="latency">{t('Sort by latency')}</option>
       <option value="name">{t('Sort by name')}</option>
     </select>
+    <button class="btn" aria-pressed={favOnly} class:on={favOnly} onclick={() => (favOnly = !favOnly)}><Icon name="star" />{t('Favorites')}</button>
     <div class="view-menu">
       <button class="btn" aria-expanded={viewOpen} onclick={() => (viewOpen = !viewOpen)}><Icon name="settings" />{t('View')}</button>
       {#if viewOpen}
@@ -91,6 +106,7 @@
           <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.protocol} disabled={view.compact} onchange={() => setView('protocol')} />{t('Protocol')}</label>
           <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.transport} disabled={view.compact} onchange={() => setView('transport')} />{t('Transport and security')}</label>
           <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.cores} disabled={view.compact} onchange={() => setView('cores')} />{t('Which cores run it')}</label>
+          <label class="vrow" class:dim={view.compact}><input type="checkbox" checked={view.address} disabled={view.compact} onchange={() => setView('address')} />{t('Server address')}</label>
         </div>
       {/if}
     </div>
@@ -123,35 +139,50 @@
             {#each members as name (name)}
               {@const info = app.nodes[name]}
               {@const sub = isGroup(name)}
-              <button class="node" class:is-group={sub} aria-pressed={group.now === name} onclick={() => pick(name)}>
-                <span class="r1">
-                  <span class="cc">{#if sub}<Icon name="bolt" />{:else}{countryLabel(name, app.flags)}{/if}</span>
-                  <b title={name}>{displayName(name)}</b>
-                  <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
-                </span>
-                {#if sub}
-                  <span class="r2"><span class="chip mono">{t('group')}</span><span class="tr">{t('now {name}', { name: displayName(app.resolve(name)) })}</span></span>
-                {:else if info}
-                  {#if !view.compact && (view.protocol || view.transport)}
-                    <span class="r2">{#if view.protocol}<span class="chip">{info.protocol}</span>{/if}{#if view.transport}<span class="tr">{info.transport}</span>{/if}</span>
+              {@const real = !sub && !!info}
+              <div class="node-wrap" class:is-group={sub} class:has-acts={real}>
+                <button class="node" aria-pressed={group.now === name} onclick={() => pick(name)}>
+                  <span class="r1">
+                    <span class="cc">{#if sub}<Icon name="bolt" />{:else}{countryLabel(name, app.flags)}{/if}</span>
+                    <b title={name}>{displayName(name)}</b>
+                    <Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(app.resolve(name))} />
+                  </span>
+                  {#if sub}
+                    <span class="r2"><span class="chip mono">{t('group')}</span><span class="tr">{t('now {name}', { name: displayName(app.resolve(name)) })}</span></span>
+                  {:else if info}
+                    {#if !view.compact && (view.protocol || view.transport)}
+                      <span class="r2">{#if view.protocol}<span class="chip">{info.protocol}</span>{/if}{#if view.transport}<span class="tr">{info.transport}</span>{/if}</span>
+                    {/if}
+                    {#if !view.compact && view.address}
+                      <span class="addr mono" title={address(info.server, info.port)}>{address(info.server, info.port)}</span>
+                    {/if}
+                    {#if !view.compact && view.cores}
+                      <span class="r3"><span class="dot" class:y={info.mihomo}></span>Mihomo <span class="dot" class:y={info.xray}></span>Xray
+                        {#if app.status.bridged.includes(name)}<span class="via">· {t('via Xray bridge')}</span>{/if}</span>
+                    {/if}
+                  {:else}
+                    <span class="r2"><span class="tr">{app.proxies.proxies[name]?.type ?? ''}</span></span>
                   {/if}
-                  {#if !view.compact && view.cores}
-                    <span class="r3"><span class="dot" class:y={info.mihomo}></span>Mihomo <span class="dot" class:y={info.xray}></span>Xray
-                      {#if app.status.bridged.includes(name)}<span class="via">· {t('via Xray bridge')}</span>{/if}</span>
-                  {/if}
-                {:else}
-                  <span class="r2"><span class="tr">{app.proxies.proxies[name]?.type ?? ''}</span></span>
+                </button>
+                {#if real}
+                  <!-- Beside the card's button, not inside it: a button can't hold buttons. -->
+                  <div class="acts">
+                    <button class="act star" class:on={app.isFavorite(name)} aria-pressed={app.isFavorite(name)} title={app.isFavorite(name) ? t('Remove from favorites') : t('Add to favorites')} aria-label={app.isFavorite(name) ? t('Remove from favorites') : t('Add to favorites')} onclick={() => app.toggleFavorite(name)}><Icon name="star" /></button>
+                    <button class="act eye" title={t('Show configuration')} aria-label={t('Show configuration')} onclick={() => (detailsOf = name)}><Icon name="eye" /></button>
+                  </div>
                 {/if}
-              </button>
+              </div>
             {/each}
           </div>
         {:else}
-          <p class="hint">{t('No nodes match “{q}”.', { q })}</p>
+          <p class="hint">{favOnly && !q.trim() ? t('No favorite servers yet. Press the star on a server to add it.') : t('No nodes match “{q}”.', { q })}</p>
         {/if}
       {/if}
     </div>
   </div>
 {/if}
+
+{#if detailsOf}<NodeModal name={detailsOf} onclose={() => (detailsOf = null)} />{/if}
 
 <style>
   .sort { width: auto; }
@@ -174,9 +205,31 @@
   .now { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .grp-note { font-size: 12px; color: var(--muted); margin: 0 0 12px; display: flex; gap: 8px; align-items: center; min-height: 22px; }
   .nodes { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
-  .node { display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); text-align: start; min-width: 0; }
-  .node:hover { border-color: var(--line-2); }
-  .node[aria-pressed='true'] { border-color: var(--faint); background: var(--accent-soft); }
+  /* The wrapper is the card; its button selects the server, the small buttons sit over the first row. */
+  .node-wrap { position: relative; display: flex; min-width: 0; border: 1px solid var(--line); border-radius: var(--r); background: var(--panel); }
+  .node { flex: 1; display: flex; flex-direction: column; gap: 8px; padding: 12px; border: 0; border-radius: inherit; background: none; color: inherit; font: inherit; text-align: start; min-width: 0; }
+  .node-wrap:hover { border-color: var(--line-2); }
+  .node-wrap:has(.node[aria-pressed='true']) { border-color: var(--faint); background: var(--accent-soft); }
+  /* Room in the first row for the star and the eye. */
+  .has-acts .r1 { padding-inline-end: 48px; }
+  .acts { position: absolute; inset-inline-end: 8px; top: 9px; display: flex; gap: 0; }
+  .act { width: 24px; height: 24px; border: 0; border-radius: 6px; background: none; color: var(--faint); display: grid; place-items: center; padding: 0; flex: none; }
+  .act :global(.i) { width: 15px; height: 15px; }
+  .act.on { color: var(--fg); }
+  .act.on :global(.i) { fill: currentColor; }
+  @media (hover: hover) {
+    .act:hover { background: var(--sunk); color: var(--fg); }
+    .act.star:not(.on), .act.eye { opacity: 0; pointer-events: none; }
+    .node-wrap:hover .act, .node-wrap:focus-within .act { opacity: 1; pointer-events: auto; }
+  }
+  /* Fingers need bigger targets than a pointer. */
+  @media (hover: none) {
+    .act { width: 30px; height: 30px; }
+    .has-acts .r1 { padding-inline-end: 64px; }
+    .acts { inset-inline-end: 6px; top: 6px; }
+  }
+  .addr { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .btn.on { background: var(--accent-soft); border-color: var(--faint); }
   .r1 { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .r1 b { font-weight: 500; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .r2 { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
@@ -188,6 +241,7 @@
   .is-group .cc { background: var(--accent); color: var(--accent-fg); }
   .nodes.compact { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 6px; }
   .nodes.compact .node { padding: 8px 10px; gap: 4px; }
+  .nodes.compact .acts { top: 5px; inset-inline-end: 6px; }
   .nodes.compact .r2 { display: none; }
   .view-menu { position: relative; }
   .view-scrim { position: fixed; inset: 0; z-index: 19; }

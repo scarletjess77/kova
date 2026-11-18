@@ -9,8 +9,10 @@
   import Latency from '../components/Latency.svelte';
   import TrafficChart from '../components/TrafficChart.svelte';
   import DiagnoseModal from '../components/DiagnoseModal.svelte';
+  import ServerPicker from '../components/ServerPicker.svelte';
   import { FIXED_CARDS, move, type CardId } from '../lib/layout';
   import { sortable } from '../lib/sortable';
+  import { flip } from '../lib/flip';
   import { pictureStyle } from '../lib/pictures';
 
   let s = $derived(app.status);
@@ -77,11 +79,18 @@
   let readOnly = $derived(!!mainGroup && mainGroup.type !== 'Selector');
   // The row just clicked, until the core has answered.
   let pending = $state<string | null>(null);
-  async function pick(name: string) {
-    if (!mainGroup || pending || readOnly) return;
+  /** True when the group now points at `name`, so a window can close on success. */
+  async function pick(name: string): Promise<boolean> {
+    if (!mainGroup || pending || readOnly) return false;
+    const group = mainGroup.name;
     pending = name;
-    try { await app.select(mainGroup.name, name); } finally { pending = null; }
+    try { return await app.select(group, name); } finally { pending = null; }
   }
+  let serverPicker = $state(false);
+  // The last profile can go while the window is open; it must not come back later.
+  $effect(() => { if (!mainGroup) serverPicker = false; });
+  let allGroups = $derived(mainGroup ? mainGroup.all.filter(isGroupName) : []);
+  let allServers = $derived(mainGroup ? mainGroup.all.filter(isServer) : []);
   const testAll = () => { if (app.testing.size === 0) void app.testDelays(); };
   const groupType = (name: string) => app.proxies.groups.find((g) => g.name === name)?.type;
   const groupTitle = (name: string) => { const ty = groupType(name); return ty === 'URLTest' ? t('Fastest server') : ty === 'Fallback' ? t('Failover') : displayName(name); };
@@ -206,18 +215,19 @@
 
 <div class="page-head">
   <h1>{t('Dashboard')}</h1>
-  <div class="tools">
-    <button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button>
+  <div class="tools dash-tools">
+    <!-- On a phone only the icon, so the title and the button stay on one row. -->
+    {#if app.mobile}
+      <button class="btn ghost icon" aria-label={t('What’s wrong?')} title={t('What’s wrong?')} onclick={() => (diagnosing = true)}><Icon name="pulse" /></button>
+    {:else}
+      <button class="btn ghost" onclick={() => (diagnosing = true)}><Icon name="pulse" />{t('What’s wrong?')}</button>
+    {/if}
   </div>
 </div>
 {#if subWarning}<div class="sub-warn"><Icon name="alert" />{subWarning}</div>{/if}
-{#if app.mobile && !app.tv && !app.batteryFree && batteryHint && s.running}
-  <div class="sub-warn"><Icon name="alert" /><span class="grow">{t('Android may stop Kova in the background to save battery.')}</span>
-    <button class="btn" onclick={() => app.run(() => api.allowBackground())}>{t('Allow')}</button>
-    <button class="x" aria-label={t('Dismiss')} onclick={hideBatteryHint}><Icon name="x" /></button></div>
-{/if}
 {#if profile?.announce}<div class="announce" role="note"><Icon name="globe" /><span><b>{t('From the provider')}:</b> <span class="selectable">{profile.announce}</span></span></div>{/if}
 {#if diagnosing}<DiagnoseModal onclose={() => (diagnosing = false)} />{/if}
+{#if serverPicker && mainGroup}<ServerPicker group={mainGroup} groupNames={allGroups} servers={allServers} {readOnly} {pending} {pick} {groupTitle} {groupSub} onclose={() => (serverPicker = false)} />{/if}
 
 {#snippet cardConnect()}
   <section class="card hero" class:guide={!profile} style={bannerPic && bannerUrl ? pictureStyle(bannerPic, bannerUrl) : undefined}>
@@ -402,7 +412,7 @@
         <div class="qs-hint"><span class="muted">{t('Test speed to see the fastest servers.')}</span>
           <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test speed')}</button></div>
       {/if}
-      <button class="btn ghost more" onclick={() => app.go('proxies')}>{serverCount ? t('All servers ({n})', { n: serverCount }) : t('All servers and groups')}</button>
+      <button class="btn ghost more" onclick={() => (serverPicker = true)}>{serverCount ? t('All servers ({n})', { n: serverCount }) : t('All servers and groups')}</button>
     {:else}
       <p class="muted">{t('Nodes appear here once a profile is added.')}</p>
     {/if}
@@ -416,7 +426,7 @@
   </section>
 {/snippet}
 
-<div class="dash" class:editing={app.editingLayout} use:sortable={{ enabled: app.editingLayout, onmove: moveCard }}>
+<div class="dash" class:editing={app.editingLayout} use:sortable={{ enabled: app.editingLayout, onmove: moveCard }} use:flip={shown.map((c) => c.id + (place[c.id] ?? '')).join() + app.editingLayout}>
   {#each shown as c (c.id)}
     {#if c.id === 'more'}
       {#if app.editingLayout}
@@ -449,16 +459,26 @@
     {/if}
   {/each}
 </div>
+<!-- Below the cards: when it appears on connecting, nothing above it moves. -->
+{#if app.mobile && !app.tv && !app.batteryFree && batteryHint && s.running}
+  <div class="sub-warn after"><Icon name="alert" /><span class="grow">{t('Android may stop Kova in the background to save battery.')}</span>
+    <button class="btn" onclick={() => app.run(() => api.allowBackground())}>{t('Allow')}</button>
+    <button class="x" aria-label={t('Dismiss')} onclick={hideBatteryHint}><Icon name="x" /></button></div>
+{/if}
 
 <style>
   .sub-warn { display: flex; align-items: center; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--warn-soft); color: var(--warn); font-size: 13px; }
   .sub-warn :global(.i) { width: 16px; height: 16px; flex: none; }
   .sub-warn .grow { flex: 1; min-width: 0; }
   .sub-warn .x { color: inherit; }
+  .sub-warn.after { margin: 14px 0 0; }
+  /* Title and button share a row on a phone, whatever the page-head rule says. */
+  :global(.app.mobile) .page-head .tools.dash-tools { width: auto; margin-inline-start: auto; }
+  .btn.icon { width: 40px; padding: 0; justify-content: center; }
   .announce { display: flex; align-items: flex-start; gap: 8px; margin: -6px 0 14px; padding: 10px 12px; border-radius: var(--r); background: var(--panel); border: 1px solid var(--line); font-size: 13px; overflow-wrap: anywhere; }
   .announce :global(.i) { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--muted); }
   .details-btn { justify-self: center; grid-column: 1 / -1; }
-  .slot { display: flex; flex-direction: column; min-width: 0; gap: 8px; }
+  .slot { display: flex; flex-direction: column; min-width: 0; gap: 8px; position: relative; }
   .slot > :global(section) { flex: 1; }
   /* Three columns, narrow · middle · narrow: a wide card spans two of them, so it is the
      same width whether it stands left or right of its narrow partner. */
@@ -470,11 +490,13 @@
   /* The exit card keeps its own height beside the taller connect card. */
   .slot:has(> .exit) { align-self: start; }
   .slot.off > :global(section) { opacity: .4; }
-  .edit-h { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }
-  .edit-h b { font-weight: 500; flex: 1; min-width: 0; }
+  /* The editing controls float over the card's corner and the dashed frame is an outline, so
+     a card takes the same room and sits in the same place with or without editing. */
+  .edit-h b { display: none; }
+  .edit-h { position: absolute; top: 6px; inset-inline-end: 6px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 2px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--panel); font-size: 12px; color: var(--muted); }
   .dash .handle, .dash .eye { padding: 4px; border: 0; background: none; color: var(--faint); border-radius: 6px; }
   .dash .handle { cursor: grab; touch-action: none; }
-  .dash.editing .slot { padding: 8px; border: 1px dashed var(--line-2); border-radius: calc(var(--r) + 4px); }
+  .dash.editing .slot { outline: 1px dashed var(--line-2); outline-offset: 4px; border-radius: var(--r); }
   .dash :global(.dragging) { opacity: .6; }
   .dash :global(.drop-target) { outline: 2px solid var(--accent); outline-offset: 2px; }
   .fold { flex-direction: row; align-items: center; gap: 8px; font-size: 12px; color: var(--muted); }

@@ -53,7 +53,13 @@ export interface RuntimeOptions {
   hidden_countries: string[];
   /** Protocols whose servers are left out, as Kova names them ("VLESS"). */
   hidden_protocols: string[];
+  /** Where known torrent clients' traffic goes; null leaves it to the other rules. */
+  torrent: TorrentRoute | null;
+  /** Milliseconds faster another server must be before the Fastest-server groups switch (0 to 1000). */
+  auto_tolerance: number;
 }
+
+export type TorrentRoute = 'proxy' | 'direct' | 'block';
 
 export type Route = 'proxy' | 'direct';
 /** A site smart routing learned. `reason` is a site-check outcome such as "reset". */
@@ -94,6 +100,8 @@ export interface Settings {
   layout: import('./layout').SavedLayouts | null;
   /** The user's look over the theme. */
   look: import('./look').Look | null;
+  /** Starred servers, as `<profile id>/<server name>`. */
+  favorites: string[];
 }
 
 export type VpnAppsMode = 'all' | 'only' | 'except';
@@ -157,6 +165,11 @@ export interface NodeView {
   link: string | null;
 }
 
+/** One line of a server's details; `secret` values are shown only on request. */
+export interface NodeDetailField { label: string; value: string; secret: boolean }
+/** A server's details. `raw` is the masked JSON of kinds Kova doesn't model. */
+export interface NodeDetails { name: string; fields: NodeDetailField[]; raw: string | null }
+
 export interface ProxyGroup { name: string; type: string; now: string; all: string[] }
 export interface ProxyInfo { name: string; type: string; udp: boolean; alive: boolean; delay: number | null }
 export interface ProxySnapshot { groups: ProxyGroup[]; proxies: Record<string, ProxyInfo> }
@@ -203,6 +216,7 @@ export const api = {
   getProfileContent: (id: string) => invoke<string>('get_profile_content', { id }),
   saveProfileContent: (id: string, text: string) => invoke<void>('save_profile_content', { id, text }),
   profileNodes: (id: string) => invoke<NodeView[]>('profile_nodes', { id }),
+  nodeDetails: (id: string, name: string) => invoke<NodeDetails>('node_details', { id, name }),
   getProxies: () => invoke<ProxySnapshot>('get_proxies'),
   selectProxy: (group: string, name: string) => invoke<void>('select_proxy', { group, name }),
   testDelays: (names?: string[]) => invoke<Record<string, number | null>>('test_delays', { names }),

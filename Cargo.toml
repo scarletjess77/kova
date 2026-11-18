@@ -10,6 +10,12 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 rust-version = "1.90"
 
+[workspace.lints.cargo]
+# A dependency nobody uses slows every build and widens what the release has to trust.
+# Kept at "warn": a dependency used only under #[cfg(windows)] would look unused when CI
+# builds Linux, macOS or Android. Make it "deny" once those logs show no warning.
+unused_dependencies = "warn"
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

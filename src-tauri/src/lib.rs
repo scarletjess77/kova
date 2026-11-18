@@ -22,7 +22,7 @@ use kova_engine::cores::CoreStatus;
 use kova_engine::engine::ProfilePatch;
 use kova_engine::mihomo_api::{ConnectionsSnapshot, ProxySnapshot};
 use kova_engine::store::{Profile, Settings};
-use kova_engine::{Engine, Error, Event, NodeView, Status};
+use kova_engine::{Engine, Error, Event, NodeDetails, NodeView, Status};
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
 
@@ -264,6 +264,11 @@ async fn save_profile_content(engine: Eng<'_>, id: String, text: String) -> R<()
 #[tauri::command]
 fn profile_nodes(engine: Eng, id: String) -> R<Vec<NodeView>> {
     engine.profile_nodes(&id)
+}
+
+#[tauri::command]
+fn node_details(engine: Eng, id: String, name: String) -> R<NodeDetails> {
+    engine.node_details(&id, &name)
 }
 
 #[tauri::command]
@@ -1113,6 +1118,7 @@ pub fn run() {
             get_profile_content,
             save_profile_content,
             profile_nodes,
+            node_details,
             get_proxies,
             select_proxy,
             test_delays,

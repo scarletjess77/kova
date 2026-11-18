@@ -207,6 +207,9 @@ pub struct Settings {
     /// The user's look over the theme (colours, font, size, corners, borders, card
     /// transparency, density). Only the interface reads it.
     pub look: serde_json::Value,
+    /// Servers the user starred, as `<profile id>/<server name>`. The interface sorts and
+    /// filters by it; kept here so backups carry it.
+    pub favorites: Vec<String>,
 }
 
 /// Which apps the Android VPN covers, by package name.
@@ -254,6 +257,7 @@ impl Default for Settings {
             combined_skip: Vec::new(),
             layout: serde_json::Value::Null,
             look: serde_json::Value::Null,
+            favorites: Vec::new(),
         }
     }
 }
@@ -418,6 +422,15 @@ pub fn now() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn favorites_default_to_none_and_survive_a_round_trip() {
+        let old: Settings = serde_json::from_str(r#"{"language": "en"}"#).unwrap();
+        assert!(old.favorites.is_empty());
+        let s = Settings { favorites: vec!["abc123/NL-01".into()], ..Default::default() };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.favorites, s.favorites);
+    }
 
     #[test]
     fn a_profiles_id_can_only_name_its_own_file() {

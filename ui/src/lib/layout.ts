@@ -25,8 +25,10 @@ export interface ProxyView {
   protocol?: boolean;
   transport?: boolean;
   cores?: boolean;
+  /** The server's address and port on its card. */
+  address?: boolean;
 }
-export const PROXY_VIEW: Required<ProxyView> = { compact: false, protocol: true, transport: true, cores: true };
+export const PROXY_VIEW: Required<ProxyView> = { compact: false, protocol: true, transport: true, cores: true, address: false };
 
 export interface Item<T extends string = string> {
   id: T;

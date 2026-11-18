@@ -6,6 +6,7 @@
   import Icon from './Icon.svelte';
   import { move, type TabId } from '../lib/layout';
   import { sortable } from '../lib/sortable';
+  import { flip } from '../lib/flip';
   import { pictureStyle } from '../lib/pictures';
 
   let LABEL = $derived<Record<View, string>>({
@@ -41,7 +42,7 @@
       {/if}
     </button>
   {/snippet}
-  <nav class="nav" class:editing={app.editingLayout}>
+  <nav class="nav" class:editing={app.editingLayout} use:flip={shownTabs.map((x) => x.id).join()}>
     {@render tab('dashboard')}
     <div class="tabs" use:sortable={{ enabled: app.editingLayout, onmove: moveTab }}>
       {#each shownTabs as x (x.id)}
@@ -54,7 +55,7 @@
         </div>
       {/each}
     </div>
-    {@render tab('settings')}
+    <div class="pinned" data-sort-id="settings">{@render tab('settings')}</div>
   </nav>
   {#if app.update && !app.mobile}
     <button class="update" onclick={() => app.go('settings')}><Icon name="down" />{t('Kova {version} is available', { version: app.update.version })}</button>
@@ -79,6 +80,7 @@
   .tabs { display: flex; flex-direction: column; gap: 2px; }
   .tab { display: flex; align-items: center; gap: 2px; border-radius: 8px; }
   .tab .go { flex: 1; min-width: 0; }
+  .pinned { display: flex; flex-direction: column; }
   .tab.off .go { opacity: .45; }
   .nav .eye, .nav .handle { flex: none; padding: 6px; color: var(--faint); }
   .nav .handle { cursor: grab; touch-action: none; }

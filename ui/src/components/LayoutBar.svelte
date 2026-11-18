@@ -21,7 +21,9 @@
 </div>
 
 <style>
-  .lbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 0 0 16px; padding: 12px 16px; border: 1px solid var(--accent); border-radius: var(--r); background: var(--accent-soft); }
+  /* Sticks to the bottom of the page: over the content while there is more below it, in
+     place at the end, so showing it never moves what is on the page. */
+  .lbar { position: sticky; bottom: 12px; z-index: 5; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 16px 0 0; padding: 12px 16px; border: 1px solid var(--accent); border-radius: var(--r); background: linear-gradient(var(--accent-soft), var(--accent-soft)), var(--win); box-shadow: var(--shadow); }
   .txt { flex: 1 1 280px; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
   .txt span { color: var(--muted); }
 </style>

@@ -36,19 +36,26 @@ struct Release {
 /// `asset(version)`. Asks GitHub's API first, which also gives the file's checksum and the
 /// notes; when the API refuses (it allows 60 requests an hour per address, and everyone on
 /// a VPN server shares its address), the public releases feed and the file's own address,
-/// which have no such limit, answer instead.
-async fn newest_release(beta: bool, asset: impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
-    match from_api(beta, &asset).await {
-        Ok(found) => Ok(found),
-        Err(e) => {
-            tracing::info!("GitHub's API didn't answer ({e}); looking at the releases feed");
-            from_feed(beta, &asset).await
+/// which have no such limit, answer instead. Directly first; where GitHub can't be reached
+/// and Kova is connected (`proxy`), once more through Kova's own proxy.
+async fn newest_release(proxy: Option<&str>, beta: bool, asset: impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
+    kova_engine::fetch::with_proxy_fallback(proxy, "The update information", |p| {
+        let asset = &asset;
+        async move {
+            match from_api(p.as_deref(), beta, asset).await {
+                Ok(found) => Ok(found),
+                Err(e) => {
+                    tracing::info!("GitHub's API didn't answer ({e}); looking at the releases feed");
+                    from_feed(p.as_deref(), beta, asset).await
+                }
+            }
         }
-    }
+    })
+    .await
 }
 
-async fn from_api(beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
-    let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
+async fn from_api(proxy: Option<&str>, beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
+    let c = kova_engine::fetch::client(proxy, kova_engine::fetch::APP_UA)?;
     let url = format!("https://api.github.com/repos/{RELEASES}/releases?per_page=30");
     let list: Vec<serde_json::Value> = c.get(url).header("Accept", "application/vnd.github+json").send().await?.error_for_status()?.json().await?;
     Ok(list
@@ -86,8 +93,8 @@ fn feed_versions(feed: &str, beta: bool) -> Vec<semver::Version> {
     versions
 }
 
-async fn from_feed(beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
-    let c = kova_engine::fetch::client(None, kova_engine::fetch::APP_UA)?;
+async fn from_feed(proxy: Option<&str>, beta: bool, asset: &impl Fn(&semver::Version) -> String) -> R<Option<Release>> {
+    let c = kova_engine::fetch::client(proxy, kova_engine::fetch::APP_UA)?;
     let feed = c.get(format!("https://github.com/{RELEASES}/releases.atom")).send().await?.error_for_status()?.text().await?;
     // The feed lists tags, including those of releases still being prepared, whose files
     // aren't public yet: the newest version whose file can be fetched is the one.
@@ -121,23 +128,44 @@ fn update_error(e: tauri_plugin_updater::Error) -> Error {
     Error::Other(e.to_string())
 }
 
+/// An update check's error. A network failure keeps its kind, so that
+/// `fetch::is_connection_error` can tell a blocked GitHub from a refusal.
+#[cfg(desktop)]
+fn check_error(e: tauri_plugin_updater::Error) -> Error {
+    match e {
+        tauri_plugin_updater::Error::Reqwest(r) => Error::from(r),
+        e => update_error(e),
+    }
+}
+
 /// Look for a newer Kova: the latest stable release, or with beta updates on, the
 /// newest release of any kind. Either way only a version above this one counts.
 #[cfg(desktop)]
 #[tauri::command]
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     use tauri_plugin_updater::UpdaterExt;
-    let mut builder = app.updater_builder();
+    // Directly first; where that can't reach GitHub and Kova is connected, once more
+    // through Kova's own proxy (the same rule as the cores' downloads).
+    let proxy = engine.proxy_url();
+    let mut endpoint = None;
     if engine.settings().beta_updates
-        && let Some(r) = newest_release(true, |_| "latest.json".to_string()).await? {
-            let url = tauri::Url::parse(&r.asset).map_err(|e| Error::Other(e.to_string()))?;
-            builder = builder.endpoints(vec![url]).map_err(update_error)?;
+        && let Some(r) = newest_release(proxy.as_deref(), true, |_| "latest.json".to_string()).await? {
+            endpoint = Some(tauri::Url::parse(&r.asset).map_err(|e| Error::Other(e.to_string()))?);
         }
-    // Through Kova's proxy when connected, like the download below.
-    if let Some(p) = engine.proxy_url() {
-        builder = builder.proxy(tauri::Url::parse(&p).map_err(|e| Error::Other(e.to_string()))?);
-    }
-    let update = builder.build().map_err(update_error)?.check().await.map_err(update_error)?;
+    let update = kova_engine::fetch::with_proxy_fallback(proxy.as_deref(), "The update information", |p| {
+        let (app, endpoint) = (app.clone(), endpoint.clone());
+        async move {
+            let mut builder = app.updater_builder();
+            if let Some(url) = endpoint {
+                builder = builder.endpoints(vec![url]).map_err(update_error)?;
+            }
+            if let Some(p) = p {
+                builder = builder.proxy(tauri::Url::parse(&p).map_err(|e| Error::Other(e.to_string()))?);
+            }
+            builder.build().map_err(update_error)?.check().await.map_err(check_error)
+        }
+    })
+    .await?;
     let mut info = update.as_ref().map(|u| UpdateInfo { version: u.version.clone(), date: u.date.map(|d| d.to_string()), body: u.body.clone() });
     // latest.json is written by the build, before the release notes are; take them from
     // the release itself, keeping latest.json's only if GitHub doesn't answer.
@@ -213,7 +241,7 @@ pub struct PendingUpdate(std::sync::Mutex<Option<Release>>);
 pub async fn check_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R<Option<UpdateInfo>> {
     let current = semver::Version::parse(&app.package_info().version.to_string()).map_err(|e| Error::Other(e.to_string()))?;
     // Since 0.1.18 one APK serves every device, 64-bit phones and 32-bit phones and TVs.
-    let found = newest_release(engine.settings().beta_updates, |v| format!("Kova_{v}_Android.apk")).await?.filter(|r| r.version > current);
+    let found = newest_release(engine.proxy_url().as_deref(), engine.settings().beta_updates, |v| format!("Kova_{v}_Android.apk")).await?.filter(|r| r.version > current);
     let info = found.as_ref().map(|r| UpdateInfo { version: r.version.to_string(), date: r.date.clone(), body: r.body.clone() });
     *app.state::<PendingUpdate>().0.lock().unwrap() = found;
     Ok(info)
@@ -300,6 +328,17 @@ pub async fn install_update(app: AppHandle, engine: State<'_, Arc<Engine>>) -> R
 #[cfg(test)]
 mod tests {
     use super::{feed_versions, sha256_from_text};
+
+    #[cfg(desktop)]
+    #[tokio::test]
+    async fn a_failed_update_check_connection_is_retried_other_failures_are_not() {
+        // Nothing listens on port 9: the plugin's own request fails to connect.
+        let refused = reqwest::Client::new().get("http://127.0.0.1:9/").send().await.unwrap_err();
+        let e = super::check_error(tauri_plugin_updater::Error::Reqwest(refused));
+        assert!(kova_engine::fetch::is_connection_error(&e), "{e:?}");
+        let other = super::check_error(tauri_plugin_updater::Error::EmptyEndpoints);
+        assert!(!kova_engine::fetch::is_connection_error(&other), "{other:?}");
+    }
 
     #[test]
     fn a_checksum_is_a_whole_sha256_or_nothing() {

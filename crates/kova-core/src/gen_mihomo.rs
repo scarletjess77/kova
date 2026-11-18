@@ -207,6 +207,10 @@ pub fn smart_scope(opts: &RuntimeOptions, profile_rules: bool) -> crate::smart::
     let key = |r: &Rule| rule_key(r.kind.mihomo_name(), &r.value);
     let mut internal: std::collections::HashSet<String> = opts.tail_rules().iter().map(key).collect();
     internal.extend(opts.bypass_processes.iter().map(|p| rule_key("ProcessName", p)));
+    // The user's torrent choice is a decision of its own; smart routing doesn't question it.
+    if opts.torrent.is_some() {
+        internal.extend(crate::options::TORRENT_CLIENTS.iter().map(|p| rule_key("ProcessName", p)));
+    }
     internal.extend(PROVIDERS.iter().map(|p| rule_key("RuleSet", p)));
     crate::smart::Scope {
         user_rules: opts.custom_rules.iter().map(key).collect(),
@@ -248,12 +252,12 @@ pub fn from_nodes(nodes: &[Node], plan: &Plan, bridges: &Bridges, opts: &Runtime
         sel.extend(names.iter().cloned());
         json!([
             { "name": PROXY, "type": "select", "proxies": sel },
-            { "name": AUTO, "type": "url-test", "proxies": names, "url": opts.test_url(), "interval": 300, "tolerance": 50, "lazy": true },
+            { "name": AUTO, "type": "url-test", "proxies": names, "url": opts.test_url(), "interval": 300, "tolerance": opts.tolerance(), "lazy": true },
             { "name": FALLBACK, "type": "fallback", "proxies": names, "url": opts.test_url(), "interval": 300, "lazy": true },
         ])
     };
 
-    let (countries, country_targets) = country_groups(&opts.rules(), &names, opts.test_url());
+    let (countries, country_targets) = country_groups(&opts.rules(), &names, opts.test_url(), opts.tolerance());
     let groups = match groups {
         Value::Array(mut g) => {
             g.extend(countries);
@@ -441,7 +445,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
             Some(Yaml::Sequence(p)) => p.iter().filter_map(|p| p.get("name").and_then(|n| n.as_str()).map(String::from)).collect(),
             _ => Vec::new(),
         };
-        let (countries, targets) = country_groups(&opts.rules(), &servers, opts.test_url());
+        let (countries, targets) = country_groups(&opts.rules(), &servers, opts.test_url(), opts.tolerance());
         if !countries.is_empty() {
             let mut groups = match doc.remove("proxy-groups") {
                 Some(Yaml::Sequence(g)) => g,
@@ -464,10 +468,29 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
         // Without the routing data nothing tells what is blocked: the profile's own rules
         // decide until it is there.
         if opts.apply_rules_to_clash_profiles && blocked_only(opts) && !opts.without_geodata {
-            // "Only blocked sites through the proxy": everything after our rules goes
-            // direct, so the profile's own catch-all must not run.
-            merged.extend(learned);
-            merged.extend(opts.tail_rules().iter().map(|r| Yaml::String(r.to_clash(&main))));
+            // "Only blocked sites through the proxy": only the profile's final catch-all
+            // changes. Its own rules stay and keep deciding what they match; dropping them
+            // would send sites the user routed on purpose (a work domain, a rule set) the
+            // wrong way.
+            let is_match = |r: &Yaml| r.as_str().is_some_and(is_match_rule);
+            let at = if opts.smart_profile_rules { 0 } else { existing.iter().position(is_match).unwrap_or(existing.len()) };
+            existing.splice(at..at, learned);
+            // LAN first, as before; the catch-all of ours is the profile's own, handled below.
+            merged.extend(opts.tail_rules().iter().filter(|r| r.kind != RuleKind::Match).map(|r| Yaml::String(r.to_clash(&main))));
+            // The profile's catch-all stays only when it already ends the traffic itself
+            // (DIRECT or a reject). Any other target is a group that sends it through a
+            // server, the main group or a separate "Final"/"Others" select, so it becomes
+            // DIRECT; keeping it would leave the preset doing nothing.
+            match existing.iter().position(is_match) {
+                Some(i) => {
+                    let target = existing[i].as_str().and_then(match_target).unwrap_or_default();
+                    if !["DIRECT", "REJECT", "REJECT-DROP"].iter().any(|t| target == *t) {
+                        existing[i] = Yaml::String("MATCH,DIRECT".into());
+                    }
+                }
+                None => existing.push(Yaml::String("MATCH,DIRECT".into())),
+            }
+            merged.extend(existing);
         } else {
             // Learned from traffic only the catch-all matched, learned sites go right before
             // it, so the profile's own rules keep deciding everything else. When smart
@@ -475,7 +498,7 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
             let catch_all = if opts.smart_profile_rules {
                 0
             } else {
-                existing.iter().position(|r| r.as_str().is_some_and(|r| r.trim_start().starts_with("MATCH,"))).unwrap_or(existing.len())
+                existing.iter().position(|r| r.as_str().is_some_and(is_match_rule)).unwrap_or(existing.len())
             };
             existing.splice(catch_all..catch_all, learned);
             merged.extend(existing);
@@ -486,6 +509,16 @@ pub fn merge_clash(raw: &str, opts: &RuntimeOptions) -> Result<String, GenError>
         without_geodata(&mut doc);
     }
     serde_yaml_ng::to_string(&doc).map_err(|e| GenError::Yaml(e.to_string()))
+}
+
+/// Whether a profile rule line is a catch-all. Mihomo reads the rule type in any case.
+fn is_match_rule(r: &str) -> bool {
+    r.trim_start().split(',').next().is_some_and(|t| t.trim().eq_ignore_ascii_case("MATCH")) && r.contains(',')
+}
+
+/// Where a catch-all rule line sends traffic.
+fn match_target(r: &str) -> Option<String> {
+    r.trim_start().split_once(',').map(|(_, t)| t.trim().to_string())
 }
 
 /// REALITY servers in an imported profile offer the post-quantum key share too, with the
@@ -786,7 +819,7 @@ pub fn localize_providers_closed(raw: &str, names: &[String], refused: &[String]
 /// A url-test group for each country the rules send traffic to (`country:US`), made of
 /// `servers` in that country, and the targets that got one. A country with no servers
 /// gets none, so its rules fall back to the main group.
-fn country_groups(rules: &[Rule], servers: &[String], test_url: &str) -> (Vec<Value>, Vec<String>) {
+fn country_groups(rules: &[Rule], servers: &[String], test_url: &str, tolerance: u32) -> (Vec<Value>, Vec<String>) {
     let mut groups = Vec::new();
     let mut targets: Vec<String> = Vec::new();
     for r in rules {
@@ -798,7 +831,7 @@ fn country_groups(rules: &[Rule], servers: &[String], test_url: &str) -> (Vec<Va
         if members.is_empty() {
             continue;
         }
-        groups.push(json!({ "name": country_group(code), "type": "url-test", "proxies": members, "url": test_url, "interval": 300, "tolerance": 50, "lazy": true }));
+        groups.push(json!({ "name": country_group(code), "type": "url-test", "proxies": members, "url": test_url, "interval": 300, "tolerance": tolerance, "lazy": true }));
         targets.push(r.target.clone());
     }
     (groups, targets)
@@ -1008,6 +1041,74 @@ proxy-groups:\n  - {name: Sel, type: select, proxies: [A, B, C]}\nrules:\n  - DO
     }
 
     #[test]
+    fn an_xray_entry_that_is_not_an_object_is_in_no_group() {
+        let bad = Node {
+            name: "BAD".into(),
+            server: "203.0.113.1".into(),
+            port: 443,
+            protocol: crate::model::Protocol::XrayOutbound { kind: "masque".into(), raw: serde_json::json!("masque") },
+            transport: crate::model::Transport::Tcp,
+            tls: None,
+            udp: true,
+            mux: None,
+        };
+        let nodes = vec![bad, parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        for pref in [CorePreference::Auto, CorePreference::Mihomo] {
+            let p = plan(&nodes, pref);
+            assert_eq!(p.dropped.len(), 1, "{pref:?}");
+            let yaml = from_nodes(&nodes, &p, &Bridges::new(), &opts());
+            assert!(!yaml.contains("BAD") && yaml.contains("TR"), "{pref:?}: {yaml}");
+        }
+    }
+
+    #[test]
+    fn torrent_clients_are_routed_in_both_kinds_of_profile() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let raw = "proxies:\n  - {name: A, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Media, type: select, proxies: [A]}\nrules:\n  - MATCH,Media\n";
+        for (route, target, merged_target) in [(Some(crate::options::TorrentRoute::Proxy), "Proxy", "Media"), (Some(crate::options::TorrentRoute::Direct), "DIRECT", "DIRECT"), (Some(crate::options::TorrentRoute::Block), "REJECT", "REJECT"), (None, "", "")] {
+            let mut o = opts();
+            o.presets.clear();
+            o.torrent = route;
+            let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), &o)).unwrap();
+            let rules: Vec<&str> = doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+            let merged: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+            let merged: Vec<&str> = merged["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap()).collect();
+            if route.is_none() {
+                assert!(!rules.iter().chain(&merged).any(|r| r.starts_with("PROCESS-NAME")), "{rules:?}");
+                continue;
+            }
+            assert!(rules.contains(&format!("PROCESS-NAME,qbittorrent.exe,{target}").as_str()), "{rules:?}");
+            assert!(rules.contains(&format!("PROCESS-NAME,transmission-gtk,{target}").as_str()), "{rules:?}");
+            assert!(merged.contains(&format!("PROCESS-NAME,qbittorrent.exe,{merged_target}").as_str()), "{merged:?}");
+            let n = rules.iter().filter(|r| r.starts_with("PROCESS-NAME")).count();
+            assert_eq!(n, crate::options::TORRENT_CLIENTS.len());
+        }
+    }
+
+    #[test]
+    fn switch_tolerance_reaches_every_fastest_group() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#US-1").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let tolerances = |o: &RuntimeOptions| -> Vec<u64> {
+            let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), o)).unwrap();
+            doc["proxy-groups"].as_array().unwrap().iter().filter(|g| g["type"] == "url-test").map(|g| g["tolerance"].as_u64().unwrap()).collect()
+        };
+        let mut o = opts();
+        o.custom_rules = vec![Rule { kind: RuleKind::DomainSuffix, value: "example.com".into(), target: "country:US".into() }];
+        assert_eq!(tolerances(&o), [50, 50], "Auto and the US group");
+        o.auto_tolerance = 200;
+        assert_eq!(tolerances(&o), [200, 200]);
+        o.auto_tolerance = 999_999;
+        assert_eq!(tolerances(&o), [30000, 30000], "never moves to a faster server");
+        let raw = "proxies:\n  - {name: US-2, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [US-2]}\nrules:\n  - MATCH,Sel\n";
+        o.auto_tolerance = 120;
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, &o).unwrap()).unwrap();
+        let group = doc["proxy-groups"].as_array().unwrap().iter().find(|g| g["type"] == "url-test").unwrap();
+        assert_eq!(group["tolerance"], 120);
+    }
+
+    #[test]
     fn the_test_address_can_be_changed() {
         let mut o = RuntimeOptions::default();
         assert_eq!(o.test_url(), TEST_URL);
@@ -1118,6 +1219,141 @@ rules:\n  - GEOSITE,category-games,DIRECT\n  - AND,((GEOIP,RU),(NETWORK,UDP)),DI
         assert_eq!(rules[0], "GEOSITE,ru-blocked,Sel");
         assert_eq!(*rules.last().unwrap(), "MATCH,DIRECT");
         assert!(!rules.contains(&"MATCH,Sel"));
+    }
+
+    const OWN_RULES: &str = "proxies:\n  - {name: A, type: trojan, server: a, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [A]}\n  - {name: Work, type: select, proxies: [DIRECT, A]}\n\
+rule-providers:\n  mine: {type: http, behavior: domain, url: 'https://example.com/mine.txt', path: ./mine.yaml, interval: 3600}\n\
+rules:\n  - DOMAIN-SUFFIX,corp.example,Work\n  - RULE-SET,mine,Sel\n  - GEOSITE,google,Sel\n  - MATCH,Sel\n";
+
+    fn merged_rules(raw: &str, o: &RuntimeOptions) -> Vec<String> {
+        let doc: Value = serde_yaml_ng::from_str(&merge_clash(raw, o).unwrap()).unwrap();
+        doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap().to_string()).collect()
+    }
+
+    /// The profile's own rules keep deciding what they match; the preset only turns the
+    /// profile's final catch-all into DIRECT.
+    #[test]
+    fn blocked_only_preset_keeps_the_profiles_own_rules() {
+        let mut o = opts();
+        o.apply_rules_to_clash_profiles = true;
+        let off = merged_rules(OWN_RULES, &o);
+        o.presets = vec![Preset::ProxyBlockedRu];
+        let on = merged_rules(OWN_RULES, &o);
+        let own = ["DOMAIN-SUFFIX,corp.example,Work", "RULE-SET,mine,Sel", "GEOSITE,google,Sel"];
+        let at = |rules: &[String], r: &str| rules.iter().position(|x| x == r).unwrap_or_else(|| panic!("{r} is gone: {rules:?}"));
+        for r in own {
+            assert!(at(&on, r) > at(&on, "GEOSITE,ru-blocked,Sel"), "the preset's rules come first: {on:?}");
+        }
+        assert!(at(&on, own[0]) < at(&on, own[1]) && at(&on, own[1]) < at(&on, own[2]), "{on:?}");
+        assert_eq!(on.last().unwrap(), "MATCH,DIRECT");
+        assert_eq!(on.iter().filter(|r| r.starts_with("MATCH,")).count(), 1, "{on:?}");
+        // The same rules without the preset, and its catch-all untouched.
+        assert_eq!(off.last().unwrap(), "MATCH,Sel");
+        for r in own {
+            assert!(off.iter().any(|x| x == r));
+        }
+    }
+
+    /// A catch-all that ends the traffic itself (DIRECT, a reject) stays; any group target,
+    /// the main group or another select, becomes DIRECT; a profile with none gets one.
+    #[test]
+    fn blocked_only_preset_changes_only_a_proxied_catch_all() {
+        let mut o = opts();
+        o.apply_rules_to_clash_profiles = true;
+        o.presets = vec![Preset::ProxyBlockedRu];
+        let work = OWN_RULES.replace("MATCH,Sel", "MATCH,Work");
+        assert_eq!(merged_rules(&work, &o).last().unwrap(), "MATCH,DIRECT", "a separate group stays proxied otherwise");
+        for kept in ["MATCH,DIRECT", "MATCH,REJECT", "MATCH,REJECT-DROP"] {
+            let raw = OWN_RULES.replace("MATCH,Sel", kept);
+            assert_eq!(merged_rules(&raw, &o).last().unwrap(), kept);
+        }
+        // Only the upper-case built-ins end the traffic; a group that happens to be called
+        // "direct" or "Reject" is still a proxied group.
+        for group in ["MATCH,direct", "MATCH,Direct", "MATCH,reject", "MATCH,Reject-Drop"] {
+            let raw = OWN_RULES.replace("MATCH,Sel", group);
+            assert_eq!(merged_rules(&raw, &o).last().unwrap(), "MATCH,DIRECT", "{group}");
+        }
+        let none = OWN_RULES.replace("  - MATCH,Sel\n", "");
+        let rules = merged_rules(&none, &o);
+        assert_eq!(rules.last().unwrap(), "MATCH,DIRECT");
+        assert!(rules.iter().any(|r| r == "GEOSITE,google,Sel"), "{rules:?}");
+    }
+
+    /// A lowercase rule type is still the catch-all: no second one is added.
+    #[test]
+    fn blocked_only_preset_reads_a_lowercase_catch_all() {
+        let mut o = opts();
+        o.apply_rules_to_clash_profiles = true;
+        o.presets = vec![Preset::ProxyBlockedRu];
+        let raw = OWN_RULES.replace("MATCH,Sel", "match,Sel");
+        let rules = merged_rules(&raw, &o);
+        assert_eq!(rules.last().unwrap(), "MATCH,DIRECT");
+        assert_eq!(rules.iter().filter(|r| r.to_ascii_lowercase().starts_with("match,")).count(), 1, "{rules:?}");
+        // Without the preset, with smart routing on, the learned rules go right before the
+        // lowercase catch-all.
+        o.presets = vec![Preset::DirectRu];
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
+        let rules = merged_rules(&raw, &o);
+        assert_eq!(rules.iter().filter(|r| r.to_ascii_lowercase().starts_with("match,")).count(), 1, "{rules:?}");
+        assert_eq!(rules.last().unwrap(), "match,Sel");
+        let learned = rules.iter().rposition(|r| r.contains("kova-learned-")).expect("learned rules are present");
+        assert_eq!(learned + 2, rules.len(), "the learned rules end right before the catch-all: {rules:?}");
+    }
+
+    /// A catch-all that named a server the user hid moves to the main group first, so it
+    /// is a proxied catch-all like any other and ends as DIRECT.
+    #[test]
+    fn blocked_only_preset_turns_a_hidden_servers_catch_all_direct() {
+        let mut o = opts();
+        o.apply_rules_to_clash_profiles = true;
+        o.presets = vec![Preset::ProxyBlockedRu];
+        o.hidden_countries = vec!["RU".into()];
+        let raw = "proxies:\n  - {name: RU-1, type: trojan, server: a, port: 443, password: x}\n  - {name: DE-1, type: trojan, server: b, port: 443, password: x}\nproxy-groups:\n  - {name: Sel, type: select, proxies: [RU-1, DE-1]}\nrules:\n  - DOMAIN-SUFFIX,corp.example,DE-1\n  - MATCH,RU-1\n";
+        let rules = merged_rules(raw, &o);
+        assert_eq!(rules.last().unwrap(), "MATCH,DIRECT", "{rules:?}");
+        assert_eq!(rules.iter().filter(|r| r.starts_with("MATCH,")).count(), 1, "{rules:?}");
+        assert!(rules.iter().any(|r| r == "DOMAIN-SUFFIX,corp.example,DE-1"), "{rules:?}");
+    }
+
+    /// Smart routing's learned lists go in front of the profile's catch-all, which is the
+    /// single final rule, now DIRECT.
+    #[test]
+    fn blocked_only_preset_with_smart_routing_keeps_one_final_catch_all() {
+        let mut o = opts();
+        o.apply_rules_to_clash_profiles = true;
+        o.presets = vec![Preset::ProxyBlockedRu];
+        o.smart = Some(SmartRuntime { lists_url: "http://127.0.0.1:5000/t/".into(), direct_port: 5001, proxy_port: 5002, password: "pw".into(), scope: Default::default() });
+        let rules = merged_rules(OWN_RULES, &o);
+        let at = |r: &str| rules.iter().position(|x| x == r).unwrap_or_else(|| panic!("{r} is missing: {rules:?}"));
+        assert!(at("GEOSITE,ru-blocked,Sel") < at("DOMAIN-SUFFIX,corp.example,Work"), "{rules:?}");
+        assert!(at("GEOSITE,google,Sel") < at("RULE-SET,kova-learned-direct,DIRECT"), "{rules:?}");
+        assert!(at("RULE-SET,kova-learned-direct,DIRECT") < at("RULE-SET,kova-learned-proxy,Sel"), "{rules:?}");
+        assert_eq!(rules.last().unwrap(), "MATCH,DIRECT");
+        assert_eq!(rules.iter().filter(|r| r.starts_with("MATCH,")).count(), 1, "{rules:?}");
+        assert_eq!(at("RULE-SET,kova-learned-proxy-ip,Sel,no-resolve") + 1, rules.len() - 1, "the learned lists end right before the catch-all: {rules:?}");
+    }
+
+    /// Rules the user's own list and the other presets add stay in a links profile too.
+    #[test]
+    fn blocked_only_preset_changes_only_the_catch_all_of_a_links_profile() {
+        let nodes = vec![parse_link("trojan://pw@b.example:443#TR").unwrap()];
+        let p = plan(&nodes, CorePreference::Auto);
+        let mut o = opts();
+        o.custom_rules = vec![Rule { kind: RuleKind::DomainSuffix, value: "corp.example".into(), target: "DIRECT".into() }];
+        o.presets = vec![Preset::DirectRu];
+        let text = |o: &RuntimeOptions| -> Vec<String> {
+            let doc: Value = serde_yaml_ng::from_str(&from_nodes(&nodes, &p, &Bridges::new(), o)).unwrap();
+            doc["rules"].as_array().unwrap().iter().map(|r| r.as_str().unwrap().to_string()).collect()
+        };
+        let off = text(&o);
+        o.presets = vec![Preset::ProxyBlockedRu, Preset::DirectRu];
+        let on = text(&o);
+        assert_eq!(off.last().unwrap(), "MATCH,Proxy");
+        assert_eq!(on.last().unwrap(), "MATCH,DIRECT");
+        for r in &off[..off.len() - 1] {
+            assert!(on.contains(r), "{r} is gone: {on:?}");
+        }
+        assert_eq!(on.len(), off.len() + 2, "only the preset's own two rules are added: {on:?}");
     }
 
     #[test]

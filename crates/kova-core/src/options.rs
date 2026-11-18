@@ -342,6 +342,36 @@ pub fn country_of(name: &str) -> Option<String> {
     let lower = name.to_lowercase();
     COUNTRY_NAMES.iter().find(|(k, _)| lower.contains(k)).map(|(_, v)| v.to_string())
 }
+/// Where the traffic of known torrent clients goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TorrentRoute {
+    Proxy,
+    Direct,
+    Block,
+}
+
+impl TorrentRoute {
+    /// The rule target this choice stands for.
+    pub fn target(self) -> &'static str {
+        match self {
+            TorrentRoute::Proxy => PROXY,
+            TorrentRoute::Direct => "DIRECT",
+            TorrentRoute::Block => "REJECT",
+        }
+    }
+}
+
+/// Process names of common torrent clients, in their Windows and Unix spellings. Rules
+/// match the whole name, so each spelling is listed.
+pub const TORRENT_CLIENTS: &[&str] = &[
+    "qbittorrent.exe", "qbittorrent", "qbittorrent-nox", "utorrent.exe", "utorrent", "bittorrent.exe", "bittorrent",
+    "bitcomet.exe", "bitcomet", "transmission-qt.exe", "transmission-qt", "transmission-gtk", "transmission-daemon",
+    "transmission-daemon.exe", "deluge.exe", "deluge", "deluged.exe", "deluged", "deluge-gtk", "vuze.exe", "vuze",
+    "azureus.exe", "azureus", "tixati.exe", "tixati", "frostwire.exe", "frostwire", "biglybt.exe", "biglybt",
+    "Transmission", "qBittorrent", "Deluge", "ktorrent", "rtorrent", "picotorrent.exe", "tribler",
+];
+
 pub const AUTO: &str = "Auto";
 pub const FALLBACK: &str = "Fallback";
 pub const TEST_URL: &str = "https://www.gstatic.com/generate_204";
@@ -428,6 +458,11 @@ pub struct RuntimeOptions {
     /// Protocols whose servers are left out, named as Kova shows them ("VLESS", "VMess",
     /// "Shadowsocks", ...; see `Node::protocol_label`).
     pub hidden_protocols: Vec<String>,
+    /// Where known torrent clients' traffic goes; `None` leaves it to the other rules.
+    pub torrent: Option<TorrentRoute>,
+    /// How many milliseconds faster another server must be before the Fastest-server
+    /// groups switch to it. 0 switches at any difference; [`NEVER_SWITCH`] never does.
+    pub auto_tolerance: u32,
 }
 
 /// User name on the local ports only Kova uses; see [`RuntimeOptions::local_password`].
@@ -482,11 +517,26 @@ impl Default for RuntimeOptions {
             test_url: String::new(),
             hidden_countries: Vec::new(),
             hidden_protocols: Vec::new(),
+            torrent: None,
+            auto_tolerance: 50,
         }
     }
 }
 
+/// The tolerance (ms) that means "never move to a faster server". It is far above any real
+/// delay (alive ones are at most the 5000 ms test timeout) but low enough that delay +
+/// tolerance fits Mihomo's 16-bit arithmetic; 65535 would wrap around and turn "never" into
+/// "always".
+pub const NEVER_SWITCH: u32 = 30000;
+
 impl RuntimeOptions {
+    /// The switch tolerance the Fastest-server groups use. [`NEVER_SWITCH`] is the cap, far
+    /// above any real delay: such a group stays on its server until that one stops answering.
+    /// Larger stored values (65535 from older versions) are brought down to it.
+    pub fn tolerance(&self) -> u32 {
+        self.auto_tolerance.min(NEVER_SWITCH)
+    }
+
     /// The address latency is tested with.
     pub fn test_url(&self) -> &str {
         let u = self.test_url.trim();
@@ -521,11 +571,15 @@ impl RuntimeOptions {
         self.hides(&n.name) || self.hides_protocol(&n.protocol_label())
     }
 
-    /// Custom rules, then presets, then LAN, then the catch-all.
+    /// Custom rules, then torrent clients, then presets. LAN and the catch-all come from
+    /// `tail_rules()`.
     pub fn rules(&self) -> Vec<Rule> {
         // A rule saved before Kova checked them, which Mihomo can't read, is left out
         // rather than keeping every connection from starting.
         let mut out: Vec<Rule> = self.custom_rules.iter().filter(|r| r.problem().is_none()).cloned().collect();
+        if let Some(route) = self.torrent {
+            out.extend(TORRENT_CLIENTS.iter().map(|c| Rule { kind: RuleKind::ProcessName, value: (*c).into(), target: route.target().into() }));
+        }
         for p in Preset::ALL.iter().filter(|p| self.presets.contains(p)) {
             out.extend(p.rules());
         }
@@ -588,5 +642,48 @@ mod tests {
         }
         let o = RuntimeOptions { custom_rules: vec![rule(RuleKind::IpCidr, "nonsense"), rule(RuleKind::Domain, "ok.example")], ..Default::default() };
         assert_eq!(o.rules().iter().filter(|r| r.kind == RuleKind::IpCidr).count(), 0, "an old bad rule is left out");
+    }
+
+    /// Torrent clients get one rule each, after the user's own rules and before presets.
+    #[test]
+    fn torrent_choice_makes_one_rule_per_client() {
+        let own = Rule { kind: RuleKind::ProcessName, value: "qbittorrent.exe".into(), target: "DIRECT".into() };
+        let mut o = RuntimeOptions { custom_rules: vec![own.clone()], ..Default::default() };
+        assert!(!o.rules().iter().any(|r| r.value == "deluge.exe"), "no choice, no rules");
+        for (route, target) in [(TorrentRoute::Proxy, PROXY), (TorrentRoute::Direct, "DIRECT"), (TorrentRoute::Block, "REJECT")] {
+            o.torrent = Some(route);
+            let rules = o.rules();
+            assert_eq!(rules[0], own, "the user's rule for the same process comes first");
+            let torrent: Vec<&Rule> = rules.iter().filter(|r| r.kind == RuleKind::ProcessName).skip(1).collect();
+            assert_eq!(torrent.len(), TORRENT_CLIENTS.len());
+            assert!(torrent.iter().all(|r| r.target == target), "{route:?}");
+            assert!(rules[1..=TORRENT_CLIENTS.len()].iter().all(|r| r.kind == RuleKind::ProcessName), "before the presets");
+        }
+    }
+
+    #[test]
+    fn old_settings_without_torrent_still_load() {
+        let o: RuntimeOptions = serde_json::from_str(r#"{"mixed_port": 7000}"#).unwrap();
+        assert_eq!((o.torrent, o.auto_tolerance), (None, 50));
+        let mut o = o;
+        o.torrent = Some(TorrentRoute::Block);
+        o.auto_tolerance = 120;
+        let json = serde_json::to_string(&o).unwrap();
+        assert!(json.contains(r#""torrent":"block""#), "{json}");
+        assert_eq!(serde_json::from_str::<RuntimeOptions>(&json).unwrap(), o);
+        assert_eq!(serde_json::from_str::<RuntimeOptions>(r#"{"torrent": null}"#).unwrap().torrent, None);
+    }
+
+    #[test]
+    fn tolerance_is_kept_in_range() {
+        let o = RuntimeOptions { auto_tolerance: 5000, ..Default::default() };
+        assert_eq!(o.tolerance(), 5000);
+        let o = RuntimeOptions { auto_tolerance: 1_000_000, ..Default::default() };
+        assert_eq!(o.tolerance(), NEVER_SWITCH);
+        // 65535 was stored by older versions; it wrapped in Mihomo, so it is cut down.
+        let o = RuntimeOptions { auto_tolerance: 65535, ..Default::default() };
+        assert_eq!(o.tolerance(), 30000);
+        assert!(5000 + o.tolerance() <= u16::MAX as u32, "delay + tolerance must not wrap");
+        assert_eq!(RuntimeOptions::default().tolerance(), 50);
     }
 }

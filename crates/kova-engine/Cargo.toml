@@ -7,6 +7,9 @@ repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 kova-core = { path = "../kova-core" }
 flate2 = "1.1.10"

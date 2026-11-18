@@ -100,6 +100,12 @@ fn convert(o: &Value, name: String) -> Result<Node, String> {
     let kind = s(o, "protocol").unwrap_or_default();
     let label = name.clone();
     let fail = |why: &str| format!("{label}: {why}");
+    if !o.is_object() {
+        return Err(fail("an outbound that is not a JSON object was skipped"));
+    }
+    if kind.is_empty() {
+        return Err(fail("an outbound without a protocol was skipped"));
+    }
     let settings = o.get("settings").cloned().unwrap_or(Value::Null);
     if !kind.is_empty() && !MODELED.contains(&kind.as_str()) {
         // MASQUE and what newer Xray adds: its server, for the list and TUN's exceptions.
@@ -342,6 +348,20 @@ mod tests {
         assert!(!crate::compat::supports(crate::CoreKind::Xray, &s), "sing-mux is Mihomo's");
         let link = crate::links::parse_link(&crate::links::to_link(n).unwrap()).unwrap();
         assert_eq!(link.tls.unwrap().ech.unwrap().query.as_deref(), Some("https://1.1.1.1/dns-query"), "ECH survives a share link");
+    }
+
+    #[test]
+    fn outbounds_that_are_not_objects_or_have_no_protocol_are_reported() {
+        let doc = json!({ "remarks": "Odd", "outbounds": [
+            "just text",
+            { "tag": "nameless", "settings": { "address": "203.0.113.1", "port": 443 } },
+            { "tag": "ok", "protocol": "trojan", "settings": { "servers": [{ "address": "203.0.113.9", "port": 443, "password": "pw" }] } }
+        ] });
+        let (nodes, warnings) = parse(&doc);
+        assert_eq!(nodes.len(), 1);
+        assert_eq!(warnings.len(), 2, "{warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("not a JSON object")), "{warnings:?}");
+        assert!(warnings.iter().any(|w| w.contains("without a protocol")), "{warnings:?}");
     }
 
     #[test]

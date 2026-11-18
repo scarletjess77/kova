@@ -91,6 +91,11 @@ fn stream(n: &Node) -> Value {
 /// One Xray outbound for `n`, tagged with the node name. `None` if Xray can't run it.
 pub fn outbound(n: &Node) -> Option<Value> {
     if let Protocol::XrayOutbound { raw, .. } = &n.protocol {
+        // A subscription can send anything here; Xray would refuse a non-object anyway, and
+        // indexing it below would abort the app.
+        if !raw.is_object() {
+            return None;
+        }
         let mut o = raw.clone();
         o["tag"] = n.name.clone().into();
         return Some(o);
@@ -161,6 +166,22 @@ pub fn outbound(n: &Node) -> Option<Value> {
     Some(o)
 }
 
+/// Chains `o` through the Anti-DPI outbound. `streamSettings` and `sockopt` come straight
+/// from a subscription for raw outbounds: when one is not an object, indexing into it would
+/// panic, so it is replaced by an empty object (Xray would not have read it anyway).
+fn chain_through_anti_dpi(o: &mut Value) {
+    fn object_at<'a>(parent: &'a mut serde_json::Map<String, Value>, key: &str) -> &'a mut serde_json::Map<String, Value> {
+        let slot = parent.entry(key).or_insert(Value::Null);
+        if !slot.is_object() {
+            *slot = Value::Object(Default::default());
+        }
+        slot.as_object_mut().expect("just made an object")
+    }
+    let Some(top) = o.as_object_mut() else { return };
+    let sockopt = object_at(object_at(top, "streamSettings"), "sockopt");
+    sockopt.insert("dialerProxy".into(), ANTI_DPI_TAG.into());
+}
+
 fn host(h: &str) -> String {
     if h.contains(':') { format!("[{h}]") } else { h.to_string() }
 }
@@ -186,8 +207,9 @@ fn sniffing(opts: &RuntimeOptions) -> Value {
 fn with_pin(n: &Node, opts: &RuntimeOptions) -> Option<Value> {
     let mut o = outbound(n)?;
     if n.tls.as_ref().is_some_and(|t| t.insecure && t.reality.is_none() && t.pin.is_none())
-        && let Some(pin) = opts.cert_pins.get(&n.name) {
-            o["streamSettings"]["tlsSettings"]["pinnedPeerCertSha256"] = pin.clone().into();
+        && let Some(pin) = opts.cert_pins.get(&n.name)
+        && let Some(tls) = o.get_mut("streamSettings").and_then(|s| s.get_mut("tlsSettings")).and_then(Value::as_object_mut) {
+            tls.insert("pinnedPeerCertSha256".into(), pin.clone().into());
         }
     Some(o)
 }
@@ -254,7 +276,7 @@ pub fn sidecar(bridged: &[(&Node, u16)], opts: &RuntimeOptions) -> String {
     for (i, (n, port)) in bridged.iter().enumerate() {
         let Some(mut o) = with_pin(n, opts) else { continue };
         if opts.anti_dpi_port.is_some() {
-            o["streamSettings"]["sockopt"]["dialerProxy"] = ANTI_DPI_TAG.into();
+            chain_through_anti_dpi(&mut o);
         }
         let tag = format!("in-{i}");
         inbounds.push(json!({ "tag": tag, "listen": "127.0.0.1", "port": port, "protocol": "socks", "settings": settings }));
@@ -321,7 +343,7 @@ pub fn full(nodes: &[Node], selection: &Selection, opts: &RuntimeOptions) -> Str
         .collect();
     if opts.anti_dpi {
         for o in &mut outbounds_nodes {
-            o["streamSettings"]["sockopt"]["dialerProxy"] = ANTI_DPI_TAG.into();
+            chain_through_anti_dpi(o);
         }
     }
     let tags: Vec<String> = outbounds_nodes.iter().filter_map(|o| o["tag"].as_str().map(String::from)).collect();
@@ -419,6 +441,27 @@ mod tests {
         // No pin (the server didn't answer): the certificate is checked normally.
         let doc: Value = serde_json::from_str(&full(&[n], &Selection::Auto, &RuntimeOptions::default())).unwrap();
         assert!(doc.to_string().find("allowInsecure").is_none());
+    }
+
+    #[test]
+    fn torrent_clients_get_their_own_routing_rules() {
+        let n = crate::links::parse_link("trojan://pw@203.0.113.1:443#A").unwrap();
+        let process_rules = |route: Option<crate::options::TorrentRoute>| -> Vec<Value> {
+            let o = RuntimeOptions { torrent: route, ..Default::default() };
+            let doc: Value = serde_json::from_str(&full(std::slice::from_ref(&n), &Selection::Auto, &o)).unwrap();
+            doc["routing"]["rules"].as_array().unwrap().iter().filter(|r| r.get("process").is_some()).cloned().collect()
+        };
+        assert!(process_rules(None).is_empty());
+        let total = crate::options::TORRENT_CLIENTS.len();
+        use crate::options::TorrentRoute::*;
+        let direct = process_rules(Some(Direct));
+        assert_eq!(direct.len(), total);
+        assert!(direct.iter().all(|r| r["outboundTag"] == "direct"));
+        assert!(direct.iter().any(|r| r["process"][0] == "qbittorrent.exe"));
+        assert!(process_rules(Some(Block)).iter().all(|r| r["outboundTag"] == "block"));
+        let proxied = process_rules(Some(Proxy));
+        assert_eq!(proxied.len(), total);
+        assert!(proxied.iter().all(|r| r.get("balancerTag").is_some() || r["outboundTag"] != "direct"));
     }
 
     #[test]
@@ -569,5 +612,62 @@ mod tests {
         assert_eq!(doc["routing"]["balancers"][0]["selector"], json!([NODE_TAG]));
         assert!(doc["routing"]["rules"].as_array().unwrap().iter().any(|r| r["outboundTag"] == "node:d"), "the chosen server");
         assert_eq!(node_of_tag("node:d"), "d");
+    }
+
+    /// A raw outbound from a subscription with the shapes Xray itself would refuse.
+    fn hostile_nodes() -> Vec<Node> {
+        let shapes = [
+            json!({ "protocol": "masque", "streamSettings": "text" }),
+            json!({ "protocol": "masque", "streamSettings": 7 }),
+            json!({ "protocol": "masque", "streamSettings": [1, 2] }),
+            json!({ "protocol": "masque", "streamSettings": null }),
+            json!({ "protocol": "masque", "streamSettings": { "sockopt": "text" } }),
+            json!({ "protocol": "masque", "streamSettings": { "sockopt": [] } }),
+            json!({ "protocol": "masque", "streamSettings": { "sockopt": null } }),
+            json!({ "protocol": "masque", "streamSettings": { "sockopt": { "dialerProxy": 1e300 } } }),
+            json!("masque"),
+            json!(null),
+            json!([1, 2]),
+            json!(18446744073709551615u64),
+        ];
+        shapes
+            .into_iter()
+            .enumerate()
+            .map(|(i, raw)| Node {
+                name: format!("H{i}"),
+                server: "203.0.113.1".into(),
+                port: 443,
+                protocol: Protocol::XrayOutbound { kind: "masque".into(), raw },
+                transport: Transport::Tcp,
+                tls: None,
+                udp: true,
+                mux: None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn hostile_raw_outbounds_do_not_panic_with_or_without_anti_dpi() {
+        let nodes = hostile_nodes();
+        for anti_dpi in [false, true] {
+            let o = RuntimeOptions { anti_dpi, anti_dpi_port: anti_dpi.then_some(17100), ..Default::default() };
+            let doc: Value = serde_json::from_str(&full(&nodes, &Selection::Auto, &o)).unwrap();
+            for out in doc["outbounds"].as_array().unwrap().iter().filter(|x| x["tag"].as_str().is_some_and(|t| t.starts_with(NODE_TAG))) {
+                assert!(out.is_object(), "{out}");
+                if anti_dpi {
+                    assert_eq!(out["streamSettings"]["sockopt"]["dialerProxy"], ANTI_DPI_TAG, "{out}");
+                }
+            }
+            let refs: Vec<(&Node, u16)> = nodes.iter().zip(17001..).collect();
+            let side: Value = serde_json::from_str(&sidecar(&refs, &o)).unwrap();
+            assert!(side["outbounds"].is_array());
+        }
+    }
+
+    #[test]
+    fn a_raw_outbound_that_is_not_an_object_is_skipped() {
+        let nodes = hostile_nodes();
+        assert!(outbound(&nodes[8]).is_none());
+        assert!(outbound(&nodes[0]).is_some());
     }
 }

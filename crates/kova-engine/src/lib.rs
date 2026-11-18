@@ -8,6 +8,7 @@ pub mod engine;
 pub mod fetch;
 pub mod geodata;
 pub mod mihomo_api;
+pub mod node_details;
 pub mod process;
 pub mod programs;
 pub mod quality;
@@ -23,6 +24,7 @@ pub mod tun_linux;
 pub mod tun_rights;
 
 pub use engine::{Engine, Event, NodeView, Status};
+pub use node_details::NodeDetails;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
