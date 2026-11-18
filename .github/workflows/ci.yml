@@ -26,6 +26,8 @@ jobs:
       - run: npm ci
       - run: npm run check
       - run: npm run build
+      - name: Script tests
+        run: node --test scripts/check-version.test.mjs
       # Warnings fail the build here, so they are fixed as they appear.
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace

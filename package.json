@@ -13,7 +13,9 @@
     "tauri": "tauri",
     "android:cores": "node scripts/android-cores.mjs",
     "android:build": "node scripts/android-cores.mjs && tauri android build --apk --target aarch64",
-    "release": "node scripts/release.mjs"
+    "release": "node scripts/release.mjs",
+    "test:scripts": "node --test scripts/check-version.test.mjs",
+    "version:check": "node scripts/check-version.mjs"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
