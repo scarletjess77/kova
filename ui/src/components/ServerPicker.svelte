@@ -68,7 +68,7 @@
   const manage = () => { app.proxiesGroup = group.name; onclose(); app.go('proxies'); };
 </script>
 
-<Modal title={t('Choose a server')} wide {onclose}>
+<Modal title={t('Server selection')} wide {onclose}>
   <div class="toolbar">
     <label class="search"><Icon name="search" /><input class="input" placeholder={t('Search nodes, countries, protocols')} bind:value={q} aria-label={t('Search nodes')} /></label>
     <select class="input sort" bind:value={sort} aria-label={t('Sort')}>
@@ -77,7 +77,7 @@
       <option value="name">{t('Sort by name')}</option>
     </select>
     <button class="btn" aria-pressed={favOnly} class:on={favOnly} onclick={() => (favOnly = !favOnly)}><Icon name="star" />{t('Favorites')}</button>
-    <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test speed')}</button>
+    <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test latency')}</button>
   </div>
   {#if readOnly}<p class="muted note">{t('{group} chooses automatically. Pick a node in a select group to pin one.', { group: group.name })}</p>{/if}
   {#if groupsShown.length || shown.length}

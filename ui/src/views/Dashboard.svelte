@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { friendly } from '../lib/errors';
+  import { friendly, skipReason } from '../lib/errors';
   import { onDestroy } from 'svelte';
   import { api, errText, type CorePreference, type ExitInfo, type Mode, type Preset, type Quality } from '../lib/api';
   import { countryCode, countryLabel, daysUntil, displayName, fmtBytes, fmtDur, fmtSpeed } from '../lib/format';
@@ -279,7 +279,7 @@
             <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{t('Apps aren’t routed yet. Turn on System proxy or TUN, or point an app at port {port}.', { port: settings.core.mixed_port })}</span></div>
           {/if}
           {#if s.running && s.dropped.length}
-            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{tn(s.dropped.length, '{n} node skipped: {reason}', '{n} nodes skipped: {reason}', { reason: s.dropped[0][1] })}</span></div>
+            <div class="hero-meta"><span class="chip warn"><Icon name="alert" />{tn(s.dropped.length, '{n} node skipped: {reason}', '{n} nodes skipped: {reason}', { reason: skipReason(s.dropped[0][1]) })}</span></div>
           {/if}
         {/if}
       </div>
@@ -384,7 +384,7 @@
     <div class="card-h qh"><h2>{t('Quick switch')}</h2>
       {#if mainGroup}
         <span class="aside">{#if currentNode}{#if countryCode(currentNode)}<span class="cc">{countryLabel(currentNode, app.flags)}</span> {/if}{displayName(currentNode)}{/if}</span>
-        <button class="btn ghost qs-test" class:busy={app.testing.size > 0} aria-label={t('Test speed')} title={t('Test speed')} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test speed')}</button>
+        <button class="btn ghost qs-test" class:busy={app.testing.size > 0} aria-label={t('Test latency')} title={t('Test latency')} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test latency')}</button>
       {/if}
     </div>
     {#if mainGroup && (quickGroups.length || serverCount)}
@@ -409,8 +409,8 @@
         {/each}
       </div>
       {#if !quickServers.length && serverCount}
-        <div class="qs-hint"><span class="muted">{t('Test speed to see the fastest servers.')}</span>
-          <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test speed')}</button></div>
+        <div class="qs-hint"><span class="muted">{t('Test latency to see the fastest servers.')}</span>
+          <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test latency')}</button></div>
       {/if}
       <button class="btn ghost more" onclick={() => (serverPicker = true)}>{serverCount ? t('All servers ({n})', { n: serverCount }) : t('All servers and groups')}</button>
     {:else}

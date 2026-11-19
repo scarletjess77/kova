@@ -211,6 +211,7 @@ export const api = {
   updateAllProfiles: () => invoke<[string, string][]>('update_all_profiles'),
   removeProfile: (id: string) => invoke<void>('remove_profile', { id }),
   setActiveProfile: (id: string) => invoke<void>('set_active_profile', { id }),
+  setFavorites: (favorites: string[]) => invoke<string[]>('set_favorites', { favorites }),
   editProfile: (id: string, patch: Partial<{ name: string; core: CorePreference; url: string; user_agent: string; update_hours: number; via_proxy: boolean; headers: Header[] }>) =>
     invoke<Profile>('edit_profile', { id, patch }),
   getProfileContent: (id: string) => invoke<string>('get_profile_content', { id }),
@@ -223,6 +224,8 @@ export const api = {
   checkQuality: () => invoke<Quality>('check_quality'),
   getConnections: () => invoke<ConnectionsSnapshot>('get_connections'),
   runningPrograms: () => invoke<string[]>('running_programs'),
+  /** PNG data URLs by lower-case program name; only programs an icon was found for. `paths` are .exe files picked with the dialog. */
+  programIcons: (names: string[], paths: string[] = []) => invoke<Record<string, string>>('program_icons', { names, paths }),
   closeConnection: (id: string) => invoke<void>('close_connection', { id }),
   closeAllConnections: () => invoke<void>('close_all_connections'),
   coreStatus: (checkLatest: boolean) => invoke<CoreStatus[]>('core_status', { checkLatest }),

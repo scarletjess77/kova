@@ -240,6 +240,13 @@ async fn remove_profile(engine: Eng<'_>, id: String) -> R<()> {
     engine.remove_profile(&id).await
 }
 
+/// Stars are saved on their own, not with the settings, so a settings save that is refused
+/// or still waiting never takes a star with it.
+#[tauri::command]
+async fn set_favorites(engine: Eng<'_>, favorites: Vec<String>) -> R<Vec<String>> {
+    engine.set_favorites(favorites).await
+}
+
 #[tauri::command]
 async fn set_active_profile(engine: Eng<'_>, id: String) -> R<()> {
     engine.set_active_profile(&id).await
@@ -446,6 +453,16 @@ async fn service_uninstall(engine: Eng<'_>) -> R<()> {
 #[tauri::command]
 async fn running_programs() -> Vec<String> {
     tokio::task::spawn_blocking(kova_engine::programs::running).await.unwrap_or_default()
+}
+
+/// Icons of programs by name (as `running_programs` gives them) and of the .exe files at
+/// `paths`, as PNG data URLs; only programs an icon was found for. Off the main thread: the
+/// shell can be slow.
+#[tauri::command]
+async fn program_icons(engine: Eng<'_>, names: Vec<String>, paths: Vec<String>) -> R<std::collections::HashMap<String, String>> {
+    let dir = engine.paths.root.join("icons");
+    // A failed lookup is just no icons.
+    Ok(tokio::task::spawn_blocking(move || kova_engine::icons::lookup(&dir, &names, &paths)).await.unwrap_or_default())
 }
 
 #[tauri::command]
@@ -1114,6 +1131,7 @@ pub fn run() {
             update_all_profiles,
             remove_profile,
             set_active_profile,
+            set_favorites,
             edit_profile,
             get_profile_content,
             save_profile_content,
@@ -1150,6 +1168,7 @@ pub fn run() {
             service_status,
             default_check_sites,
             running_programs,
+            program_icons,
             check_site,
             service_install,
             service_uninstall,

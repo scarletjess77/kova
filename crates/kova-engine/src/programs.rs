@@ -19,6 +19,24 @@ pub(crate) fn path_of(pid: u32) -> Option<String> {
     imp::path_of(pid)
 }
 
+/// Lower-case program name -> full path of a running one, for finding its icon. Unlike
+/// [`running`] it keeps Windows' own programs.
+#[cfg(windows)]
+pub(crate) fn paths_by_name() -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    for p in imp::all_paths() {
+        if let Some(n) = std::path::Path::new(&p).file_name() {
+            map.entry(n.to_string_lossy().to_lowercase()).or_insert(p);
+        }
+    }
+    map
+}
+
+#[cfg(not(windows))]
+pub(crate) fn paths_by_name() -> std::collections::HashMap<String, String> {
+    std::collections::HashMap::new()
+}
+
 #[cfg(windows)]
 mod imp {
     use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
@@ -41,8 +59,8 @@ mod imp {
         }
     }
 
-    pub fn running() -> Vec<String> {
-        let windows = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()).to_lowercase();
+    /// The full path of every process this user may look at, Windows' own included.
+    pub fn all_paths() -> Vec<String> {
         let mut out = Vec::new();
         // SAFETY: a snapshot handle walked with an entry of the size it expects, then closed.
         unsafe {
@@ -54,17 +72,21 @@ mod imp {
             e.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
             let mut more = Process32FirstW(snap, &mut e) != 0;
             while more {
-                // Processes of other accounts and the system can't be opened, and the
-                // ones from the Windows folder are Windows' own.
-                if let Some(path) = path_of(e.th32ProcessID).filter(|p| !p.to_lowercase().starts_with(&windows))
-                    && let Some(name) = std::path::Path::new(&path).file_name() {
-                        out.push(name.to_string_lossy().into_owned());
-                    }
+                // Processes of other accounts and the system can't be opened.
+                if let Some(path) = path_of(e.th32ProcessID) {
+                    out.push(path);
+                }
                 more = Process32NextW(snap, &mut e) != 0;
             }
             CloseHandle(snap);
         }
         out
+    }
+
+    pub fn running() -> Vec<String> {
+        // The ones from the Windows folder are Windows' own.
+        let windows = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".into()).to_lowercase();
+        all_paths().into_iter().filter(|p| !p.to_lowercase().starts_with(&windows)).filter_map(|p| std::path::Path::new(&p).file_name().map(|n| n.to_string_lossy().into_owned())).collect()
     }
 }
 

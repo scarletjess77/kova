@@ -7,6 +7,7 @@ pub mod diag;
 pub mod engine;
 pub mod fetch;
 pub mod geodata;
+pub mod icons;
 pub mod mihomo_api;
 pub mod node_details;
 pub mod process;

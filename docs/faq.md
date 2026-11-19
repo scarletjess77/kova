@@ -33,7 +33,7 @@ The proxy port (HTTP and SOCKS5) is **7890** by default; change it in **Settings
 Kova runs but neither the system proxy nor TUN is on, so apps are not sent through it. Turn on **System proxy** or **TUN mode**, or point an app at the proxy port by hand.
 
 ### Why does a server show no latency?
-It has not been tested yet (press **Test latency** in Proxies or **Test speed** on the Dashboard), the test is running, or it did not answer (shown with a "No answer" hint). Tests go through each server to the **Latency test address** in **Settings → Servers**; if that address is blocked, change it.
+It has not been tested yet (press **Test latency** in Proxies or on the Dashboard), the test is running, or it did not answer (shown with a "No answer" hint). Tests go through each server to the **Latency test address** in **Settings → Servers**; if that address is blocked, change it.
 
 ### Why does "Fastest server" not switch at once?
 It switches only when another server is faster by more than a tolerance, 50 ms by default, to avoid constant moving. Change it with **Switch to a faster server** in **Settings → Network** (the options read **if faster by 10 ms** up to **if faster by 200 ms**, or **Never**; new in 0.3.0). Press **Test latency** to refresh the numbers it uses. A group of this type chooses by itself, so you cannot pin a server in it; use a select group for that.
@@ -104,7 +104,7 @@ Linux: **Settings → TUN mode → Give rights** (asks for your password once). 
 Updates are signed, and Kova installs only updates signed with its key. Cores are checked by SHA-256 before installing. The Windows installer is not code-signed yet, so SmartScreen may warn. Downloads come from the repository's Releases page. Whether you can verify a downloaded installer by hand is not confirmed here.
 
 ### Where are my profiles and logs stored?
-In the data folder: `%APPDATA%\app.kova.client` on Windows (open it with **Settings → App → Data folder**). Set the environment variable `KOVA_DATA_DIR` to use another folder. Subscriptions are stored encrypted on Windows and readable only by you on Linux and macOS. Log files are in the `logs` folder: `kova.log`, the previous one `kova.log.1`, and `crash.log`. The Windows service keeps its log only in memory. Core output on the **Logs** page shows only the current run.
+In the data folder: `%APPDATA%\app.kova.client` on Windows (open it with **Settings → App → Data folder**). Set the environment variable `KOVA_DATA_DIR` to use another folder. Subscriptions are stored encrypted on Windows and readable only by you on Linux and macOS. Log files are in the `logs` folder: `kova.log`, the previous one `kova.log.1`, and `crash.log`. The Windows service keeps its log only in memory. Core output on the **Logs** page shows only the current run. On Windows the `icons` folder keeps small pictures of the programs shown in **Route an app**, which also records their names; you can delete it at any time.
 
 ### What does the report from "What's wrong?" contain?
 **Copy report** (also on the **Logs** page) copies text with the Kova version and system, connection status and any error, main settings (mode, system proxy, TUN, DNS and routing switches, preset names, number of own rules), the active profile's format, node count and core, the check results, the last crash if there was one, and the last 200 log lines. Before copying, Kova replaces links, UUIDs, long tokens, Kova's own secrets and device ID, the names and addresses of your servers, and public IP addresses with placeholders. Read it once before posting.

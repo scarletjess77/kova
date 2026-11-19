@@ -19,15 +19,39 @@
   /** Programs picked with the file dialog this time. */
   let picked = $state<string[]>([]);
   let q = $state('');
+  /** Icons of the listed programs (data URLs by lower-case name); they all arrive in one batch. */
+  let icons = $state<Record<string, string>>({});
+  /** Icons of files picked with the dialog: kept apart so a late batch answer never replaces them. */
+  let pickedIcons = $state<Record<string, string>>({});
+  const iconOf = (name: string) => pickedIcons[name.toLowerCase()] ?? icons[name.toLowerCase()];
+  const asked = new Set<string>();
 
-  void app.run(() => api.getConnections()).then((snap) => {
+  const connections = app.run(() => api.getConnections()).then((snap) => {
     const counts = new Map<string, number>();
     for (const c of snap?.connections ?? []) {
       if (c.process && !OWN.has(c.process.toLowerCase())) counts.set(c.process, (counts.get(c.process) ?? 0) + 1);
     }
     busy = counts;
   });
-  void api.runningPrograms().then((names) => (running = names), () => {});
+  const programs = api.runningPrograms().then((names) => void (running = names), () => {});
+  // One call for everything listed, once both lists are in.
+  void Promise.all([connections, programs]).then(() => loadIcons());
+
+  /** Ask for the icons of every listed name not asked for yet, in one call (the dialog asks again for its pick). */
+  async function loadIcons(extraPath?: string) {
+    const names = [...rules.map((r) => r.value), ...(busy?.keys() ?? []), ...running, ...picked].filter((n) => !asked.has(n.toLowerCase()));
+    names.forEach((n) => asked.add(n.toLowerCase()));
+    if (!names.length && !extraPath) return;
+    try {
+      const found = await api.programIcons(names, extraPath ? [extraPath] : []);
+      if (!Object.keys(found).length) return;
+      // The file's own icon is in the answer under its name, and must beat the batch's.
+      if (extraPath) pickedIcons = { ...pickedIcons, ...found };
+      else icons = { ...icons, ...found };
+    } catch {
+      // No icon is fine: the row looks the same without one.
+    }
+  }
 
   // Rules edited here wait for Apply on the Rules tab, like the ones typed there.
   let rules = $derived((app.ruleSettings?.core.custom_rules ?? []).filter((r) => r.kind === 'process-name'));
@@ -61,6 +85,8 @@
     if (!path) return;
     const name = (String(path).replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '').replace(/\.app$/i, '');
     if (name && !picked.some((p) => same(p, name))) picked = [name, ...picked];
+    // The chosen file's own icon, even when a program of that name is known already.
+    if (name) void loadIcons(String(path));
   }
 
   const describe = (name: string) => {
@@ -74,6 +100,7 @@
 {#snippet row(name: string)}
   {@const r = ruleFor(name)}
   <div class="row">
+    <span class="ico" aria-hidden="true">{#if iconOf(name)}<img src={iconOf(name)} alt="" width="28" height="28" decoding="async" draggable="false" />{/if}</span>
     <span class="nm"><span class="t mono">{name}</span><span class="d">{describe(name)}</span></span>
     <button class="btn small-btn" aria-pressed={r?.target === 'Proxy'} onclick={() => route(name, 'Proxy')}>{t('Proxy')}</button>
     <button class="btn small-btn" aria-pressed={r?.target === 'DIRECT'} onclick={() => route(name, 'DIRECT')}>{t('Direct')}</button>
@@ -121,6 +148,8 @@
   .sec { position: sticky; top: 0; z-index: 1; padding: 6px 12px; font-size: 12px; font-weight: 500; color: var(--muted); background: var(--sunk); border-bottom: 1px solid var(--line); }
   .row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; }
   .row + .row { border-top: 1px solid var(--line); }
+  .ico { flex: none; width: 28px; height: 28px; border-radius: 6px; background: var(--sunk); overflow: hidden; }
+  .ico img { display: block; width: 28px; height: 28px; object-fit: contain; }
   .nm { display: flex; flex-direction: column; flex: 1; min-width: 0; }
   .nm .t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .nm .d { font-size: 12px; color: var(--muted); }

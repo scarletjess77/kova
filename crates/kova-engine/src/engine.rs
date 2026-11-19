@@ -572,9 +572,9 @@ impl Engine {
             new.active_profile = s.active_profile.clone();
             new.selections = s.selections.clone();
             new.xray_selection = s.xray_selection.clone();
-            // A save already in flight when a profile was removed still carries its favorites.
-            let ids: Vec<String> = self.profiles.read().unwrap().profiles.iter().map(|p| p.id.clone()).collect();
-            new.favorites = live_favorites(new.favorites, &ids);
+            // Favorites change only through set_favorites (and a backup import, remove_profile):
+            // a whole-settings save prepared earlier carries a stale list that must not come back.
+            new.favorites = s.favorites.clone();
             std::mem::replace(&mut *s, new)
         };
         let new = self.settings();
@@ -616,6 +616,22 @@ impl Engine {
             self.apply_system_proxy()?;
         }
         Ok(())
+    }
+
+    /// Stores the favorites (keys are "<profile id>/<server>") and returns what was kept.
+    /// Keys of profiles that no longer exist are dropped. Only this list is saved: no core
+    /// restart and no other setting is touched, so a star never waits for or fails with a
+    /// settings save.
+    pub async fn set_favorites(&self, favorites: Vec<String>) -> Result<Vec<String>> {
+        let ids: Vec<String> = self.profiles.read().unwrap().profiles.iter().map(|p| p.id.clone()).collect();
+        let favorites = live_favorites(favorites, &ids);
+        let saved = {
+            let mut s = self.settings.write().unwrap();
+            s.favorites = favorites.clone();
+            s.clone()
+        };
+        saved.save(&self.paths)?;
+        Ok(favorites)
     }
 
     /// Whether another program took the system proxy away from Kova: connected with the
@@ -1007,7 +1023,6 @@ impl Engine {
                     favorites.push(key.clone());
                 }
             }
-            s.favorites = favorites;
             let selections: HashMap<String, String> = std::mem::take(&mut s.selections)
                 .into_iter()
                 .filter_map(|(key, member)| {
@@ -1016,7 +1031,7 @@ impl Engine {
                 })
                 .collect();
             let xray_selection = s.xray_selection.take();
-            // update_settings keeps the choices of profile and servers; they follow here.
+            // update_settings keeps the choices of profile, servers and favorites; they follow here.
             self.update_settings(s).await?;
             if let Some(id) = active {
                 self.set_active_profile(&id).await?;
@@ -1025,6 +1040,7 @@ impl Engine {
                 let mut s = self.settings.write().unwrap();
                 s.selections.extend(selections);
                 s.xray_selection = xray_selection;
+                s.favorites = favorites;
                 s.clone()
             };
             s.save(&self.paths)?;
@@ -2890,14 +2906,48 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_settings_save_drops_favorites_of_missing_profiles() {
+    async fn a_settings_save_ignores_the_favorites_it_carries() {
         let dir = tempfile::tempdir().unwrap();
         let engine = Engine::new(dir.path()).unwrap();
         let a = engine.add_profile("trojan://pw@a.example:443#A", Some("one".into())).await.unwrap();
+        let kept = vec![format!("{}/A", a.id)];
+        engine.set_favorites(kept.clone()).await.unwrap();
+        // A save prepared before the star was set carries the old (empty) list.
+        let mut stale = engine.settings();
+        stale.favorites = Vec::new();
+        stale.core.mixed_port = 7999;
+        engine.update_settings(stale).await.unwrap();
+        assert_eq!(engine.settings().core.mixed_port, 7999);
+        assert_eq!(engine.settings().favorites, kept);
+        // Nor can a save add keys.
         let mut s = engine.settings();
-        s.favorites = vec![format!("{}/A", a.id), "gone/B".into(), format!("{}/C", super::COMBINED)];
+        s.favorites = vec![format!("{}/A", a.id), "gone/B".into(), "x/Y".into()];
         engine.update_settings(s).await.unwrap();
-        assert_eq!(engine.settings().favorites, vec![format!("{}/A", a.id), format!("{}/C", super::COMBINED)]);
+        assert_eq!(engine.settings().favorites, kept);
+        assert_eq!(Engine::new(dir.path()).unwrap().settings().favorites, kept);
+    }
+
+    #[tokio::test]
+    async fn set_favorites_keeps_live_keys_and_saves_only_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = Engine::new(dir.path()).unwrap();
+        let a = engine.add_profile("trojan://pw@a.example:443#A", Some("one".into())).await.unwrap();
+        let before = engine.settings();
+        let want = vec![format!("{}/A", a.id), "gone/B".into(), format!("{}/C", super::COMBINED)];
+        let stored = engine.set_favorites(want).await.unwrap();
+        let kept = vec![format!("{}/A", a.id), format!("{}/C", super::COMBINED)];
+        assert_eq!(stored, kept);
+        assert_eq!(engine.settings().favorites, kept);
+        // Nothing else changed, and the core was not touched.
+        let mut expect = before;
+        expect.favorites = kept.clone();
+        assert_eq!(serde_json::to_value(engine.settings()).unwrap(), serde_json::to_value(expect).unwrap());
+        assert!(!engine.status().running);
+        // Persisted across reopening, and a smaller list replaces the old one.
+        let reopened = Engine::new(dir.path()).unwrap();
+        assert_eq!(reopened.settings().favorites, kept);
+        assert!(reopened.set_favorites(Vec::new()).await.unwrap().is_empty());
+        assert!(Engine::new(dir.path()).unwrap().settings().favorites.is_empty());
     }
 
     #[test]

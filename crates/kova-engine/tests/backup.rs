@@ -9,7 +9,8 @@ const LINK: &str = "vless://00000000-0000-4000-8000-000000000000@203.0.113.10:44
 async fn backup_moves_profiles_and_settings() {
     let (a, b) = (tempfile::tempdir().unwrap(), tempfile::tempdir().unwrap());
     let from = Engine::new(a.path()).unwrap();
-    from.add_profile(LINK, Some("Mine".into())).await.unwrap();
+    let mine = from.add_profile(LINK, Some("Mine".into())).await.unwrap();
+    from.set_favorites(vec![format!("{}/Test node", mine.id), "combined/Other".into()]).await.unwrap();
     let mut s = from.settings();
     s.language = "fa".into();
     from.update_settings(s).await.unwrap();
@@ -26,10 +27,13 @@ async fn backup_moves_profiles_and_settings() {
     assert_eq!(to.profile_content(&profiles[0].id).unwrap(), LINK);
     assert_eq!(to.settings().active_profile.as_deref(), Some(profiles[0].id.as_str()));
     assert_eq!(to.settings().language, "fa");
+    // Favorites follow the profile to its new id.
+    assert_eq!(to.settings().favorites, vec![format!("{}/Test node", profiles[0].id), "combined/Other".to_string()]);
     // Each install keeps its own device ID, which providers count devices by.
     assert_eq!(to.settings().device_id, device);
 
     // The same backup again adds nothing.
     assert_eq!(to.import_backup(backup, true).await.unwrap(), (0, 1));
     assert_eq!(to.profiles().len(), 1);
+    assert_eq!(to.settings().favorites.len(), 2);
 }

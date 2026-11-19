@@ -33,6 +33,7 @@ const RULES: Rule[] = [
   [/^(\S+) could not be downloaded, neither directly \((.*)\) nor through Kova's own proxy \((.*)\)$/is, (m) => t('{name} could not be downloaded, neither directly ({direct}) nor through Kova’s own proxy ({proxy})', { name: m[1], direct: friendly(m[2]), proxy: friendly(m[3]) })],
   [/checksum (mismatch|check)/i, () => t('A download failed its checksum check, so it was not installed. Try again')],
   [/has no published checksum|has no checksum for/i, () => t('The release has no checksum to verify, so Kova did not install it')],
+  [/^the download took too long$/i, () => t('The download took too long')],
   [/^no (\S+) build for this system/i, (m) => t('{name} has no build for this system', { name: m[1] })],
   [/^the Kova service is only available on Windows/i, () => t('The Kova service is only available on Windows for now')],
   [/^the Kova service did not answer in time$/i, () => t('The Kova service did not answer in time')],
@@ -86,6 +87,39 @@ function serverStatus(code: string): string {
   if (code === '404') return t('Nothing found at that address (404). Check the subscription link');
   if (code.startsWith('5')) return t('The server has a problem ({status}). Try again later', { status: code });
   return t('The server answered {status}', { status: code });
+}
+
+// Why a server was left out of the connection, as the engine words it (kova-core's
+// compat.rs and the launch code in engine.rs). A reason not listed is shown as it is.
+const SKIPPED: Record<string, () => string> = {
+  'its Xray configuration is not a JSON object': () => t('its Xray configuration is not a JSON object'),
+  'Shoes runs NaiveProxy servers only': () => t('Shoes runs NaiveProxy servers only'),
+  'NaiveProxy needs the Shoes core': () => t('NaiveProxy needs the Shoes core'),
+  "Xray's mux needs Xray": () => t('Xray’s mux needs Xray'),
+  'this protocol needs Xray': () => t('this protocol needs Xray'),
+  'XHTTP transport needs Xray': () => t('XHTTP transport needs Xray'),
+  'VLESS encryption needs Xray': () => t('VLESS encryption needs Xray'),
+  'Hysteria2 needs Mihomo': () => t('Hysteria2 needs Mihomo'),
+  'TUIC needs Mihomo': () => t('TUIC needs Mihomo'),
+  'AnyTLS needs Mihomo': () => t('AnyTLS needs Mihomo'),
+  'this protocol needs Mihomo': () => t('this protocol needs Mihomo'),
+  'Shadowsocks plugins need Mihomo': () => t('Shadowsocks plugins need Mihomo'),
+  'sing-mux needs Mihomo': () => t('sing-mux needs Mihomo'),
+  'HTTP/2 transport was removed from Xray': () => t('HTTP/2 transport was removed from Xray'),
+  'needs Xray, which is not installed': () => t('needs Xray, which is not installed'),
+  'needs the Shoes core, which has no build for this system yet': () => t('needs the Shoes core, which has no build for this system yet'),
+  'needs the Shoes core, which could not be installed': () => t('needs the Shoes core, which could not be installed'),
+};
+const SHOES_FAILED = /^needs the Shoes core, which could not be installed \((.*)\)$/s;
+
+/** The reason a server was skipped, in the interface's language. */
+export function skipReason(reason: string): string {
+  const r = reason.trim();
+  const known = SKIPPED[r];
+  if (known) return known();
+  const m = r.match(SHOES_FAILED);
+  if (m) return t('needs the Shoes core, which could not be installed ({cause})', { cause: friendly(m[1]) });
+  return r;
 }
 
 /** An engine error in plain words, in the interface's language. */

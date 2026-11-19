@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import { api } from '../lib/api';
   import { t } from '../lib/i18n.svelte';
+  import { FAQ_URL } from '../lib/links';
   import { app } from '../lib/state.svelte';
   import Donate from './Donate.svelte';
   import Icon from './Icon.svelte';
@@ -26,6 +28,7 @@
   <div class="spacer" data-tauri-drag-region={app.mobile ? undefined : ''}></div>
   <button class="tb-btn" onclick={() => { if (app.view !== 'dashboard') { app.go('dashboard'); app.editingLayout = true; } else { app.editingLayout = !app.editingLayout; } }} title={t('Edit layout')} aria-label={t('Edit layout')} aria-pressed={app.editingLayout}><Icon name="edit" /></button>
   <button class="tb-btn donate" onclick={() => (donateOpen = true)} title={t('Donate')} aria-label={t('Donate')}><Icon name="heart" />{#if !app.mobile}<span>{t('Donate')}</span>{/if}</button>
+  <button class="tb-btn" onclick={() => app.run(() => openUrl(FAQ_URL))} title={t('FAQ')} aria-label={t('FAQ')}><Icon name="help" /></button>
   <button class="tb-btn" onclick={() => (themesOpen = true)} title={t('Theme')} aria-label={t('Theme')} aria-haspopup="dialog"><Icon name="moon" /></button>
   {#if !app.mobile}
     <div class="winctl">
@@ -62,7 +65,7 @@
   .tb-btn.donate :global(.i) { width: 15px; height: 15px; }
   .winctl { display: flex; height: 100%; }
   :global(.app.mobile) .titlebar { padding: 0 6px; gap: 8px; }
-  :global(.app.mobile) .tb-btn { width: 40px; height: 40px; border-radius: 10px; }
+  :global(.app.mobile) .tb-btn { width: 40px; height: 40px; border-radius: 10px; flex-shrink: 0; }
   :global(.app.mobile) .tb-btn :global(.i) { width: 20px; height: 20px; }
   :global(.app.mobile) .tb-btn.donate { width: 40px; padding: 0; justify-content: center; }
   .winctl button { width: 46px; display: grid; place-items: center; color: var(--muted); border: 0; background: none; }

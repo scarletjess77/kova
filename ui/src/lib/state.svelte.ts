@@ -664,14 +664,22 @@ class AppState {
     return !!this.settings?.favorites?.includes(this.favKey(name));
   }
 
-  /** Saving stars does not restart the connection. */
+  // Stars are saved by their own call, on their own queue: a settings save the engine
+  // refuses (or one still waiting in saveQueue) must not take a star with it.
+  private favQueue: Promise<void> = Promise.resolve();
+
+  /** Saving stars does not restart the connection. Clicks run one after another, each
+   *  starting from the list the engine returned for the one before. */
   toggleFavorite(name: string) {
-    return this.saveSettings((x) => {
-      const key = this.favKey(name);
-      const now = new Set(x.favorites ?? []);
+    const key = this.favKey(name);
+    const job = this.favQueue.then(async () => {
+      const now = new Set(this.settings?.favorites ?? []);
       if (!now.delete(key)) now.add(key);
-      x.favorites = [...now];
+      const saved = await this.run(() => api.setFavorites([...now]));
+      if (saved && this.settings) this.settings.favorites = saved;
     });
+    this.favQueue = job.catch(() => {});
+    return job;
   }
 
   /** Follow a group chain to the node that actually carries traffic. */

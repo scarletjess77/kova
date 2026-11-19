@@ -57,6 +57,9 @@
     const rule: Rule = { kind: 'geosite', value: AI_LIST, target: `country:${c}` };
     app.stageRules((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]));
   }
+  // The explanatory lines under the switches are off until asked for; the choice is remembered.
+  let help = $state((() => { try { return localStorage.getItem('kova.rulesHelp') === '1'; } catch { return false; } })());
+  $effect(() => { try { localStorage.setItem('kova.rulesHelp', help ? '1' : '0'); } catch { /* hidden again next time */ } });
   let isClash = $derived(app.activeProfile?.format === 'clash');
 
   function togglePreset(p: Preset) {
@@ -266,35 +269,39 @@
       </div>
     </div>
   {/if}
-  <div class="eyebrow">{t('Routing presets')}</div>
+  <div class="presets-h">
+    <div class="eyebrow">{t('Routing presets')}</div>
+    <button class="btn ghost small-btn" aria-expanded={help} onclick={() => (help = !help)}><Icon name={help ? 'eye-off' : 'eye'} />{help ? t('Hide descriptions') : t('Show descriptions')}</button>
+  </div>
   <div class="presets">
     {#each PRESETS as p (p.id)}
       {@const unavailable = p.needs === 'runetfreedom' && s.core.geodata.kind === 'default' && !s.core.presets.includes(p.id)}
       <div class="card preset">
-        <div><div class="t">{p.title}</div><div class="d">{p.desc}</div>
+        <div><div class="t">{p.title}</div>{#if help}<div class="d">{p.desc}</div>{/if}
           {#if unavailable}<button class="link" onclick={() => app.go('settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
         <button class="switch" role="switch" aria-label={p.title} aria-checked={s.core.presets.includes(p.id)} disabled={unavailable} onclick={() => togglePreset(p.id)}></button>
       </div>
     {/each}
-  </div>
-
   {#if !app.mobile}
-    <section class="card torrent">
-      <div class="card-h"><h2>{t('Torrent clients')}</h2></div>
-      <div class="seg" role="group" aria-label={t('Torrent clients')}>
-        {#each TORRENT as [v, l] (v ?? 'none')}
-          <button aria-pressed={(s.core.torrent ?? null) === v} onclick={() => setTorrent(v)}>{l}</button>
-        {/each}
+    <div class="card preset torrent">
+      <div>
+        <div class="t">{t('Torrent clients')}</div>
+        <div class="d">{t('Route torrent programs (qBittorrent, Transmission, Deluge…) on their own. Only programs whose traffic goes through Kova are affected.')}</div>
+        <div class="seg" role="group" aria-label={t('Torrent clients')}>
+          {#each TORRENT as [v, l] (v ?? 'none')}
+            <button aria-pressed={(s.core.torrent ?? null) === v} onclick={() => setTorrent(v)}>{l}</button>
+          {/each}
+        </div>
+        {#if s.core.torrent && isClash && !s.core.apply_rules_to_clash_profiles}
+          <div class="d warn-text">{t('The torrent choice is ignored for the active Clash profile. Turn on “Apply to imported Clash profiles” below.')}</div>
+        {/if}
+        {#if s.core.torrent === 'proxy'}
+          <div class="d warn-text">{t('Many providers forbid torrents on their servers. This can get your account blocked.')}</div>
+        {/if}
       </div>
-      <p class="hint">{t('Matches the programs by name (qBittorrent, uTorrent, Transmission, Deluge and others). It works for programs whose traffic goes through Kova: with TUN on, with the system proxy, or when the program is pointed at Kova’s port.')}</p>
-      {#if s.core.torrent && isClash && !s.core.apply_rules_to_clash_profiles}
-        <p class="hint warn-text">{t('The torrent choice is ignored for the active Clash profile. Turn on “Apply to imported Clash profiles” below.')}</p>
-      {/if}
-      {#if s.core.torrent === 'proxy'}
-        <p class="hint warn-text">{t('Many providers forbid torrents on their servers. This can get your account blocked.')}</p>
-      {/if}
-    </section>
+    </div>
   {/if}
+  </div>
 
   <section class="card">
     <div class="card-h"><h2>{t('Your rules')}</h2><span class="aside">{t('checked before presets')}</span>
@@ -344,7 +351,7 @@
       <p class="hint">{t('No rules of your own yet. Add one to send a site or app through the proxy, direct, or block it.')}</p>
     {/if}
     <div class="row-sw apply">
-      <div><div class="t">{t('Apply to imported Clash profiles')}</div><div class="d">{isClash ? t('Put your rules and presets in front of a Clash profile’s own rules (the active profile is one).') : t('Put your rules and presets in front of a Clash profile’s own rules.')}</div></div>
+      <div><div class="t">{t('Apply to imported Clash profiles')}</div>{#if help}<div class="d">{isClash ? t('Put your rules and presets in front of a Clash profile’s own rules (the active profile is one).') : t('Put your rules and presets in front of a Clash profile’s own rules.')}</div>{/if}</div>
       <button class="switch" role="switch" aria-label={t('Apply to imported Clash profiles')} aria-checked={s.core.apply_rules_to_clash_profiles}
         onclick={() => app.stageRules((x) => (x.core.apply_rules_to_clash_profiles = !x.core.apply_rules_to_clash_profiles))}></button>
     </div>
@@ -354,7 +361,7 @@
     <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">beta</span>
       <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
         onclick={() => app.stageRules((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
-    <p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>
+    {#if help}<p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>{/if}
     {#if s.core.smart_routing && s.core.mode !== 'rule'}
       <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
     {:else if s.core.smart_routing && s.core.tun.enabled && !s.core.sniff && !s.core.dns.fake_ip}
@@ -365,7 +372,7 @@
     {#if s.core.smart_routing && isClash}
       <div class="row-sw profile-rules">
         <div><div class="t">{t('Also correct the subscription’s rules')}</div>
-          <div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div></div>
+          {#if help}<div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div>{/if}</div>
         <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
           onclick={() => app.stageRules((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
       </div>
@@ -433,7 +440,9 @@
 <style>
   .pending { position: sticky; top: 0; z-index: 3; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--sunk); font-size: 13px; }
   .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin: 8px 0 16px; }
-  .preset { display: flex; gap: 12px; align-items: flex-start; }
+  .presets-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+  /* A minimum height so the tiles stay level when only title and switch show. */
+  .preset { display: flex; gap: 12px; align-items: flex-start; min-height: 64px; }
   .preset .t { font-weight: 500; font-size: 14px; }
   .preset .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
   .preset .switch { margin-inline-start: auto; margin-top: 2px; }
@@ -458,8 +467,12 @@
   .hint :global(.inline-grip) { width: 13px; height: 13px; stroke-width: 3; vertical-align: -2px; }
   .apply { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
   .order { margin-top: 14px; }
-  .torrent { margin-bottom: 12px; }
-  .warn-text { color: var(--warn); }
+  /* One tile in the presets grid, two columns wide so its four choices fit on one line. */
+  .torrent { grid-column: span 2; }
+  .torrent .seg { margin-top: 10px; align-self: start; flex-wrap: wrap; }
+  @container (max-width: 560px) { .torrent { grid-column: 1 / -1; } }
+  /* The preset description rule is more specific than .warn-text, so the warning needs its own. */
+  .preset .d.warn-text, .warn-text { color: var(--warn); }
   .smart { margin-top: 12px; }
   .profile-rules { margin: 4px 0 6px; }
   .sugg-h { margin: 6px 0 8px; }

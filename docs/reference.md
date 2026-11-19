@@ -15,6 +15,7 @@ Names in bold are the exact texts in the app. Language is English here; the app 
 
 - **Edit layout** (pencil in the title bar): starts layout editing. See "Layout presets and Edit layout" under Dashboard.
 - **Donate**: opens the support dialog. Support is voluntary.
+- **FAQ** (question-mark icon in the title bar): opens the FAQ page in your browser.
 - **Theme** (moon icon): opens the theme picker (see Settings, App).
 - **Close to tray** (the close button, desktop only): hides the window. Kova keeps running. Use **Quit Kova** to end it.
 - **Menu** (Android phone): opens the sidebar.
@@ -65,7 +66,7 @@ A live chart of download and upload speed.
 
 A short list for choosing a server without leaving the Dashboard: the groups of the main group (up to 6), then the five fastest servers that have been tested.
 
-- **Test speed** runs the latency test. Until a test has run, no servers are listed, because nothing is guessed.
+- **Test latency** runs the latency test. Until a test has run, no servers are listed, because nothing is guessed.
 - The row you click is selected only if the main group is a select group. If the group is **Fastest server** or **Failover** (an automatic group), the card says it chooses by itself.
 - **All servers** opens the Proxies page.
 
@@ -192,6 +193,8 @@ The first matching rule decides where traffic goes. The order is: your rules, to
 
 ### Routing presets
 
+**Show descriptions** / **Hide descriptions** (next to the heading) shows or hides the explanatory lines under the switches on this page. They are hidden by default, and the choice is remembered. Warnings and notices always stay visible.
+
 Switches. **Default**: on a first start Kova turns on **Block ads and trackers** and, from the system language, the local preset: Russian gives **Direct for Russian sites**, Chinese **Direct for Chinese sites**, Persian **Direct for Iranian sites**. Elsewhere no local preset.
 
 - **Only blocked sites through the proxy**: sites blocked in Russia use the proxy; everything else goes direct. Needs the Russia routing data (Settings, Routing data); until then the switch is disabled with a link to Settings.
@@ -215,7 +218,7 @@ Targets: **Proxy (main group)**, **DIRECT**, **REJECT** (block), **Fastest in {c
 Reorder by dragging the grip or with the arrow keys; rules higher up win. The x deletes a rule.
 
 - **ChatGPT, Claude, Gemini and other AI services through** a country: one click adds a Geosite rule for `category-ai-!cn` toward the fastest server of the chosen country. Shown while the rule does not exist.
-- **Route an app...** (desktop only): lists programs using the network now, programs already routed, and other running programs; **Choose a program...** adds one from disk. Each row has **Proxy**, **Direct** and **Block**, and an x to remove. These rules go above all others. With the system proxy only programs that use it are affected; TUN covers every program.
+- **Route an app...** (desktop only): lists programs using the network now, programs already routed, and other running programs; **Choose a program...** adds one from disk. Each row has **Proxy**, **Direct** and **Block**, and an x to remove. These rules go above all others. With the system proxy only programs that use it are affected; TUN covers every program. On Windows each row shows the program's icon when it has one; icons are cached in the `icons` folder of the data folder (up to 300 files), so a program that is not running now keeps its last icon.
 - **Apply to imported Clash profiles** (default on): puts your rules and presets in front of an imported Clash profile's own rules. Off, a Clash profile keeps only its own rules.
 
 ### Smart routing (beta)
