@@ -56,22 +56,39 @@
   });
   let endNode = $derived(chain.length ? chain[chain.length - 1] : undefined);
   let endInfo = $derived(endNode ? app.nodes[endNode] : undefined);
-  // Quick switch: the groups of the main group, then the five fastest servers that have
-  // been tested; nothing is guessed before a test has run.
+  // Quick switch: the groups of the main group, then the user's favorite servers, then the
+  // fastest tested ones up to five rows in all. Favorites are listed even before a test (dimmed
+  // until they have a result); other servers need a result first, so none is guessed.
+  // With more than five favorites only favorites show (up to eight).
   const BUILT_IN = new Set(['DIRECT', 'REJECT', 'REJECT-DROP', 'PASS', 'COMPATIBLE']);
   const isGroupName = (n: string) => app.proxies.groups.some((g) => g.name === n);
   const isServer = (n: string) => !isGroupName(n) && !BUILT_IN.has(n.toUpperCase()) && !['Direct', 'Reject', 'RejectDrop', 'Pass', 'Compatible'].includes(app.proxies.proxies[n]?.type ?? '');
   let quickGroups = $derived(mainGroup ? mainGroup.all.filter(isGroupName).slice(0, 6) : []);
   let serverCount = $derived(mainGroup ? mainGroup.all.filter(isServer).length : 0);
+  const QUICK_ROWS = 5;
+  const QUICK_FAV_MAX = 8;
+  const isTested = (n: string) => app.delayOf(n) != null || app.isDead(n);
+  /** Known latencies first, fastest first; the rest keep their order. */
+  const byLatency = (list: string[]) => [...list.filter((n) => app.delayOf(n) != null).sort((a, b) => (app.delayOf(a) ?? 1e9) - (app.delayOf(b) ?? 1e9)), ...list.filter((n) => app.delayOf(n) == null)];
+  // Nothing tested yet: the card offers the test instead of guessing.
+  let anyTested = $derived(!!mainGroup && mainGroup.all.some((n) => isServer(n) && isTested(n)));
   // While a test runs the rows keep their order and new results are appended, so a tap
-  // never lands on a row that moved; the list is sorted again when the test ends.
+  // never lands on a row that moved; the list is sorted again when the test ends. Starring
+  // or unstarring is the user's own change and shows at once.
   let frozen: string[] = [];
+  let frozenFavs = '';
   let quickServers = $derived.by(() => {
     if (!mainGroup) return [];
-    const tested = mainGroup.all.filter((n) => isServer(n) && (app.delayOf(n) != null || app.isDead(n)));
-    const sorted = [...tested.filter((n) => app.delayOf(n) != null).sort((a, b) => (app.delayOf(a) ?? 1e9) - (app.delayOf(b) ?? 1e9)), ...tested.filter((n) => app.delayOf(n) == null)];
-    const keep = app.testing.size > 0 ? frozen.filter((n) => tested.includes(n)) : [];
-    frozen = [...keep, ...sorted.filter((n) => !keep.includes(n))].slice(0, 5);
+    const servers = mainGroup.all.filter(isServer);
+    const favs = servers.filter((n) => app.isFavorite(n));
+    const favKey = favs.join('|');
+    if (favKey !== frozenFavs) { frozenFavs = favKey; frozen = []; }
+    const limit = favs.length >= QUICK_ROWS ? Math.min(favs.length, QUICK_FAV_MAX) : QUICK_ROWS;
+    const fillers = servers.filter((n) => !favs.includes(n) && isTested(n));
+    const sorted = [...byLatency(favs), ...byLatency(fillers)];
+    // Favorites are always listed, so they are never pushed out by rows kept from before.
+    const keep = app.testing.size > 0 ? frozen.filter((n) => sorted.includes(n)) : [];
+    frozen = [...keep, ...sorted.filter((n) => !keep.includes(n))].slice(0, limit);
     return frozen;
   });
   let currentNode = $derived(mainGroup?.now ? app.resolve(mainGroup.now) : undefined);
@@ -402,13 +419,13 @@
           {@const info = app.nodes[name]}
           <button class:dim={app.delayOf(name) == null} aria-pressed={readOnly ? undefined : mainGroup.now === name} aria-disabled={readOnly || !!pending} onclick={() => pick(name)}>
             <span class="cc">{countryLabel(name, app.flags)}</span>
-            <span class="nm"><span class="t">{displayName(name)}</span>{#if info}<span class="pr">{info.protocol}{info.transport && info.transport !== 'tcp' ? ` · ${info.transport}` : ''}</span>{/if}</span>
+            <span class="nm"><span class="t">{#if app.isFavorite(name)}<Icon name="star" class="fav" /><span class="vh">{t('Favorites')}</span>{/if}{displayName(name)}</span>{#if info}<span class="pr">{info.protocol}{info.transport && info.transport !== 'tcp' ? ` · ${info.transport}` : ''}</span>{/if}</span>
             {#if pending === name}<span class="lat none">…</span>{:else}<Latency delay={app.delayOf(name)} dead={app.isDead(name)} testing={app.testing.has(name)} />{/if}
             {#if mainGroup.now === name}<Icon name="check" />{/if}
           </button>
         {/each}
       </div>
-      {#if !quickServers.length && serverCount}
+      {#if !anyTested && serverCount}
         <div class="qs-hint"><span class="muted">{t('Test latency to see the fastest servers.')}</span>
           <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test latency')}</button></div>
       {/if}
@@ -583,6 +600,10 @@
   .qs button[aria-disabled='true'] { cursor: default; }
   .qs-note { margin: 0 0 8px; font-size: 12px; }
   .qs button.dim { opacity: .55; }
+  /* Read out by screen readers only: says what the star means. */
+  .qs .vh { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  /* Why a row is on top: it is a favorite. Filled, muted, and not the accent tick of the chosen row. */
+  .qs .t :global(.fav) { width: 12px; height: 12px; margin-inline-end: 5px; vertical-align: -1px; color: var(--faint); fill: currentColor; }
   .qs button > :global(.i) { width: 16px; height: 16px; flex: none; color: var(--accent); }
   .qs .nm { font-weight: 500; flex: 1; min-width: 0; display: flex; flex-direction: column; }
   .qs .nm .t, .qs .pr { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

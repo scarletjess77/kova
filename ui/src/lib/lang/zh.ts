@@ -1009,8 +1009,6 @@ export const zh: Dict = {
   'Not set': '未设置',
   'Route torrent programs (qBittorrent, Transmission, Deluge…) on their own. Only programs whose traffic goes through Kova are affected.': '单独设置种子下载程序（qBittorrent、Transmission、Deluge…）的路由。仅对流量经过 Kova 的程序有效。',
   'FAQ': '常见问题',
-  'Show descriptions': '显示说明',
-  'Hide descriptions': '隐藏说明',
   'Many providers forbid torrents on their servers. This can get your account blocked.': '许多服务商禁止在其服务器上使用 BT 下载，这可能导致账号被封。',
   'Switch to a faster server': '切换到更快的服务器',
   'if faster by {n} ms': '快 {n} ms 以上时',

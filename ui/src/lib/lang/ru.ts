@@ -1060,8 +1060,6 @@ export const ru: Dict = {
   'Not set': 'Не задано',
   'Route torrent programs (qBittorrent, Transmission, Deluge…) on their own. Only programs whose traffic goes through Kova are affected.': 'Маршрутизация торрент-программ (qBittorrent, Transmission, Deluge…) отдельно. Затрагивает только программы, трафик которых идёт через Kova.',
   'FAQ': 'Вопросы и ответы',
-  'Show descriptions': 'Показать описания',
-  'Hide descriptions': 'Скрыть описания',
   'Many providers forbid torrents on their servers. This can get your account blocked.': 'Многие VPN-сервисы запрещают торренты на своих серверах. За это могут заблокировать аккаунт.',
   'Switch to a faster server': 'Переключаться на более быстрый сервер',
   'if faster by {n} ms': 'если быстрее на {n} мс',

@@ -25,8 +25,17 @@
 
   let q = $state('');
   type Sort = 'latency' | 'name' | 'profile';
-  let sort = $state<Sort>('latency');
-  let favOnly = $state(false);
+  // The sort and the favorites filter are kept for the next time the window opens; they have
+  // their own keys, so they don't change what the Proxies page shows. The search text is not kept.
+  let sort = $state<Sort>((() => { try { const v = localStorage.getItem('kova.pickerSort'); return v === 'name' || v === 'profile' ? v : 'latency'; } catch { return 'latency'; } })());
+  $effect(() => { try { localStorage.setItem('kova.pickerSort', sort); } catch { /* back to the default next time */ } });
+  let favOnly = $state((() => { try { return localStorage.getItem('kova.pickerFav') === '1'; } catch { return false; } })());
+  $effect(() => { try { localStorage.setItem('kova.pickerFav', favOnly ? '1' : '0'); } catch { /* shows all next time */ } });
+  // The remembered choice only applies while this profile has a favorite here; otherwise "All
+  // servers" would look empty after the last star was taken off. The stored value is kept, so
+  // the filter comes back with the next star.
+  let hasFav = $derived(servers.some((n) => app.isFavorite(n)));
+  let favActive = $derived(favOnly && hasFav);
 
   const delay = (n: string) => app.delayOf(n) ?? 1e9;
   // While a test runs the tiles keep their order, so a click never lands on one that moved;
@@ -45,8 +54,8 @@
     if (sort === 'latency') list = [...list].sort((a, b) => delay(a) - delay(b));
     if (sort === 'name') list = [...list].sort((a, b) => displayName(a).localeCompare(displayName(b)));
     // Starred first in every order; the sorts are stable, so each keeps its own order inside.
-    list = [...list.filter((n) => app.isFavorite(n)), ...(favOnly ? [] : list.filter((n) => !app.isFavorite(n)))];
-    const key = [sort, needle, favOnly, servers.filter((n) => app.isFavorite(n)).join(',')].join('|');
+    list = [...list.filter((n) => app.isFavorite(n)), ...(favActive ? [] : list.filter((n) => !app.isFavorite(n)))];
+    const key = [sort, needle, favActive, servers.filter((n) => app.isFavorite(n)).join(',')].join('|');
     if (key !== frozenFor) { frozenFor = key; frozen = []; }
     if (app.testing.size > 0) {
       const keep = frozen.filter((n) => list.includes(n));
@@ -55,7 +64,7 @@
     frozen = list;
     return list;
   });
-  let groupsShown = $derived(favOnly ? [] : groupNames.filter((n) => !q.trim() || [n, groupTitle(n)].join(' ').toLowerCase().includes(q.trim().toLowerCase())));
+  let groupsShown = $derived(favActive ? [] : groupNames.filter((n) => !q.trim() || [n, groupTitle(n)].join(' ').toLowerCase().includes(q.trim().toLowerCase())));
 
   const testAll = () => { if (app.testing.size === 0) void app.testDelays(); };
   // A choice that lands after this window closed must not close a window opened since.
@@ -76,7 +85,7 @@
       <option value="latency">{t('Sort by latency')}</option>
       <option value="name">{t('Sort by name')}</option>
     </select>
-    <button class="btn" aria-pressed={favOnly} class:on={favOnly} onclick={() => (favOnly = !favOnly)}><Icon name="star" />{t('Favorites')}</button>
+    <button class="btn" aria-pressed={favActive} class:on={favActive} aria-disabled={!hasFav} title={hasFav ? undefined : t('No favorite servers yet. Press the star on a server to add it.')} onclick={() => { if (hasFav) favOnly = !favOnly; }}><Icon name="star" />{t('Favorites')}</button>
     <button class="btn" class:busy={app.testing.size > 0} aria-disabled={app.testing.size > 0} onclick={testAll}><Icon name="bolt" />{t('Test latency')}</button>
   </div>
   {#if readOnly}<p class="muted note">{t('{group} chooses automatically. Pick a node in a select group to pin one.', { group: group.name })}</p>{/if}
@@ -113,7 +122,7 @@
       {/each}
     </div>
   {:else}
-    <p class="hint">{favOnly && !q.trim() ? t('No favorite servers yet. Press the star on a server to add it.') : t('No nodes match “{q}”.', { q })}</p>
+    <p class="hint">{t('No nodes match “{q}”.', { q })}</p>
   {/if}
   {#snippet footer()}
     <button class="btn ghost manage" onclick={manage}>{t('Manage in Proxies')}</button>

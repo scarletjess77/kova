@@ -64,11 +64,12 @@ A live chart of download and upload speed.
 
 ### Quick switch
 
-A short list for choosing a server without leaving the Dashboard: the groups of the main group (up to 6), then the five fastest servers that have been tested.
+A short list for choosing a server without leaving the Dashboard: the groups of the main group (up to 6), then your starred servers (a small star marks them), then the fastest servers that have been tested, up to five servers in all. With more than five starred servers only starred ones are listed, up to eight.
 
-- **Test latency** runs the latency test. Until a test has run, no servers are listed, because nothing is guessed.
+- **Test latency** runs the latency test. Starred servers are listed before any test and stay on top; they are dimmed until they have a result, and a starred server that did not answer stays dimmed. Other servers appear only once tested, because nothing is guessed. The hint to run a test shows while no server has been tested.
+- Stars are set in the server window or on **Proxies**; the card follows them at once.
 - The row you click is selected only if the main group is a select group. If the group is **Fastest server** or **Failover** (an automatic group), the card says it chooses by itself.
-- **All servers** opens the Proxies page.
+- **All servers** opens the server window (the full list with search, **Sort** and **Favorites**; **Manage in Proxies** leads to the Proxies page). The window remembers the **Sort** choice and the **Favorites** filter for next time, separately from the Proxies page; the search text is not kept.
 
 ### Session numbers
 
@@ -193,11 +194,11 @@ The first matching rule decides where traffic goes. The order is: your rules, to
 
 ### Routing presets
 
-**Show descriptions** / **Hide descriptions** (next to the heading) shows or hides the explanatory lines under the switches on this page. They are hidden by default, and the choice is remembered. Warnings and notices always stay visible.
+A grid of compact tiles, five presets side by side where the window is wide (fewer per row in a narrow one). A closed tile is one line: an arrow, the title and the switch at the end. The explanation of a tile is hidden by default; press its arrow (or the title) to show or hide it, and only that tile grows. Each tile remembers on this device whether it is open. The same arrows are on **Torrent clients**, **Apply to imported Clash profiles**, **Smart routing** and **Also correct the subscription's rules**. Warnings and notices stay visible under their tile or row even when it is closed.
 
 Switches. **Default**: on a first start Kova turns on **Block ads and trackers** and, from the system language, the local preset: Russian gives **Direct for Russian sites**, Chinese **Direct for Chinese sites**, Persian **Direct for Iranian sites**. Elsewhere no local preset.
 
-- **Only blocked sites through the proxy**: sites blocked in Russia use the proxy; everything else goes direct. Needs the Russia routing data (Settings, Routing data); until then the switch is disabled with a link to Settings.
+- **Only blocked sites through the proxy**: sites blocked in Russia use the proxy; everything else goes direct. Needs the Russia routing data (Settings, Routing data); until then the switch is disabled (its tooltip says why), and the link to Settings is inside the tile's description.
 - **Direct for Russian sites**: `.ru`, `.xn--p1ai` (.rf), `.su`, Russian services and IP ranges skip the proxy.
 - **Block ads and trackers**: rejects the `category-ads-all` list. Risk: a site may break if it depends on a blocked tracker.
 - **Direct for Chinese sites**: `geosite:cn` and Chinese IP ranges go direct.
@@ -205,7 +206,7 @@ Switches. **Default**: on a first start Kova turns on **Block ads and trackers**
 
 ### Torrent clients (new in 0.3.0, desktop only)
 
-Choose one: **Not set** (default), **Through the proxy**, **Direct**, **Block**. It matches programs by name (qBittorrent, uTorrent, BitTorrent, Transmission, Deluge, KTorrent, rTorrent, PicoTorrent, Tribler and others). It works only for programs whose traffic goes through Kova: with TUN, with the system proxy, or when the program is pointed at Kova's port. Warnings: for an imported Clash profile it needs **Apply to imported Clash profiles**; many providers forbid torrents, so **Through the proxy** can get your account blocked.
+A wider tile in the same grid (two columns where there is room), desktop only. Choose one on the title line: **Not set** (default), **Through the proxy**, **Direct**, **Block** (in a narrow window the choices move under the title). It matches programs by name (qBittorrent, uTorrent, BitTorrent, Transmission, Deluge, KTorrent, rTorrent, PicoTorrent, Tribler and others). It works only for programs whose traffic goes through Kova: with TUN, with the system proxy, or when the program is pointed at Kova's port. Warnings: for an imported Clash profile it needs **Apply to imported Clash profiles**; many providers forbid torrents, so **Through the proxy** can get your account blocked.
 
 ### Your rules
 

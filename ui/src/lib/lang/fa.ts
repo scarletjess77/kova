@@ -1010,8 +1010,6 @@ export const fa: Dict = {
   'Not set': 'تنظیم نشده',
   'Route torrent programs (qBittorrent, Transmission, Deluge…) on their own. Only programs whose traffic goes through Kova are affected.': 'مسیریابی برنامه‌های تورنت (qBittorrent، Transmission، Deluge…) به‌صورت جداگانه. فقط برنامه‌هایی را در بر می‌گیرد که ترافیکشان از Kova می‌گذرد.',
   'FAQ': 'پرسش‌های متداول',
-  'Show descriptions': 'نمایش توضیحات',
-  'Hide descriptions': 'پنهان کردن توضیحات',
   'Many providers forbid torrents on their servers. This can get your account blocked.': 'بسیاری از ارائه‌دهندگان تورنت را روی سرورهایشان ممنوع کرده‌اند. این کار می‌تواند باعث مسدود شدن حساب شود.',
   'Switch to a faster server': 'تغییر به سرور سریع‌تر',
   'if faster by {n} ms': 'اگر {n} ms سریع‌تر باشد',

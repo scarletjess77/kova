@@ -57,9 +57,31 @@
     const rule: Rule = { kind: 'geosite', value: AI_LIST, target: `country:${c}` };
     app.stageRules((x) => (x.core.custom_rules = [rule, ...x.core.custom_rules]));
   }
-  // The explanatory lines under the switches are off until asked for; the choice is remembered.
-  let help = $state((() => { try { return localStorage.getItem('kova.rulesHelp') === '1'; } catch { return false; } })());
-  $effect(() => { try { localStorage.setItem('kova.rulesHelp', help ? '1' : '0'); } catch { /* hidden again next time */ } });
+  // Each row's explanation is folded away until its arrow is pressed; which rows are open is
+  // kept on this device, by row id. Warnings never fold.
+  const OPEN_KEY = 'kova.rulesOpen';
+  const OPEN_IDS = () => [...PRESETS.map((p) => p.id), 'torrent', 'apply', 'smart', 'smart-profile'];
+  let openRows = $state<Record<string, boolean>>((() => {
+    // The old "show all explanations" switch is gone: whoever had it on starts with every row open.
+    try {
+      const old = localStorage.getItem('kova.rulesHelp');
+      if (old !== null) {
+        if (old === '1' && localStorage.getItem(OPEN_KEY) === null) {
+          localStorage.setItem(OPEN_KEY, JSON.stringify(Object.fromEntries(OPEN_IDS().map((id) => [id, true]))));
+        }
+        localStorage.removeItem('kova.rulesHelp');
+      }
+    } catch { /* the old choice is just not carried over */ }
+    try {
+      const v = JSON.parse(localStorage.getItem(OPEN_KEY) ?? '{}');
+      return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+    } catch { return {}; }
+  })());
+  const isOpen = (id: string) => !!openRows[id];
+  function fold(id: string) {
+    openRows[id] = !openRows[id];
+    try { localStorage.setItem(OPEN_KEY, JSON.stringify(openRows)); } catch { /* closed again next time */ }
+  }
   let isClash = $derived(app.activeProfile?.format === 'clash');
 
   function togglePreset(p: Preset) {
@@ -269,39 +291,41 @@
       </div>
     </div>
   {/if}
-  <div class="presets-h">
-    <div class="eyebrow">{t('Routing presets')}</div>
-    <button class="btn ghost small-btn" aria-expanded={help} onclick={() => (help = !help)}><Icon name={help ? 'eye-off' : 'eye'} />{help ? t('Hide descriptions') : t('Show descriptions')}</button>
-  </div>
-  <div class="presets">
-    {#each PRESETS as p (p.id)}
-      {@const unavailable = p.needs === 'runetfreedom' && s.core.geodata.kind === 'default' && !s.core.presets.includes(p.id)}
-      <div class="card preset">
-        <div><div class="t">{p.title}</div>{#if help}<div class="d">{p.desc}</div>{/if}
-          {#if unavailable}<button class="link" onclick={() => app.go('settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>
-        <button class="switch" role="switch" aria-label={p.title} aria-checked={s.core.presets.includes(p.id)} disabled={unavailable} onclick={() => togglePreset(p.id)}></button>
-      </div>
-    {/each}
-  {#if !app.mobile}
-    <div class="card preset torrent">
-      <div>
-        <div class="t">{t('Torrent clients')}</div>
-        <div class="d">{t('Route torrent programs (qBittorrent, Transmission, Deluge…) on their own. Only programs whose traffic goes through Kova are affected.')}</div>
-        <div class="seg" role="group" aria-label={t('Torrent clients')}>
-          {#each TORRENT as [v, l] (v ?? 'none')}
-            <button aria-pressed={(s.core.torrent ?? null) === v} onclick={() => setTorrent(v)}>{l}</button>
-          {/each}
+  <section class="presets">
+    <div class="card-h"><h2>{t('Routing presets')}</h2></div>
+    <div class="pgrid">
+      {#each PRESETS as p (p.id)}
+        {@const unavailable = p.needs === 'runetfreedom' && s.core.geodata.kind === 'default' && !s.core.presets.includes(p.id)}
+        <div class="tile card">
+          <div class="line">
+            <button class="fold" title={p.title} aria-expanded={isOpen(p.id)} aria-controls={isOpen(p.id) ? `rr-${p.id}` : undefined} onclick={() => fold(p.id)}><Icon name="chevron" /><span class="t">{p.title}</span></button>
+            <button class="switch" role="switch" aria-label={p.title} aria-checked={s.core.presets.includes(p.id)} disabled={unavailable} title={unavailable ? t('Switch routing data to Russia in Settings') : undefined} onclick={() => togglePreset(p.id)}></button>
+          </div>
+          <!-- The way to turn an unavailable preset on is inside its description and in the switch's tooltip, not a line of its own. -->
+          {#if isOpen(p.id)}<div class="d" id="rr-{p.id}">{p.desc}{#if unavailable} <button class="link" onclick={() => app.go('settings')}>{t('Switch routing data to Russia in Settings')}</button>{/if}</div>{/if}
         </div>
-        {#if s.core.torrent && isClash && !s.core.apply_rules_to_clash_profiles}
-          <div class="d warn-text">{t('The torrent choice is ignored for the active Clash profile. Turn on “Apply to imported Clash profiles” below.')}</div>
-        {/if}
-        {#if s.core.torrent === 'proxy'}
-          <div class="d warn-text">{t('Many providers forbid torrents on their servers. This can get your account blocked.')}</div>
-        {/if}
-      </div>
+      {/each}
+      {#if !app.mobile}
+        <div class="tile card tor-tile">
+          <div class="line tor">
+            <button class="fold" title={t('Torrent clients')} aria-expanded={isOpen('torrent')} aria-controls={isOpen('torrent') ? 'rr-torrent' : undefined} onclick={() => fold('torrent')}><Icon name="chevron" /><span class="t">{t('Torrent clients')}</span></button>
+            <div class="seg" role="group" aria-label={t('Torrent clients')}>
+              {#each TORRENT as [v, l] (v ?? 'none')}
+                <button aria-pressed={(s.core.torrent ?? null) === v} onclick={() => setTorrent(v)}>{l}</button>
+              {/each}
+            </div>
+          </div>
+          {#if isOpen('torrent')}<div class="d" id="rr-torrent">{t('Route torrent programs (qBittorrent, Transmission, Deluge…) on their own. Only programs whose traffic goes through Kova are affected.')}</div>{/if}
+          {#if s.core.torrent && isClash && !s.core.apply_rules_to_clash_profiles}
+            <div class="d warn-text">{t('The torrent choice is ignored for the active Clash profile. Turn on “Apply to imported Clash profiles” below.')}</div>
+          {/if}
+          {#if s.core.torrent === 'proxy'}
+            <div class="d warn-text">{t('Many providers forbid torrents on their servers. This can get your account blocked.')}</div>
+          {/if}
+        </div>
+      {/if}
     </div>
-  {/if}
-  </div>
+  </section>
 
   <section class="card">
     <div class="card-h"><h2>{t('Your rules')}</h2><span class="aside">{t('checked before presets')}</span>
@@ -350,18 +374,23 @@
     {:else}
       <p class="hint">{t('No rules of your own yet. Add one to send a site or app through the proxy, direct, or block it.')}</p>
     {/if}
-    <div class="row-sw apply">
-      <div><div class="t">{t('Apply to imported Clash profiles')}</div>{#if help}<div class="d">{isClash ? t('Put your rules and presets in front of a Clash profile’s own rules (the active profile is one).') : t('Put your rules and presets in front of a Clash profile’s own rules.')}</div>{/if}</div>
-      <button class="switch" role="switch" aria-label={t('Apply to imported Clash profiles')} aria-checked={s.core.apply_rules_to_clash_profiles}
-        onclick={() => app.stageRules((x) => (x.core.apply_rules_to_clash_profiles = !x.core.apply_rules_to_clash_profiles))}></button>
+    <div class="prow apply">
+      <div class="line">
+        <button class="fold" aria-expanded={isOpen('apply')} aria-controls={isOpen('apply') ? 'rr-apply' : undefined} onclick={() => fold('apply')}><Icon name="chevron" /><span class="t">{t('Apply to imported Clash profiles')}</span></button>
+        <button class="switch" role="switch" aria-label={t('Apply to imported Clash profiles')} aria-checked={s.core.apply_rules_to_clash_profiles}
+          onclick={() => app.stageRules((x) => (x.core.apply_rules_to_clash_profiles = !x.core.apply_rules_to_clash_profiles))}></button>
+      </div>
+      {#if isOpen('apply')}<div class="d" id="rr-apply">{isClash ? t('Put your rules and presets in front of a Clash profile’s own rules (the active profile is one).') : t('Put your rules and presets in front of a Clash profile’s own rules.')}</div>{/if}
     </div>
   </section>
 
   <section class="card smart">
-    <div class="card-h"><h2>{t('Smart routing')}</h2><span class="chip">beta</span>
+    <div class="card-h">
+      <button class="fold" aria-expanded={isOpen('smart')} aria-controls={isOpen('smart') ? 'rr-smart' : undefined} onclick={() => fold('smart')}><Icon name="chevron" /><h2>{t('Smart routing')}</h2></button>
+      <span class="chip">beta</span>
       <button class="switch aside-sw" role="switch" aria-label={t('Smart routing')} aria-checked={s.core.smart_routing}
         onclick={() => app.stageRules((x) => (x.core.smart_routing = !x.core.smart_routing))}></button></div>
-    {#if help}<p class="hint">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>{/if}
+    {#if isOpen('smart')}<p class="hint" id="rr-smart">{t('Kova notices sites that fail on their usual path, checks them directly and through the proxy, and sends each one the way that works. With TUN it also learns apps that connect by IP address. Learned sites are kept for 30 days.')}</p>{/if}
     {#if s.core.smart_routing && s.core.mode !== 'rule'}
       <p class="hint warn-text">{t('Learning is paused: it works in Rule mode only.')}</p>
     {:else if s.core.smart_routing && s.core.tun.enabled && !s.core.sniff && !s.core.dns.fake_ip}
@@ -370,19 +399,24 @@
       <p class="hint warn-text">{t('Turn on “Apply to imported Clash profiles” above: the active profile is a Clash profile.')}</p>
     {/if}
     {#if s.core.smart_routing && isClash}
-      <div class="row-sw profile-rules">
-        <div><div class="t">{t('Also correct the subscription’s rules')}</div>
-          {#if help}<div class="d">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div>{/if}</div>
-        <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
-          onclick={() => app.stageRules((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
+      <div class="prow">
+        <div class="line">
+          <button class="fold" aria-expanded={isOpen('smart-profile')} aria-controls={isOpen('smart-profile') ? 'rr-smart-profile' : undefined} onclick={() => fold('smart-profile')}><Icon name="chevron" /><span class="t">{t('Also correct the subscription’s rules')}</span></button>
+          <button class="switch" role="switch" aria-label={t('Also correct the subscription’s rules')} aria-checked={s.core.smart_profile_rules}
+            onclick={() => app.stageRules((x) => (x.core.smart_profile_rules = !x.core.smart_profile_rules))}></button>
+        </div>
+        {#if isOpen('smart-profile')}<div class="d" id="rr-smart-profile">{t('By default only sites no rule chose a route for are learned. With this on, Kova also fixes sites the subscription’s own rules send the wrong way, for example a games list sent direct where it is blocked. Your own rules and presets are never changed.')}</div>{/if}
       </div>
     {/if}
     {#if s.core.smart_routing}
-      <div class="row-sw profile-rules">
-        <div><div class="t">{t('Send sites that refuse the proxy direct')}</div>
-          <div class="d">{t('Off by default. To find out, Kova has to open such a site directly, and once sent direct the site sees your own address. With this off, Kova only moves blocked sites to the proxy.')}</div></div>
-        <button class="switch" role="switch" aria-label={t('Send sites that refuse the proxy direct')} aria-checked={s.core.smart_learn_direct}
-          onclick={() => app.stageRules((x) => (x.core.smart_learn_direct = !x.core.smart_learn_direct))}></button>
+      <!-- No arrow: the sentence is a privacy warning and stays in view. -->
+      <div class="prow">
+        <div class="line">
+          <span class="fold plain"><span class="t">{t('Send sites that refuse the proxy direct')}</span></span>
+          <button class="switch" role="switch" aria-label={t('Send sites that refuse the proxy direct')} aria-checked={s.core.smart_learn_direct}
+            onclick={() => app.stageRules((x) => (x.core.smart_learn_direct = !x.core.smart_learn_direct))}></button>
+        </div>
+        <div class="d">{t('Off by default. To find out, Kova has to open such a site directly, and once sent direct the site sees your own address. With this off, Kova only moves blocked sites to the proxy.')}</div>
       </div>
     {/if}
     {#if suggestions.length}
@@ -439,16 +473,39 @@
 
 <style>
   .pending { position: sticky; top: 0; z-index: 3; display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 8px; background: var(--sunk); font-size: 13px; }
-  .presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; margin: 8px 0 16px; }
-  .presets-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
-  /* A minimum height so the tiles stay level when only title and switch show. */
-  .preset { display: flex; gap: 12px; align-items: flex-start; min-height: 64px; }
-  .preset .t { font-weight: 500; font-size: 14px; }
-  .preset .d { font-size: 12px; color: var(--muted); margin-top: 2px; }
-  .preset .switch { margin-inline-start: auto; margin-top: 2px; }
-  .preset > div { display: flex; flex-direction: column; align-self: stretch; }
-  .preset .link { margin-top: auto; padding-top: 8px; align-self: start; text-align: start; }
-  .link { border: 0; background: none; padding: 0; margin-top: 6px; color: var(--fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
+  .presets { margin: 0 0 12px; }
+  .presets .card-h { margin-bottom: 8px; }
+  /* Small tiles side by side, so the presets take as little height as possible. align-items: start
+     keeps a tile that is opened from stretching the ones next to it: it grows alone. The
+     min() lets a single column shrink below 250 px on very narrow windows instead of overflowing. */
+  .pgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(250px, 100%), 1fr)); gap: 8px; align-items: start; }
+  /* A closed tile is one line: arrow and title on the left, the control at the end of the same line. */
+  .tile.card { padding-block: 0; padding-inline: 12px; }
+  .tile .line { min-height: 0; padding-block: 4px; }
+  :global(.app.mobile) .tile .line { padding-block: 0; }
+  /* A long title is cut with an ellipsis (the whole text is in the button's tooltip) so a tile stays one line. */
+  .tile .t { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* A phone has one column and room for two lines, so a long title is read in full, not cut with an ellipsis. */
+  :global(.app.mobile) .tile .t { overflow: visible; text-overflow: clip; white-space: normal; }
+  .tile .d { margin: 0 0 8px; }
+  .tile .link { margin-block: 0 8px; }
+  .prow + .prow { border-top: 1px solid var(--line); }
+  .line { display: flex; align-items: center; gap: 12px; min-height: 42px; }
+  /* The 4 px of padding is undone by the negative margin, so the arrow sits on the card's edge and
+     the title, descriptions, link and narrow torrent buttons all start 20 px in, in both directions. */
+  .fold { flex: 1 1 140px; display: flex; align-items: center; gap: 6px; min-width: 0; min-height: 32px; border: 0; background: none; padding-block: 2px; padding-inline: 4px; margin-inline-start: -4px; color: inherit; font: inherit; cursor: pointer; border-radius: 6px; text-align: start; }
+  .fold :global(.i) { width: 14px; height: 14px; color: var(--muted); transition: transform .15s; flex: none; }
+  .fold[aria-expanded='true'] :global(.i) { transform: rotate(90deg); }
+  .fold[aria-expanded='false'] :global(.i):dir(rtl) { transform: scaleX(-1); }
+  @media (hover: hover) { .fold:hover :global(.i) { color: var(--fg); } }
+  :global(.app.mobile) .fold { min-height: 40px; }
+  /* A row with nothing to unfold keeps the title where the others have it: the arrow's width
+     and gap (14 + 6) on top of the 4 px every .fold has at its start. */
+  .fold.plain { cursor: default; padding-inline-start: 24px; }
+  .t { font-weight: 500; font-size: 14px; }
+  /* The explanation and the warnings sit under the title, in line with it. */
+  .d { font-size: 12px; color: var(--muted); margin: 0 0 10px; padding-inline-start: 20px; }
+  .link { display: block; margin: 0 0 10px; margin-inline-start: 20px; border: 0; background: none; padding: 0; color: var(--fg); font-size: 12px; text-decoration: underline; text-underline-offset: 2px; }
   .add { display: grid; grid-template-columns: 200px minmax(0, 1fr) 200px auto; gap: 8px; }
   .ai { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .ai .input { width: auto; }
@@ -465,22 +522,32 @@
   tr.moving { transition: transform .14s ease; }
   tbody:has(tr.dragging) { user-select: none; cursor: grabbing; }
   .hint :global(.inline-grip) { width: 13px; height: 13px; stroke-width: 3; vertical-align: -2px; }
-  .apply { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 12px; }
+  .apply { margin-top: 12px; border-top: 1px solid var(--line); }
   .order { margin-top: 14px; }
-  /* One tile in the presets grid, two columns wide so its four choices fit on one line. */
-  .torrent { grid-column: span 2; }
-  .torrent .seg { margin-top: 10px; align-self: start; flex-wrap: wrap; }
-  @container (max-width: 560px) { .torrent { grid-column: 1 / -1; } }
-  /* The preset description rule is more specific than .warn-text, so the warning needs its own. */
-  .preset .d.warn-text, .warn-text { color: var(--warn); }
+  /* The torrent tile is wider than the others so the four choices sit on its title line. It
+     takes the whole row where the grid has fewer than three columns (a span of two would then
+     make an extra column and overflow). */
+  .tor-tile { grid-column: 1 / -1; }
+  @container (min-width: 770px) { .tor-tile { grid-column: span 2; } }
+  /* Squeezed (or with longer labels), the choices drop under the title instead of overflowing;
+     the gap keeps them off the description and the border. */
+  .tor { flex-wrap: wrap; gap: 8px 12px; }
+  .tor .seg { flex: none; margin-inline-start: auto; padding: 2px; }
+  .tor .seg button { padding: 2px 10px; }
+  @container (max-width: 560px) {
+    .tor .seg { flex: 1 1 100%; margin: 0; margin-inline-start: 20px; max-width: calc(100% - 20px); }
+  }
+  .warn-text { color: var(--warn); }
   .smart { margin-top: 12px; }
-  .profile-rules { margin: 4px 0 6px; }
   .sugg-h { margin: 6px 0 8px; }
   .suggestions { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
   .sugg { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--sunk); }
   .sugg-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1 1 260px; font-size: 13px; }
   .sugg-text span { color: var(--muted); }
   .smart .card-h { gap: 8px; }
+  .smart .card-h .fold { flex: 0 1 auto; }
+  /* The heading row sets its own height on desktop; on phones the arrow keeps its tap size. */
+  :global(.app:not(.mobile)) .smart .card-h .fold { min-height: 0; }
   .aside-sw { margin-inline-start: auto; }
   .ops { display: flex; gap: 4px; justify-content: flex-end; align-items: center; }
   .small-btn { height: 26px; padding: 0 8px; font-size: 12px; }
