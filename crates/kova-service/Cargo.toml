@@ -7,8 +7,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
-[lints]
-workspace = true
+# Not the workspace lints: on Linux and macOS this crate builds without its Windows-only code, so
+# kova-engine looks unused there and the unused_dependencies lint would warn in every CI run.
+[lints.cargo]
+unused_dependencies = "allow"
 
 [dependencies]
 kova-core = { path = "../kova-core" }
